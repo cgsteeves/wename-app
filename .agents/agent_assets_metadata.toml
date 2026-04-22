@@ -1,0 +1,26 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "ytUR1RI-jbff8G3GGqVqX"
+uri = "file://attached_assets/generated_images/generated_image_0.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "pUSP4Kz5GYbk0w17k8wvh"
+uri = "file://attached_assets/generated_images/generated_image_1.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "G5a3rkfjcNS28GKxGq_Ek"
+uri = "file://attached_assets/generated_images/generated_image_2.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "bEqoVgj_9BC4980qCcB7W"
+uri = "file://attached_assets/generated_images/generated_image_3.png"
+type = "image"
+title = "generated_image"

@@ -38,7 +38,7 @@ export default function SwipeScreen() {
   const [history, setHistory] = useState<{ nameId: string; liked: boolean }[]>([]);
   const cardRef = useRef<NameCardHandle>(null);
 
-  const limits = useDailyLimits(user!, updateUser);
+  const limits = useDailyLimits(user, updateUser);
 
   const loadNames = useCallback(
     async (includeAlready = false) => {
@@ -213,7 +213,6 @@ export default function SwipeScreen() {
     );
   }
 
-  const accent = current.gender === "boy" ? colors.boy : colors.girlRed;
   const undoEnabled = history.length > 0 && currentIndex > 0;
   const isPremium = user.plan_tier === "premium";
   const swipeLeft = Math.max(0, FREE_LIMITS.swipes - (user.daily_swipe_count ?? 0));
@@ -225,66 +224,11 @@ export default function SwipeScreen() {
         styles.root,
         {
           backgroundColor: colors.parchment,
-          paddingTop: insets.top,
-          paddingBottom: 0,
+          paddingTop: insets.top + 4,
+          paddingBottom: 8,
         },
       ]}
     >
-      {/* Top bar */}
-      <View style={styles.topBar}>
-        <Pressable
-          style={[
-            styles.iconBtn,
-            { backgroundColor: colors.card, borderColor: colors.border },
-            !undoEnabled && { opacity: 0.35 },
-          ]}
-          onPress={handleUndo}
-          disabled={!undoEnabled}
-        >
-          <Feather name="rotate-ccw" size={18} color={colors.mutedForeground} />
-        </Pressable>
-        <Text style={[styles.brand, { color: colors.grass, fontFamily: fonts.hand }]}>
-          WeName
-        </Text>
-        {user.partner_id ? (
-          <View
-            style={[
-              styles.partnerAvatar,
-              { backgroundColor: accent + "33", borderColor: accent },
-            ]}
-          >
-            <Text
-              style={{
-                color: accent,
-                fontFamily: fonts.displayBold,
-                fontSize: 16,
-              }}
-            >
-              P
-            </Text>
-          </View>
-        ) : (
-          <Pressable
-            style={[
-              styles.invitePill,
-              { backgroundColor: accent + "26", borderColor: accent + "55" },
-            ]}
-            onPress={() => router.push("/(tabs)/settings")}
-          >
-            <Feather name="users" size={14} color={accent} />
-            <Text
-              style={{
-                color: accent,
-                fontSize: 12,
-                fontFamily: fonts.displayBold,
-              }}
-            >
-              Invite Partner
-            </Text>
-          </Pressable>
-        )}
-      </View>
-
       {showLimitBanner && (
         <Pressable
           style={styles.limitBanner}
@@ -335,30 +279,6 @@ export default function SwipeScreen() {
           onSwipe={handleSwipe}
           onUndo={handleUndo}
         />
-      </View>
-
-      {/* Bottom action bar */}
-      <View style={styles.actionBar}>
-        <Pressable
-          style={[styles.actionBtn, styles.actionBtnLg, { backgroundColor: colors.card }]}
-          onPress={() => cardRef.current?.swipe(false)}
-        >
-          <Feather name="x" size={28} color={colors.destructive} />
-        </Pressable>
-        <Pressable
-          style={[styles.actionBtn, styles.actionBtnSm, { backgroundColor: colors.card }]}
-          onPress={() => {
-            // tap front card to flip — handled inside NameCard. This is a fallback.
-          }}
-        >
-          <Feather name="info" size={20} color={colors.mutedForeground} />
-        </Pressable>
-        <Pressable
-          style={[styles.actionBtn, styles.actionBtnLg, { backgroundColor: colors.card }]}
-          onPress={() => cardRef.current?.swipe(true)}
-        >
-          <Feather name="heart" size={28} color={accent} />
-        </Pressable>
       </View>
 
       <Modal

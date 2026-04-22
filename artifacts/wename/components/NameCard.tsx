@@ -1,11 +1,12 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { ImageBackground } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import React, { forwardRef, useImperativeHandle, useState } from "react";
 import {
   Dimensions,
+  Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -26,13 +27,14 @@ import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-const CARD_W = Math.min(SCREEN_W * 0.9, 380);
-const CARD_H = Math.min(SCREEN_H * 0.62, 600);
+const CARD_W = Math.min(SCREEN_W - 32, 440);
+const CARD_H = Math.min(SCREEN_H * 0.78, 720);
 const SWIPE_THRESHOLD = SCREEN_W * 0.27;
 const VELOCITY_THRESHOLD = 800;
 
 const boyBg = require("../assets/images/boy-card-bg.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
+const paperTexture = require("../assets/images/paper-texture.jpg");
 
 export interface NameCardHandle {
   swipe: (liked: boolean) => void;
@@ -55,10 +57,6 @@ export type NameCardProps = {
   onUndo?: () => void;
 };
 
-function truncate(s: string, n: number) {
-  return s.length > n ? s.slice(0, n - 1) + "…" : s;
-}
-
 const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   {
     name,
@@ -68,30 +66,23 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     nickname,
     rank,
     gender,
-    remaining: _remaining,
-    lastName: _lastName,
+    remaining,
+    lastName,
     isPartnerPick,
     isNext,
+    canUndo,
     onSwipe,
+    onUndo,
   },
   ref,
 ) {
   const colors = useColors();
   const isBoy = gender === "boy";
   const accent = isBoy ? colors.boy : colors.girlRed;
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const x = useSharedValue(0);
   const y = useSharedValue(0);
-  const flip = useSharedValue(0); // 0 = front, 1 = back
-  const [flipped, setFlipped] = useState(false);
-
-  const setFlippedJS = (v: boolean) => setFlipped(v);
-
-  function toggleFlip() {
-    const next = !flipped;
-    flip.value = withTiming(next ? 1 : 0, { duration: 450 });
-    setFlipped(next);
-  }
 
   function fly(liked: boolean) {
     Haptics.impactAsync(
@@ -109,7 +100,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   useImperativeHandle(ref, () => ({ swipe: fly }));
 
   const pan = Gesture.Pan()
-    .enabled(!isNext && !flipped)
+    .enabled(!isNext && !infoOpen)
     .onUpdate((e) => {
       x.value = e.translationX;
       y.value = e.translationY * 0.4;
@@ -144,33 +135,11 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     ],
   }));
 
-  const frontStyle = useAnimatedStyle(() => ({
-    transform: [{ perspective: 1200 }, { rotateY: `${flip.value * 180}deg` }],
-    opacity: flip.value < 0.5 ? 1 : 0,
-  }));
-  const backStyle = useAnimatedStyle(() => ({
-    transform: [
-      { perspective: 1200 },
-      { rotateY: `${180 + flip.value * 180}deg` },
-    ],
-    opacity: flip.value > 0.5 ? 1 : 0,
-  }));
-
   const likeOverlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      x.value,
-      [0, SWIPE_THRESHOLD],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(x.value, [0, SWIPE_THRESHOLD], [0, 0.85], Extrapolation.CLAMP),
   }));
   const passOverlayStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      x.value,
-      [-SWIPE_THRESHOLD, 0],
-      [1, 0],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(x.value, [-SWIPE_THRESHOLD, 0], [0.85, 0], Extrapolation.CLAMP),
   }));
 
   const nextStackStyle = useAnimatedStyle(() => {
@@ -182,32 +151,191 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     );
     return {
       transform: [
-        { scale: 0.96 + 0.04 * progress },
-        { translateY: 12 * (1 - progress) },
+        { scale: 0.95 + 0.05 * progress },
+        { translateY: 14 * (1 - progress) },
       ],
     };
   });
+
+  const Body = (
+    <View style={styles.cardInner}>
+      <ImageBackground
+        source={isBoy ? boyBg : girlBg}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+      />
+
+      {/* Top label area */}
+      <View style={styles.topBlock} pointerEvents="box-none">
+        <View style={[styles.labelUnderlineWrap, { borderBottomColor: accent }]}>
+          <Text
+            style={{
+              fontFamily: fonts.hand,
+              fontSize: 22,
+              color: accent,
+              fontStyle: "italic",
+            }}
+          >
+            {isBoy ? "Boy Name" : "Girl Name"}
+          </Text>
+        </View>
+        <Text
+          style={{
+            fontFamily: fonts.display,
+            fontSize: 14,
+            color: colors.foreground,
+            marginTop: 6,
+          }}
+        >
+          {remaining} names remaining
+        </Text>
+        {!isNext && (
+          <Pressable
+            style={[styles.infoChip, { borderColor: colors.border }]}
+            onPress={() => setInfoOpen(true)}
+          >
+            <Feather name="info" size={13} color={colors.foreground} />
+            <Text
+              style={{
+                fontFamily: fonts.displayMedium,
+                fontSize: 13,
+                color: colors.foreground,
+              }}
+            >
+              More info
+            </Text>
+          </Pressable>
+        )}
+        {isPartnerPick && (
+          <View style={[styles.partnerPill, { backgroundColor: accent }]}>
+            <Feather name="users" size={11} color="#fff" />
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 11,
+                fontFamily: fonts.displayBold,
+              }}
+            >
+              Partner pick
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Center name block */}
+      <View style={styles.centerBlock} pointerEvents="none">
+        <Text
+          style={[styles.nameText, { color: accent, fontFamily: fonts.displayBold }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          {name}
+        </Text>
+        {!!lastName && (
+          <Text
+            style={[
+              styles.lastNameText,
+              { color: accent, fontFamily: fonts.displaySemibold },
+            ]}
+            numberOfLines={1}
+          >
+            {lastName}
+          </Text>
+        )}
+        {!!pronunciation && (
+          <Text
+            style={[
+              styles.pronText,
+              { color: accent, fontFamily: fonts.display },
+            ]}
+          >
+            [{pronunciation}]
+          </Text>
+        )}
+      </View>
+
+      {/* Bottom action buttons row inside card */}
+      {!isNext && (
+        <View style={styles.actionRow} pointerEvents="box-none">
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnLg]}
+            onPress={() => fly(false)}
+          >
+            <Feather name="x" size={28} color={colors.destructive} />
+          </Pressable>
+          <Pressable
+            style={[
+              styles.actionBtn,
+              styles.actionBtnSm,
+              !canUndo && { opacity: 0.5 },
+            ]}
+            onPress={() => onUndo?.()}
+            disabled={!canUndo}
+          >
+            <Feather name="rotate-ccw" size={20} color={colors.mutedForeground} />
+          </Pressable>
+          <Pressable
+            style={[styles.actionBtn, styles.actionBtnLg]}
+            onPress={() => fly(true)}
+          >
+            <Feather name="heart" size={28} color={colors.heart} />
+          </Pressable>
+        </View>
+      )}
+
+      {/* Drag overlays — large translucent badges */}
+      {!isNext && (
+        <>
+          <Animated.View
+            style={[styles.dragBadge, styles.dragBadgeLeft, likeOverlayStyle]}
+            pointerEvents="none"
+          >
+            <Text
+              style={{
+                fontFamily: fonts.hand,
+                fontSize: 56,
+                color: colors.grass,
+                transform: [{ rotate: "-18deg" }],
+                textShadowColor: "rgba(255,255,255,0.9)",
+                textShadowRadius: 6,
+              }}
+            >
+              LIKE
+            </Text>
+          </Animated.View>
+          <Animated.View
+            style={[styles.dragBadge, styles.dragBadgeRight, passOverlayStyle]}
+            pointerEvents="none"
+          >
+            <Text
+              style={{
+                fontFamily: fonts.hand,
+                fontSize: 56,
+                color: colors.destructive,
+                transform: [{ rotate: "18deg" }],
+                textShadowColor: "rgba(255,255,255,0.9)",
+                textShadowRadius: 6,
+              }}
+            >
+              PASS
+            </Text>
+          </Animated.View>
+        </>
+      )}
+    </View>
+  );
 
   if (isNext) {
     return (
       <Animated.View
         style={[
           styles.cardWrap,
-          { width: CARD_W, height: CARD_H },
+          { width: CARD_W, height: CARD_H, borderColor: colors.border },
           nextStackStyle,
         ]}
         pointerEvents="none"
       >
-        <CardFront
-          accent={accent}
-          isBoy={isBoy}
-          name={name}
-          pronunciation={pronunciation}
-          origin={origin}
-          meaning={meaning}
-          rank={rank}
-          isPartnerPick={isPartnerPick}
-        />
+        {Body}
       </Animated.View>
     );
   }
@@ -218,94 +346,83 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         <Animated.View
           style={[
             styles.cardWrap,
-            { width: CARD_W, height: CARD_H },
+            { width: CARD_W, height: CARD_H, borderColor: colors.border },
             cardStyle,
           ]}
         >
-          {/* FRONT */}
-          <Animated.View style={[StyleSheet.absoluteFill, frontStyle]}>
-            <Pressable style={StyleSheet.absoluteFill} onPress={toggleFlip}>
-              <CardFront
-                accent={accent}
-                isBoy={isBoy}
-                name={name}
-                pronunciation={pronunciation}
-                origin={origin}
-                meaning={meaning}
-                rank={rank}
-                isPartnerPick={isPartnerPick}
-              />
-              {/* Drag overlays */}
-              <Animated.View
-                style={[styles.cornerOverlay, styles.cornerLeft, likeOverlayStyle]}
-                pointerEvents="none"
-              >
-                <View style={[styles.cornerCircle, { backgroundColor: colors.grass }]}>
-                  <Feather name="heart" size={36} color="#fff" />
-                </View>
-              </Animated.View>
-              <Animated.View
-                style={[styles.cornerOverlay, styles.cornerRight, passOverlayStyle]}
-                pointerEvents="none"
-              >
-                <View
-                  style={[styles.cornerCircle, { backgroundColor: colors.destructive }]}
-                >
-                  <Feather name="x" size={36} color="#fff" />
-                </View>
-              </Animated.View>
-            </Pressable>
-          </Animated.View>
+          {Body}
+        </Animated.View>
+      </GestureDetector>
 
-          {/* BACK */}
-          <Animated.View
-            style={[StyleSheet.absoluteFill, styles.backFace, backStyle]}
+      {/* Info bottom-sheet */}
+      <Modal
+        visible={infoOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setInfoOpen(false)}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setInfoOpen(false)}>
+          <Pressable
+            style={[styles.sheet, { backgroundColor: colors.card }]}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Pressable style={styles.backInner} onPress={toggleFlip}>
+            <ImageBackground
+              source={paperTexture}
+              style={StyleSheet.absoluteFill}
+              imageStyle={{ opacity: 0.22, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}
+              contentFit="cover"
+            />
+            <View style={styles.sheetHandle} />
+            <Pressable style={styles.sheetClose} onPress={() => setInfoOpen(false)}>
+              <Feather name="x" size={18} color={colors.foreground} />
+            </Pressable>
+            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 32 }}>
               <Text
-                style={[
-                  styles.backName,
-                  { color: colors.foreground, fontFamily: fonts.hand },
-                ]}
+                style={{
+                  fontFamily: fonts.hand,
+                  fontSize: 44,
+                  color: colors.foreground,
+                  textAlign: "center",
+                }}
               >
                 {name}
               </Text>
               {!!pronunciation && (
                 <Text
-                  style={[
-                    styles.backPron,
-                    { color: colors.mutedForeground, fontFamily: fonts.display },
-                  ]}
+                  style={{
+                    fontFamily: fonts.display,
+                    fontSize: 16,
+                    fontStyle: "italic",
+                    color: colors.mutedForeground,
+                    textAlign: "center",
+                    marginTop: 4,
+                  }}
                 >
-                  ({pronunciation})
+                  [{pronunciation}]
                 </Text>
               )}
+              <View style={[styles.genderBadge, { backgroundColor: accent + "26" }]}>
+                <Text
+                  style={{
+                    color: accent,
+                    fontFamily: fonts.displayBold,
+                    fontSize: 12,
+                  }}
+                >
+                  {isBoy ? "Boy" : "Girl"}
+                </Text>
+              </View>
               {!!origin && (
-                <DetailSection
-                  label="Origin"
-                  value={origin}
-                  color={colors.foreground}
-                  muted={colors.mutedForeground}
-                />
+                <Section label="Origin" value={origin} colors={colors} />
               )}
               {!!meaning && (
-                <DetailSection
-                  label="Meaning"
-                  value={meaning}
-                  color={colors.foreground}
-                  muted={colors.mutedForeground}
-                />
+                <Section label="Meaning" value={meaning} colors={colors} />
               )}
               {!!nickname && (
-                <DetailSection
-                  label="Nickname"
-                  value={nickname}
-                  color={colors.foreground}
-                  muted={colors.mutedForeground}
-                />
+                <Section label="Nickname" value={nickname} colors={colors} />
               )}
               {rank != null && (
-                <View style={{ width: "100%", marginTop: 14 }}>
+                <View style={{ marginTop: 18 }}>
                   <Text
                     style={[
                       styles.detailLabel,
@@ -329,171 +446,54 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
                       />
                     </View>
                     <Text
-                      style={[
-                        styles.popLabel,
-                        { color: colors.foreground, fontFamily: fonts.displaySemibold },
-                      ]}
+                      style={{
+                        fontFamily: fonts.displaySemibold,
+                        fontSize: 12,
+                        color: colors.foreground,
+                      }}
                     >
                       #{rank} in the US
                     </Text>
                   </View>
                 </View>
               )}
-              <Text
-                style={[
-                  styles.tapHint,
-                  { color: colors.mutedForeground, fontFamily: fonts.display },
-                ]}
-              >
-                Tap to flip back
-              </Text>
-            </Pressable>
-          </Animated.View>
-        </Animated.View>
-      </GestureDetector>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 });
 
-function DetailSection({
+function Section({
   label,
   value,
-  color,
-  muted,
+  colors,
 }: {
   label: string;
   value: string;
-  color: string;
-  muted: string;
+  colors: ReturnType<typeof useColors>;
 }) {
   return (
-    <View style={{ width: "100%", marginTop: 14 }}>
+    <View style={{ marginTop: 18 }}>
       <Text
         style={[
           styles.detailLabel,
-          { color: muted, fontFamily: fonts.displaySemibold },
+          { color: colors.mutedForeground, fontFamily: fonts.displaySemibold },
         ]}
       >
         {label.toUpperCase()}
       </Text>
       <Text
-        style={[
-          styles.detailValue,
-          { color, fontFamily: fonts.displaySemibold },
-        ]}
+        style={{
+          fontFamily: fonts.display,
+          fontSize: 15,
+          color: colors.foreground,
+          lineHeight: 22,
+        }}
       >
         {value}
       </Text>
-    </View>
-  );
-}
-
-function CardFront({
-  accent,
-  isBoy,
-  name,
-  pronunciation,
-  origin,
-  meaning,
-  rank,
-  isPartnerPick,
-}: {
-  accent: string;
-  isBoy: boolean;
-  name: string;
-  pronunciation?: string | null;
-  origin?: string | null;
-  meaning?: string | null;
-  rank?: number | null;
-  isPartnerPick?: boolean;
-}) {
-  return (
-    <View style={styles.cardInner}>
-      <ImageBackground
-        source={isBoy ? boyBg : girlBg}
-        style={StyleSheet.absoluteFill}
-        contentFit="cover"
-      />
-      {/* gender tint top */}
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          { backgroundColor: accent, opacity: 0.12 },
-        ]}
-        pointerEvents="none"
-      />
-      {/* gradient bottom for text legibility */}
-      <LinearGradient
-        colors={["transparent", "rgba(0,0,0,0.22)", "rgba(0,0,0,0.6)"]}
-        locations={[0, 0.55, 1]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
-      {/* rank pill top right */}
-      {rank != null && (
-        <View style={styles.rankPill}>
-          <Text
-            style={{
-              fontSize: 12,
-              fontWeight: "600",
-              color: "#3a2a18",
-              fontFamily: fonts.displaySemibold,
-            }}
-          >
-            #{rank}
-          </Text>
-        </View>
-      )}
-
-      {/* partner pick badge top-left */}
-      {isPartnerPick && (
-        <View style={[styles.partnerPill, { backgroundColor: accent }]}>
-          <Feather name="users" size={11} color="#fff" />
-          <Text
-            style={{
-              color: "#fff",
-              fontSize: 11,
-              fontWeight: "700",
-              fontFamily: fonts.displayBold,
-            }}
-          >
-            Partner pick
-          </Text>
-        </View>
-      )}
-
-      {/* bottom text block */}
-      <View style={styles.bottomBlock}>
-        <Text
-          style={[styles.nameText, { fontFamily: fonts.hand }]}
-          numberOfLines={2}
-          adjustsFontSizeToFit
-        >
-          {name}
-        </Text>
-        {!!pronunciation && (
-          <Text style={[styles.pronText, { fontFamily: fonts.display }]}>
-            ({pronunciation})
-          </Text>
-        )}
-        <View style={styles.chipRow}>
-          {!!origin && (
-            <View style={styles.chip}>
-              <Text style={[styles.chipText, { fontFamily: fonts.display }]}>
-                {truncate(origin, 18)}
-              </Text>
-            </View>
-          )}
-          {!!meaning && (
-            <View style={styles.chip}>
-              <Text style={[styles.chipText, { fontFamily: fonts.display }]}>
-                {truncate(meaning, 22)}
-              </Text>
-            </View>
-          )}
-        </View>
-      </View>
     </View>
   );
 }
@@ -509,8 +509,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardWrap: {
-    borderRadius: 28,
-    backgroundColor: "#000",
+    borderRadius: 24,
+    backgroundColor: "#fff",
+    borderWidth: 2,
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 18,
@@ -519,118 +520,145 @@ const styles = StyleSheet.create({
   },
   cardInner: {
     flex: 1,
-    borderRadius: 28,
+    borderRadius: 22,
     overflow: "hidden",
   },
-  rankPill: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    backgroundColor: "rgba(255,255,255,0.85)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  topBlock: {
+    alignItems: "center",
+    paddingTop: 24,
+    paddingHorizontal: 16,
+  },
+  labelUnderlineWrap: {
+    borderBottomWidth: 1.5,
+    paddingBottom: 2,
+  },
+  infoChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1,
+    marginTop: 10,
   },
   partnerPill: {
-    position: "absolute",
-    top: 14,
-    left: 14,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999,
-  },
-  bottomBlock: {
-    position: "absolute",
-    left: 22,
-    right: 22,
-    bottom: 26,
-  },
-  nameText: {
-    color: "#fff",
-    fontSize: 60,
-    fontWeight: "700",
-    lineHeight: 64,
-    textShadowColor: "rgba(0,0,0,0.45)",
-    textShadowRadius: 8,
-    textShadowOffset: { width: 0, height: 2 },
-  },
-  pronText: {
-    color: "rgba(255,255,255,0.85)",
-    fontSize: 16,
-    fontStyle: "italic",
-    marginTop: 4,
-    textShadowColor: "rgba(0,0,0,0.4)",
-    textShadowRadius: 4,
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
     marginTop: 10,
   },
-  chip: {
-    backgroundColor: "rgba(255,255,255,0.22)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
-  },
-  chipText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  cornerOverlay: {
+  centerBlock: {
     position: "absolute",
-    top: 24,
+    top: 0,
+    bottom: 0,
+    left: 16,
+    right: 16,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  cornerLeft: { left: 24 },
-  cornerRight: { right: 24 },
-  cornerCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  nameText: {
+    fontSize: 64,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: -0.5,
+  },
+  lastNameText: {
+    fontSize: 28,
+    fontWeight: "700",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  pronText: {
+    fontSize: 18,
+    fontStyle: "italic",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  actionRow: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 22,
+  },
+  actionBtn: {
+    backgroundColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.18,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 5,
   },
-  backFace: {
-    backgroundColor: "#f4ebd8",
-    borderRadius: 28,
+  actionBtnLg: { width: 64, height: 64, borderRadius: 32 },
+  actionBtnSm: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.85)",
+  },
+  dragBadge: {
+    position: "absolute",
+    top: 100,
+    width: 180,
+    height: 100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dragBadgeLeft: { left: -10 },
+  dragBadgeRight: { right: -10 },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: "80%",
+    paddingBottom: 24,
     overflow: "hidden",
   },
-  backInner: {
-    flex: 1,
-    padding: 26,
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(0,0,0,0.15)",
+    alignSelf: "center",
+    marginTop: 10,
+  },
+  sheetClose: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.06)",
     alignItems: "center",
-    justifyContent: "flex-start",
-    paddingTop: 40,
+    justifyContent: "center",
+    zIndex: 5,
   },
-  backName: {
-    fontSize: 48,
-    fontWeight: "700",
-    textAlign: "center",
-  },
-  backPron: {
-    fontSize: 16,
-    fontStyle: "italic",
-    marginTop: 4,
+  genderBadge: {
+    alignSelf: "center",
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 999,
   },
   detailLabel: {
     fontSize: 11,
     letterSpacing: 1.2,
-    fontWeight: "600",
     marginBottom: 4,
-  },
-  detailValue: {
-    fontSize: 15,
-    lineHeight: 22,
   },
   popRow: {
     flexDirection: "row",
@@ -641,16 +669,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "rgba(0,0,0,0.1)",
+    backgroundColor: "rgba(0,0,0,0.08)",
     overflow: "hidden",
-  },
-  popLabel: {
-    fontSize: 12,
-  },
-  tapHint: {
-    position: "absolute",
-    bottom: 18,
-    fontSize: 11,
   },
 });
 

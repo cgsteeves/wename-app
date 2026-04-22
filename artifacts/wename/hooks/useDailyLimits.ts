@@ -15,13 +15,14 @@ function dateFromTimestamp(ts: string | null): string | null {
 }
 
 export function useDailyLimits(
-  user: User,
+  user: User | null | undefined,
   updateUser: (updates: Partial<User>) => Promise<void>,
 ) {
   const resetInFlight = useRef(false);
-  const isPremium = user.plan_tier === "premium";
+  const isPremium = user?.plan_tier === "premium";
 
   const ensureResetIfNeeded = useCallback(async () => {
+    if (!user) return { swipe_count: 0, like_count: 0, match_count: 0 };
     const today = todayLocalDate();
     const lastReset = dateFromTimestamp(user.usage_last_reset_at);
     if (lastReset !== today && !resetInFlight.current) {
@@ -54,6 +55,7 @@ export function useDailyLimits(
     async (
       liked: boolean,
     ): Promise<{ allowed: boolean; limitType: "swipe" | "like" | null }> => {
+      if (!user) return { allowed: false, limitType: null };
       if (isPremium) return { allowed: true, limitType: null };
       const counts = await ensureResetIfNeeded();
       if (counts.swipe_count >= FREE_LIMITS.swipes) {
@@ -73,10 +75,11 @@ export function useDailyLimits(
       if (!error) await updateUser(updates);
       return { allowed: true, limitType: null };
     },
-    [isPremium, user.id, ensureResetIfNeeded, updateUser],
+    [isPremium, user, ensureResetIfNeeded, updateUser],
   );
 
   const checkCanRevealMatch = useCallback(async (): Promise<boolean> => {
+    if (!user) return false;
     if (isPremium) return true;
     const counts = await ensureResetIfNeeded();
     if (counts.match_count >= FREE_LIMITS.matches) return false;
@@ -84,15 +87,15 @@ export function useDailyLimits(
     const { error } = await supabase.from("users").update(updates).eq("id", user.id);
     if (!error) await updateUser(updates);
     return true;
-  }, [isPremium, user.id, ensureResetIfNeeded, updateUser]);
+  }, [isPremium, user, ensureResetIfNeeded, updateUser]);
 
   return {
     isPremium,
     limits: FREE_LIMITS,
     currentCounts: {
-      swipes: user.daily_swipe_count ?? 0,
-      likes: user.daily_like_count ?? 0,
-      matches: user.daily_match_count ?? 0,
+      swipes: user?.daily_swipe_count ?? 0,
+      likes: user?.daily_like_count ?? 0,
+      matches: user?.daily_match_count ?? 0,
     },
     checkCanSwipe,
     checkCanRevealMatch,

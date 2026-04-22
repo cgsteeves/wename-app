@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
+import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS } from "@/hooks/useDailyLimits";
 import {
@@ -163,7 +164,14 @@ export default function SettingsScreen() {
         },
       ]}
     >
-      <Text style={[styles.title, { color: colors.foreground }]}>Settings</Text>
+      <View style={styles.headerWrap}>
+        <Text style={[styles.title, { color: colors.grass }]}>
+          🌿 Settings ☀️
+        </Text>
+        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+          Customize your experience
+        </Text>
+      </View>
 
       <Section title="Daily usage" colors={colors}>
         <View style={styles.usageRow}>
@@ -508,11 +516,13 @@ function UsageStat({
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 16, gap: 16 },
+  container: { paddingHorizontal: 16, gap: 18 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 28, fontWeight: "800" },
+  headerWrap: { alignItems: "center", marginBottom: 4 },
+  title: { fontSize: 30, fontFamily: fonts.hand, lineHeight: 38 },
+  subtitle: { fontSize: 14, fontFamily: fonts.hand, marginTop: 2 },
   section: { gap: 8 },
-  sectionTitle: { fontSize: 11, fontWeight: "700", letterSpacing: 1.4, marginLeft: 4 },
+  sectionTitle: { fontSize: 11, fontFamily: fonts.displaySemibold, letterSpacing: 1.4, marginLeft: 4 },
   sectionBody: { borderRadius: 16, borderWidth: 1, padding: 14, gap: 8 },
   smallLabel: { fontSize: 12, marginBottom: 6 },
   usageRow: { flexDirection: "row", justifyContent: "space-around" },

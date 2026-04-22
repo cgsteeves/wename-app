@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "@/components/UserContext";
+import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { supabase } from "@/lib/supabase";
 
@@ -286,37 +287,63 @@ export default function NamesScreen() {
         },
       ]}
     >
-      <View style={styles.headerRow}>
-        <Text style={[styles.title, { color: colors.foreground }]}>Names</Text>
-        <Pressable onPress={shareList} hitSlop={12}>
-          <Feather name="share-2" size={22} color={colors.primary} />
-        </Pressable>
+      <View style={styles.headerWrap}>
+        <Text style={[styles.title, { color: colors.grass }]}>📖 Our Names ✨</Text>
+        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
+          Your shared baby name journey
+        </Text>
       </View>
 
-      <View style={[styles.tabs, { backgroundColor: colors.muted }]}>
-        {(["liked", "matches", "finalists"] as const).map((t) => {
-          const active = tab === t;
+      <View style={styles.tabCards}>
+        {(
+          [
+            { key: "liked", label: "Your\nPicks", icon: "heart" as const, color: colors.heart },
+            { key: "matches", label: "Shared\nMatches", icon: "users" as const, color: colors.boy },
+            { key: "finalists", label: "AI\nSuggest", icon: "star" as const, color: colors.accent },
+          ] as const
+        ).map((t) => {
+          const active = tab === t.key;
           return (
             <Pressable
-              key={t}
-              onPress={() => setTab(t)}
+              key={t.key}
+              onPress={() => setTab(t.key as SubTab)}
               style={[
-                styles.tab,
-                active && { backgroundColor: colors.parchment },
+                styles.tabCard,
+                {
+                  backgroundColor: active ? t.color : colors.card,
+                  borderColor: active ? t.color : colors.border,
+                },
               ]}
             >
+              <Feather name={t.icon} size={20} color={active ? "#fff" : t.color} />
               <Text
-                style={{
-                  color: active ? colors.foreground : colors.mutedForeground,
-                  fontWeight: active ? "700" : "500",
-                  textTransform: "capitalize",
-                }}
+                style={[
+                  styles.tabCardLabel,
+                  { color: active ? "#fff" : colors.foreground },
+                ]}
               >
-                {t}
+                {t.label}
               </Text>
             </Pressable>
           );
         })}
+      </View>
+
+      <View style={styles.subHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.subHeaderTitle, { color: colors.foreground }]}>
+            {tab === "liked" ? "Your Picks" : tab === "matches" ? "Shared Matches" : "AI Suggestions"}
+          </Text>
+          <Text style={[styles.subHeaderMeta, { color: colors.mutedForeground }]}>
+            {items.length} {items.length === 1 ? "name" : "names"}
+          </Text>
+        </View>
+        <Pressable onPress={shareList} hitSlop={12} style={styles.shareBtn}>
+          <Feather name="share-2" size={18} color={colors.primary} />
+          <Text style={{ color: colors.primary, fontFamily: fonts.displaySemibold, fontSize: 13 }}>
+            Share
+          </Text>
+        </Pressable>
       </View>
 
       {tab === "matches" && !user?.partner_id ? (
@@ -466,7 +493,12 @@ function NameRow({
         { borderColor: accent + "55", backgroundColor: isBoy ? colors.boyLight : "#ffe4e8" },
       ]}
     >
-      <Text style={[styles.rank, { color: accent }]}>{index + 1}</Text>
+      <View style={styles.dragDots}>
+        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
+        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
+        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
+      </View>
+      <Text style={[styles.rank, { color: accent }]}>#{index + 1}</Text>
       <View style={{ flex: 1 }}>
         <Text style={[styles.rowName, { color: accent }]}>{item.text}</Text>
         {item.rank != null && (
@@ -478,13 +510,13 @@ function NameRow({
           <Feather
             name="star"
             size={18}
-            color={isFinalist ? colors.accent : colors.mutedForeground}
-            style={isFinalist ? { opacity: 1 } : { opacity: 0.6 }}
+            color={isFinalist ? colors.accent : accent}
+            style={{ opacity: isFinalist ? 1 : 0.7 }}
           />
         </Pressable>
       )}
       <Pressable onPress={onDelete} hitSlop={10} style={styles.rowAction}>
-        <Feather name="trash-2" size={18} color={colors.mutedForeground} />
+        <Feather name="trash-2" size={18} color={accent} style={{ opacity: 0.7 }} />
       </Pressable>
     </View>
   );
@@ -498,7 +530,44 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
   },
-  title: { fontSize: 28, fontWeight: "800" },
+  headerWrap: { alignItems: "center", paddingTop: 4, paddingBottom: 8 },
+  title: { fontSize: 28, fontFamily: fonts.hand, lineHeight: 36 },
+  subtitle: { fontSize: 13, fontFamily: fonts.hand, marginTop: 2 },
+  tabCards: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  tabCard: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: "center",
+    gap: 6,
+  },
+  tabCardLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  subHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 4,
+    marginBottom: 4,
+  },
+  subHeaderTitle: { fontSize: 18, fontFamily: fonts.displayBold },
+  subHeaderMeta: { fontSize: 12, marginTop: 1 },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#d9c89c",
+  },
+  dragDots: { gap: 3, marginRight: 4 },
+  dot: { width: 4, height: 4, borderRadius: 2 },
   tabs: {
     flexDirection: "row",
     borderRadius: 12,

@@ -24,3 +24,15 @@ id = "bEqoVgj_9BC4980qCcB7W"
 uri = "file://attached_assets/generated_images/generated_image_3.png"
 type = "image"
 title = "generated_image"
+
+[[generated]]
+id = "OoUDceUO6Cr68DlpqaA6d"
+uri = "file://artifacts/wename/assets/images/list-bg.png"
+type = "image"
+title = "generated_image"
+
+[[generated]]
+id = "K-ZCIPqEqYQPoByrRVwYI"
+uri = "file://artifacts/wename/assets/images/grass-flower-border.png"
+type = "image"
+title = "generated_image"

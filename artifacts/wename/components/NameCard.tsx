@@ -5,7 +5,6 @@ import { LinearGradient } from "expo-linear-gradient";
 import React, { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import {
   Dimensions,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -94,6 +93,41 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   const y = useSharedValue(0);
   const opacity = useSharedValue(1);
   const committed = useRef(false);
+  const sheetY = useSharedValue(CARD_H);
+
+  function openInfo() {
+    setInfoOpen(true);
+    sheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+  }
+  function closeInfo() {
+    sheetY.value = withTiming(CARD_H, { duration: 240 }, (finished) => {
+      if (finished) runOnJS(setInfoOpen)(false);
+    });
+  }
+
+  const dismissSheetState = () => setInfoOpen(false);
+
+  const sheetPan = Gesture.Pan()
+    .enabled(infoOpen)
+    .onUpdate((e) => {
+      sheetY.value = Math.max(0, e.translationY);
+    })
+    .onEnd((e) => {
+      if (e.translationY > 80 || e.velocityY > 600) {
+        sheetY.value = withTiming(CARD_H, { duration: 240 }, (finished) => {
+          if (finished) runOnJS(dismissSheetState)();
+        });
+      } else {
+        sheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+      }
+    });
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: sheetY.value }],
+  }));
+  const sheetBackdropStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(sheetY.value, [0, CARD_H], [0.35, 0], Extrapolation.CLAMP),
+  }));
 
   function fly(liked: boolean, velocityX = 0) {
     if (committed.current) return;
@@ -245,7 +279,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
                 backgroundColor: "rgba(255,255,255,0.35)",
               },
             ]}
-            onPress={() => setInfoOpen(true)}
+            onPress={openInfo}
           >
             <Feather name="info" size={12} color={labelColor + "b3"} />
             <Text
@@ -385,132 +419,145 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         </Animated.View>
       </GestureDetector>
 
-      {/* Info bottom-sheet */}
-      <Modal
-        visible={infoOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setInfoOpen(false)}
-      >
-        <Pressable style={styles.sheetBackdrop} onPress={() => setInfoOpen(false)}>
-          <Pressable
-            style={styles.sheet}
-            onPress={(e) => e.stopPropagation()}
+      {/* In-card info overlay — slides up over card, drag-to-dismiss */}
+      {infoOpen && (
+        <>
+          <Animated.View
+            pointerEvents="auto"
+            style={[
+              styles.inCardBackdrop,
+              { width: CARD_W, height: CARD_H },
+              sheetBackdropStyle,
+            ]}
           >
-            <LinearGradient
-              colors={
-                isBoy
-                  ? ["rgba(219,234,254,0.99)", "rgba(191,219,254,0.97)", "rgba(255,251,235,0.99)"]
-                  : ["rgba(254,228,232,0.99)", "rgba(251,207,215,0.97)", "rgba(255,251,235,0.99)"]
-              }
-              style={StyleSheet.absoluteFill}
-            />
-            <ImageBackground
-              source={paperTexture}
-              style={StyleSheet.absoluteFill}
-              imageStyle={{ opacity: 0.2 }}
-              contentFit="cover"
-            />
-            <View style={styles.sheetHandle} />
-            <Pressable style={styles.sheetClose} onPress={() => setInfoOpen(false)}>
-              <Feather name="x" size={14} color={colors.mutedForeground} />
-            </Pressable>
-            <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 36 }}>
-              <Text
-                style={{
-                  fontFamily: fonts.hand,
-                  fontSize: 20,
-                  color: labelColor,
-                  opacity: 0.85,
-                  fontStyle: "italic",
-                  textAlign: "center",
-                }}
-              >
-                About this name
-              </Text>
-              <View
-                style={{
-                  height: 1.5,
-                  width: 96,
-                  borderRadius: 999,
-                  backgroundColor: labelColor,
-                  opacity: 0.4,
-                  alignSelf: "center",
-                  marginTop: 8,
-                  marginBottom: 12,
-                }}
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeInfo} />
+          </Animated.View>
+          <GestureDetector gesture={sheetPan}>
+            <Animated.View
+              style={[
+                styles.inCardSheet,
+                { width: CARD_W, height: CARD_H },
+                sheetStyle,
+              ]}
+            >
+              <LinearGradient
+                colors={
+                  isBoy
+                    ? ["rgba(219,234,254,0.99)", "rgba(191,219,254,0.97)", "rgba(255,251,235,0.99)"]
+                    : ["rgba(254,228,232,0.99)", "rgba(251,207,215,0.97)", "rgba(255,251,235,0.99)"]
+                }
+                style={StyleSheet.absoluteFill}
               />
-              <Text
-                style={{
-                  fontFamily: fonts.displayBold,
-                  fontSize: 44,
-                  color: nameColor,
-                  textAlign: "center",
-                  letterSpacing: -0.5,
-                }}
+              <ImageBackground
+                source={paperTexture}
+                style={StyleSheet.absoluteFill}
+                imageStyle={{ opacity: 0.2 }}
+                contentFit="cover"
+              />
+              <View style={styles.sheetHandle} />
+              <Pressable style={styles.sheetClose} onPress={closeInfo} hitSlop={10}>
+                <Feather name="x" size={14} color={colors.mutedForeground} />
+              </Pressable>
+              <ScrollView
+                contentContainerStyle={{ padding: 24, paddingTop: 36 }}
+                showsVerticalScrollIndicator={false}
               >
-                {name}
-              </Text>
-              {!!lastName && (
                 <Text
                   style={{
-                    fontFamily: fonts.displaySemibold,
-                    fontSize: 22,
-                    color: nameColor,
-                    opacity: isBoy ? 0.8 : 1,
+                    fontFamily: fonts.hand,
+                    fontSize: 20,
+                    color: labelColor,
+                    opacity: 0.85,
+                    fontStyle: "italic",
                     textAlign: "center",
-                    marginTop: 4,
                   }}
                 >
-                  {lastName}
+                  About this name
                 </Text>
-              )}
-              {!!pronunciation && (
+                <View
+                  style={{
+                    height: 1.5,
+                    width: 96,
+                    borderRadius: 999,
+                    backgroundColor: labelColor,
+                    opacity: 0.4,
+                    alignSelf: "center",
+                    marginTop: 8,
+                    marginBottom: 12,
+                  }}
+                />
+                <Text
+                  style={{
+                    fontFamily: fonts.displayBold,
+                    fontSize: 44,
+                    color: nameColor,
+                    textAlign: "center",
+                    letterSpacing: -0.5,
+                  }}
+                >
+                  {name}
+                </Text>
+                {!!lastName && (
+                  <Text
+                    style={{
+                      fontFamily: fonts.displaySemibold,
+                      fontSize: 22,
+                      color: nameColor,
+                      opacity: isBoy ? 0.8 : 1,
+                      textAlign: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    {lastName}
+                  </Text>
+                )}
+                {!!pronunciation && (
+                  <Text
+                    style={{
+                      fontFamily: fonts.display,
+                      fontSize: 14,
+                      fontStyle: "italic",
+                      color: nameColor,
+                      opacity: 0.6,
+                      textAlign: "center",
+                      marginTop: 6,
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    [{pronunciation}]
+                  </Text>
+                )}
+
+                <View style={{ marginTop: 20, gap: 8 }}>
+                  <InfoRow icon="map-pin" label="Origin" value={origin} accent={labelColor} colors={colors} isBoy={isBoy} />
+                  <InfoRow icon="award" label="Meaning" value={meaning} accent={labelColor} colors={colors} isBoy={isBoy} />
+                  <InfoRow icon="tag" label="Possible Nickname" value={nickname} accent={labelColor} colors={colors} isBoy={isBoy} />
+                  <InfoRow
+                    icon="trending-up"
+                    label="Popularity"
+                    value={rank != null ? `#${rank} most popular` : null}
+                    accent={labelColor}
+                    colors={colors}
+                    isBoy={isBoy}
+                  />
+                </View>
                 <Text
                   style={{
                     fontFamily: fonts.display,
-                    fontSize: 14,
-                    fontStyle: "italic",
-                    color: nameColor,
-                    opacity: 0.6,
+                    fontSize: 12,
+                    color: labelColor,
+                    opacity: 0.45,
                     textAlign: "center",
-                    marginTop: 6,
-                    letterSpacing: 0.5,
+                    marginTop: 16,
                   }}
                 >
-                  [{pronunciation}]
+                  swipe down to close
                 </Text>
-              )}
-
-              <View style={{ marginTop: 20, gap: 8 }}>
-                <InfoRow icon="map-pin" label="Origin" value={origin} accent={labelColor} colors={colors} isBoy={isBoy} />
-                <InfoRow icon="award" label="Meaning" value={meaning} accent={labelColor} colors={colors} isBoy={isBoy} />
-                <InfoRow icon="tag" label="Possible Nickname" value={nickname} accent={labelColor} colors={colors} isBoy={isBoy} />
-                <InfoRow
-                  icon="trending-up"
-                  label="Popularity"
-                  value={rank != null ? `#${rank} most popular` : null}
-                  accent={labelColor}
-                  colors={colors}
-                  isBoy={isBoy}
-                />
-              </View>
-              <Text
-                style={{
-                  fontFamily: fonts.display,
-                  fontSize: 12,
-                  color: labelColor,
-                  opacity: 0.35,
-                  textAlign: "center",
-                  marginTop: 16,
-                }}
-              >
-                swipe down to close
-              </Text>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+              </ScrollView>
+            </Animated.View>
+          </GestureDetector>
+        </>
+      )}
     </View>
   );
 });
@@ -757,17 +804,21 @@ const styles = StyleSheet.create({
   },
   overlayLike: { top: 28, right: 28, transform: [{ rotate: "22deg" }] },
   overlayPass: { top: 28, left: 28, transform: [{ rotate: "-22deg" }] },
-  sheetBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
+  inCardBackdrop: {
+    position: "absolute",
+    backgroundColor: "#000",
+    borderRadius: 28,
   },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    maxHeight: "85%",
-    paddingBottom: 24,
+  inCardSheet: {
+    position: "absolute",
+    borderRadius: 28,
     overflow: "hidden",
+    backgroundColor: "hsl(45,55%,94%)",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 8,
   },
   sheetHandle: {
     width: 40,

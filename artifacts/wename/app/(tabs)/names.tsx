@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { Image, ImageBackground } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
@@ -13,6 +14,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+const listBg = require("../../assets/images/list-bg.png");
+const grassBorder = require("../../assets/images/grass-flower-border.png");
 
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
@@ -277,16 +281,24 @@ export default function NamesScreen() {
     tab === "liked" ? liked : tab === "matches" ? matches : finalists;
 
   return (
-    <View
+    <ImageBackground
+      source={listBg}
       style={[
         styles.root,
         {
-          backgroundColor: colors.parchment,
           paddingTop: insets.top + 12,
           paddingBottom: insets.bottom + 70,
         },
       ]}
+      imageStyle={{ opacity: 0.95 }}
+      contentFit="cover"
     >
+      <Image
+        source={grassBorder}
+        style={[styles.grassFooter, { bottom: insets.bottom + 60 }]}
+        contentFit="cover"
+        pointerEvents="none"
+      />
       <View style={styles.headerWrap}>
         <Text style={[styles.title, { color: colors.grass }]}>📖 Our Names ✨</Text>
         <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
@@ -464,7 +476,7 @@ export default function NamesScreen() {
           </View>
         </View>
       )}
-    </View>
+    </ImageBackground>
   );
 }
 
@@ -524,6 +536,13 @@ function NameRow({
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 16 },
+  grassFooter: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    height: 80,
+    opacity: 0.85,
+  },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",

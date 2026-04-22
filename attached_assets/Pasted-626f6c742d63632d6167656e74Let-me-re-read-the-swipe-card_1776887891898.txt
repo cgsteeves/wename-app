@@ -1,0 +1,863 @@
+626f6c742d63632d6167656e74Let me re-read the swipe card source in full detail to make sure I capture every pixel and behavior.
+Now I have every line of source. Here is the focused, self-contained plain-text prompt:
+
+---
+
+```
+================================================================================
+WENAME — SWIPE CARD: COMPLETE DESIGN, UX & FUNCTIONALITY SPECIFICATION
+================================================================================
+
+This document gives a complete specification of the WeName swipe card component
+and the screen it lives on. Every measurement, color value, animation parameter,
+asset filename, interaction behavior, and state is documented here. An AI
+following this document should be able to produce an exact replica without
+seeing the original.
+
+================================================================================
+PART 1 — VISUAL DESIGN
+================================================================================
+
+--- 1.1 CARD CONTAINER ---
+
+The card fills the available area between the top and bottom of the screen minus
+the tab bar. The parent gives it 20px horizontal padding (px-5) and 8px bottom
+padding. Inside the padded area the card is position: absolute, inset: 0.
+
+Card outer shell:
+  borderRadius:   16 (rounded-2xl)
+  overflow:       hidden
+  shadow:         shadow-2xl (elevation 24 in RN equivalent)
+  background:     parchment hsl(38,45%,93%) — visible only for a split second
+                  before the background image loads
+  border:         2px solid hsl(35,22%,80%) at 40% opacity
+
+--- 1.2 BACKGROUND IMAGE ---
+
+The image is absolutely positioned, covers the full card (position absolute,
+inset 0, resizeMode cover / object-fit cover). It is NOT interactive (draggable=false).
+
+  Boy names:  assets/images/boy-card-rolling-hills.jpg
+              A landscape photo with rolling green hills and a soft blue sky.
+
+  Girl names: /girl-card-flowers.jpg   (served from public folder, NOT imported)
+              A soft-focus floral photo in warm pink/cream tones.
+
+The image alone is not enough — two additional overlay layers sit on top of it:
+
+  Layer 1 — Radial vignette (position absolute, inset 0, pointer-events none):
+    background: radial-gradient(
+      ellipse at center,
+      transparent 0%,
+      transparent 60%,
+      rgba(0,0,0,0.15) 100%
+    )
+    This darkens the edges of the card subtly, improving text legibility.
+
+  Layer 2 — Parchment warmth tint (position absolute, inset 0, pointer-events none):
+    backgroundColor: parchment at 5% opacity
+    blendMode: overlay (mix-blend-mode: overlay on web)
+    This warms the photo slightly to match the app's parchment color palette.
+
+--- 1.3 CARD TOP SECTION ---
+
+Sits at the top of the card's content layer (z-index above image, pointer-events
+carefully managed).
+
+paddingTop:         20
+paddingBottom:      8
+paddingHorizontal:  24
+
+Contents (top to bottom):
+
+  1. Gender label text:
+     - Text: "Boy Name" or "Girl Name"
+     - Font: Patrick Hand (the "hand" font), size 30 (text-3xl), italic
+     - Color: boyBlue hsl(214,55%,42%) for boy, girlPink hsl(345,55%,50%) for girl
+     - Alignment: centered
+
+  2. Accent divider line:
+     - Sits directly below the label, marginTop: 2
+     - height: 1.5px
+     - width: 112 (w-28)
+     - borderRadius: 999 (fully rounded)
+     - color: boyBlue or girlPink background
+     - opacity: 0.50
+     - Horizontally centered (mx-auto)
+
+  3. Remaining count text:
+     - "{N} names remaining"
+     - Font: Fredoka (the "display" font), size 14 (text-sm)
+     - Color: mutedForeground hsl(25,12%,48%)
+     - Alignment: centered
+     - marginTop: 4
+
+  4. "More info" button:
+     - Centered pill button, marginTop: 8
+     - Layout: Info icon (size 12) + "More info" text, gap 6
+     - Font: Fredoka, size 12 (text-xs)
+     - Padding: 4px top/bottom, 12px left/right
+     - borderRadius: 999 (fully rounded)
+     - border: 1px boyBlue/30 or girlPink/30
+     - color: boyBlue/70 or girlPink/70
+     - background: rgba(255,255,255,0.35)
+     - On tap: shows the info overlay (slides up from bottom of card)
+     - active:scale-95 press animation
+     - Hidden (visibility hidden, NOT removed) on the "next" card behind the stack.
+     - pointer-events: auto (overrides the parent pointer-events:none)
+
+--- 1.4 CARD CENTER — THE NAME ---
+
+This block is vertically centered in the remaining space of the card.
+It uses flex-1 with items-center justify-center.
+A negative marginTop: -112 (-mt-28) is applied to compensate for the top
+section's height and keep the name visually at true center.
+pointer-events: none (the drag handler sits on top of this layer).
+
+Contents (top to bottom):
+
+  1. Main name text:
+     - Font: Fredoka_700Bold (font-display font-bold), size 60 (text-6xl)
+     - letterSpacing: tight (tracking-tight)
+     - Color: boyBlue for boy, girlRed hsl(0,70%,48%) for girl
+       NOTE: girl cards use girlRED (darker, more saturated) for the name, not girlPink
+     - Alignment: centered
+
+  2. Baby last name (only if user.baby_last_name is set):
+     - Font: Fredoka_600SemiBold, size 30 (text-3xl)
+     - marginTop: 8
+     - Color: boyBlue at 80% opacity for boy / girlRed (full opacity) for girl
+     - Alignment: centered
+
+  3. Pronunciation (only if name.pronunciation is not null):
+     - Font: Fredoka italic, size 16 (text-base)
+     - marginTop: 4
+     - Color: boyBlue at 60% opacity for boy / girlRed at 60% opacity for girl
+     - letterSpacing: wide (tracking-wide)
+     - Format: [AY-den] — always wrapped in square brackets
+     - Alignment: centered
+
+  4. "Partner Added" badge (only if isPartnerPick=true AND this is NOT the "next" card):
+     - Small pill, marginTop: 12
+     - Layout: Heart icon (size 10, filled) + "Partner Added" text, gap 4
+     - Font: Fredoka_500Medium, size 12 (text-xs)
+     - Padding: 2px top/bottom, 10px left/right
+     - borderRadius: 999
+     - background: boyBlue at 10% / girlPink at 10%
+     - border: 1px boyBlue/20 or girlPink/20
+     - color: boyBlue or girlRed
+
+--- 1.5 CARD BOTTOM ACTION ROW ---
+
+Sits at the very bottom of the card content layer.
+Layout: flex row, justify-center, items-center, gap: 24
+marginBottom: 24
+paddingHorizontal: 32
+pointer-events: auto
+Hidden (visibility: hidden) on the "next" card — NOT removed from DOM.
+
+Three buttons (left to right):
+
+PASS button (left):
+  - Size: 64x64, borderRadius: 32 (perfectly circular)
+  - Background: linear-gradient(145deg, hsl(38,50%,96%) 0%, hsl(38,45%,92%) 100%)
+    This is a warm off-white gradient that gives a slight dimensional look.
+  - Border: 2px solid rgba(255,255,255,0.60)
+  - Shadows (layered, ALL THREE applied together):
+      0 6px 20px rgba(0,0,0,0.25)   — main drop shadow
+      0 2px 6px rgba(0,0,0,0.15)    — secondary drop shadow
+      inset 0 1px 2px rgba(255,255,255,0.80)  — inner highlight (top edge glow)
+  - Content: Text character "✕"
+      color: destructive hsl(0,72%,50%)
+      fontSize: 30 (text-3xl), fontWeight: bold
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - onPress: triggers a swipe animation (liked=false)
+  - active:scale-90 press animation (shrinks to 90%)
+
+UNDO button (center):
+  - Size: 56x56 (w-14 h-14), borderRadius: 28
+  - Same gradient and border as Pass button
+  - Two shadow states:
+      When canUndo=true:
+        0 6px 20px rgba(0,0,0,0.25)
+        0 2px 6px rgba(0,0,0,0.15)
+        inset 0 1px 2px rgba(255,255,255,0.80)
+      When canUndo=false:
+        0 2px 8px rgba(0,0,0,0.15)   — flat, no lift
+  - Content: RotateCcw icon from lucide, size 22, color mutedForeground
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - When canUndo=false: opacity 0.40, cursor not-allowed, disabled
+  - When canUndo=true: full opacity, active:scale-90
+
+LIKE button (right):
+  - Size: 64x64, borderRadius: 32
+  - Exactly the same gradient, border, and shadow as Pass button
+  - Content: Heart icon from lucide, size 26
+      color: rose500 (#f43f5e), filled rose500
+      filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - onPress: triggers a swipe animation (liked=true)
+  - active:scale-90 press animation
+
+--- 1.6 LIKE AND PASS OVERLAY INDICATORS ---
+
+These are visible ONLY on the front (active) card, NOT the "next" card.
+They are absolutely positioned, pointer-events: none, z-index: 20.
+They appear and scale in response to how far the user drags.
+
+LIKE INDICATOR (top-right corner):
+  Position: absolute, top: 20, right: 16
+  transformOrigin: top right
+
+  Image layer:
+    Source: /like_sun2.png (from public folder)
+    Size: 160x160 (w-40 h-40)
+    An illustrated sun graphic with warm yellow/orange rays.
+
+  Text layer (absolutely positioned on top of the image):
+    Position: absolute, top: 28, right: 28
+    Text: "LIKE"
+    Font: Fredoka (heaviest available weight — font-black / font-display font-black)
+    Size: 18 (text-lg)
+    Color: white
+    letterSpacing: 0.18em
+    textShadow: 0 1px 4px rgba(0,0,0,0.35)
+    transform: rotate(22deg)  — tilted clockwise
+
+  Animation (driven by drag position):
+    opacity:    0 at x=0, 0.7 at x=THRESHOLD*0.5, 1.0 at x=THRESHOLD
+    scale:      0.7 at x=0, 1.15 at x=THRESHOLD
+    (THRESHOLD = screenWidth * 0.27)
+
+PASS INDICATOR (top-left corner):
+  Position: absolute, top: 20, left: 16
+  transformOrigin: top left
+
+  Image layer:
+    Source: /dislike_sun.png (from public folder)
+    Size: 160x160 (w-40 h-40)
+    A sun graphic in cooler tones.
+
+  Text layer (absolutely positioned on top of image):
+    Position: absolute, top: 28, left: 28
+    Text: "PASS"
+    Font: same as LIKE (font-black)
+    Color: white, same textShadow
+    letterSpacing: 0.18em
+    transform: rotate(-22deg)  — tilted counter-clockwise
+
+  Animation (driven by drag position, mirrors LIKE but leftward):
+    opacity:    1.0 at x=-THRESHOLD, 0.7 at x=-THRESHOLD*0.5, 0 at x=0
+    scale:      1.15 at x=-THRESHOLD, 0.7 at x=0
+
+================================================================================
+PART 2 — THE CARD STACK (TWO CARDS AT ONCE)
+================================================================================
+
+The swipe screen always renders TWO NameCard instances simultaneously:
+
+  BACK CARD ("next" card):
+    - isNext={true}
+    - Contains the name that will come up after the current card is swiped
+    - All interactive elements hidden (visibility:hidden) — no drag, no buttons
+    - z-index: 0 (behind the front card)
+    - Rendered FIRST in the DOM (so it appears behind)
+
+  FRONT CARD (active card):
+    - isNext={false}  (default)
+    - z-index: 1 (on top)
+    - Has all interactive elements
+    - Rendered SECOND in the DOM
+
+Both cards use position: absolute, inset: 0 (fill the same space).
+The back card peeks behind the front card via a scale and Y-offset:
+
+  Back card initial state:
+    scale: 0.95 (slightly smaller)
+    translateY: 14px (slightly lower/further back)
+    transformOrigin: bottom center
+
+  Back card animation as front card is dragged:
+    As drag progress goes 0 → 1 (from rest to the swipe threshold):
+      scale:      0.95 → 1.0    (grows to full size)
+      translateY: 14px → 0px   (rises up to be level)
+    This creates the effect of the next card "coming forward" as you drag.
+
+  dragProgress is a shared MotionValue / Reanimated shared value:
+    - Lives in SwipeView (the parent)
+    - Set by the front card as it's dragged
+    - Read by the back card to drive its scale/translateY
+
+================================================================================
+PART 3 — DRAG GESTURE SYSTEM
+================================================================================
+
+--- 3.1 CONSTANTS ---
+
+SWIPE_THRESHOLD_RATIO = 0.27
+  The fraction of screen width the card must travel to commit a swipe.
+  Example: on a 390px screen, threshold = 390 * 0.27 = ~105px
+
+VELOCITY_THRESHOLD = 600
+  Pixels per second. A fast flick above this speed commits a swipe even if
+  the distance threshold was not reached.
+
+MAX_ROTATION = 18
+  Maximum degrees of rotation at full drag offset.
+
+--- 3.2 THE DRAG LAYER ---
+
+A separate invisible motion element sits BETWEEN the background image and the
+card content (z-index 10).
+
+  Position: absolute, inset-x: 0, top: 0, bottom: 128 (bottom-32)
+  The bottom gap prevents the drag layer from blocking the action buttons.
+  drag: "x" (horizontal only)
+  dragConstraints: { left: 0, right: 0 } (rubber-band effect from origin)
+  dragElastic: 0.18 (18% elastic resistance beyond constraints)
+  dragMomentum: false (momentum is handled manually)
+  touchAction: "pan-y" (allows vertical scrolling on touch devices)
+  cursor: grab / grabbing
+
+The drag layer is HIDDEN when the info overlay is open (so dragging on the info
+panel does not also drag the card underneath).
+
+--- 3.3 MOTION VALUES UPDATED DURING DRAG ---
+
+x: tracks the raw horizontal offset in pixels.
+
+rotate: interpolated from x
+  inputRange:  [-screenWidth*0.6, 0, screenWidth*0.6]
+  outputRange: [-18, 0, 18]  (degrees)
+  The card tilts as you drag, up to ±18 degrees.
+
+cardOpacity: interpolated from x
+  inputRange:  [-screenWidth*0.6, -THRESHOLD*0.5, 0, THRESHOLD*0.5, screenWidth*0.6]
+  outputRange: [0.55, 0.90, 1.0, 0.90, 0.55]
+  The card fades slightly as it moves toward the edges.
+
+likeOpacity: interpolated from x (right drag)
+  inputRange:  [0, THRESHOLD*0.5, THRESHOLD]
+  outputRange: [0, 0.7, 1.0]
+
+likeScale: interpolated from x (right drag)
+  inputRange:  [0, THRESHOLD]
+  outputRange: [0.7, 1.15]
+
+passOpacity: interpolated from x (left drag)
+  inputRange:  [-THRESHOLD, -THRESHOLD*0.5, 0]
+  outputRange: [1.0, 0.7, 0]
+
+passScale: interpolated from x (left drag)
+  inputRange:  [-THRESHOLD, 0]
+  outputRange: [1.15, 0.7]
+
+dragProgress (shared with back card): set to min(|x| / THRESHOLD, 1)
+  0 = card at rest, 1 = card at or past the swipe threshold
+
+--- 3.4 WHAT HAPPENS DURING DRAG ---
+
+onDragStart:
+  isDragging.current = true
+  hasCommitted.current = false
+  (Reset the commit guard so a new swipe can begin)
+
+onDrag:
+  x.set(info.offset.x)  — updates all interpolated values reactively
+  dragProgress.set(min(|offset| / THRESHOLD, 1))
+
+onDragEnd:
+  isDragging.current = false
+
+  Evaluate whether to commit or spring back:
+    pastDistanceThreshold = |offset| > THRESHOLD
+    pastVelocityThreshold = |velocity| > 600
+
+    If NEITHER threshold passed:
+      → Spring the card back to x=0
+      → dragProgress.set(0)
+      → hasCommitted.current = false
+      → Done. Card returns to center.
+
+    If EITHER threshold passed:
+      Determine direction:
+        liked = offset > 0
+               OR (|offset| <= 10 AND velocity > 0)
+        (The second condition handles a very fast flick where the card barely moved)
+      → Call commitSwipe(liked, velocity)
+
+--- 3.5 commitSwipe — THE SWIPE COMMIT ---
+
+Guards against double-firing:
+  if (hasCommitted.current) return
+  hasCommitted.current = true
+
+Calculate exit trajectory:
+  direction = liked ? 1 : -1
+  velocityBonus = min(|velocityX| / 1000, 1.8)
+    This scales 0–1.8 based on how fast the flick was, maxing at ~1800 px/s.
+  exitX = direction * screenWidth * (1.8 + velocityBonus * 0.6)
+    At zero velocity: card exits to 1.8x screen width
+    At max velocity:  card exits to 2.88x screen width
+  duration = max(0.22, 0.42 - velocityBonus * 0.1)
+    At zero velocity: 0.42 seconds
+    At max velocity:  0.22 seconds (faster exit for fast flicks)
+
+Haptic feedback:
+  Trigger a 12ms vibration (navigator.vibrate(12) on web, expo-haptics on native)
+
+Animate card off screen:
+  Animate { x: exitX, opacity: 0 }
+  Type: tween
+  Duration: calculated above
+  Easing: cubic-bezier(0.25, 0.46, 0.45, 0.94)  — ease-out
+
+dragProgress.set(1)  — immediately bring back card to full size
+
+Notify parent:
+  After (duration * 1000 * 0.55) milliseconds (55% into the animation):
+    Call onSwipe(liked)
+  The 55% timing means the card is visibly off screen before the state updates,
+  preventing a jarring flicker of the new card appearing.
+
+--- 3.6 BUTTON-TRIGGERED SWIPE ---
+
+The Pass (✕) and Like (Heart) buttons call triggerSwipe(liked):
+  triggerSwipe(liked) → commitSwipe(liked, velocityX=0)
+
+This uses zero velocity, so:
+  velocityBonus = 0
+  exitX = direction * screenWidth * 1.8
+  duration = 0.42 seconds
+
+The animation is the same physics — the card flies off screen. The only
+difference from a gesture swipe is the slower, more graceful exit (no velocity
+bonus).
+
+--- 3.7 UNDO ---
+
+The undo button calls onUndo() which lives in SwipeView (the parent).
+The NameCard itself has no undo logic — it only provides the UI element.
+
+Undo is enabled (canUndo=true) when:
+  - swipeHistory.length > 0 (swiped at least once this session)
+  - AND currentIndex > 0 (not on the very first card)
+
+Undo does NOT animate the card. It simply:
+  1. Deletes the swipe row from Supabase.
+  2. Deletes any match that was created (if the undone swipe was a like and partner exists).
+  3. Decrements currentIndex by 1.
+  4. Removes the last entry from swipeHistory.
+The previous card re-appears instantly (React state update, no animation).
+
+================================================================================
+PART 4 — INFO OVERLAY (SLIDES UP INSIDE THE CARD)
+================================================================================
+
+Triggered by the "More info" button in the card top section.
+State: showInfo (boolean), starts false.
+
+--- 4.1 OVERLAY CONTAINER ---
+
+Positioned: absolute, inset: 0, z-index: 30
+Rounded: same as card (borderRadius 16, overflow hidden)
+cursor: default (so it doesn't show grab cursor)
+
+Entrance animation:
+  initial:    { y: "100%" }  — starts below the card, fully hidden
+  animate:    { y: 0 }       — slides up to cover the card
+  exit:       { y: "100%" }  — slides back down on close
+  transition: spring, stiffness: 350, damping: 35
+
+The overlay is wrapped in AnimatePresence so the exit animation plays.
+
+Drag-to-dismiss:
+  The overlay itself is draggable in the y direction.
+  drag: "y"
+  dragConstraints: { top: 0, bottom: 0 }
+  dragElastic: { top: 0, bottom: 0.4 }
+    (No elastic resistance when dragging up, 40% when dragging down)
+  onDragEnd: if info.offset.y > 80 → setShowInfo(false)
+    The card snaps back if the user doesn't drag far enough.
+
+--- 4.2 OVERLAY BACKGROUNDS ---
+
+Three background layers (stacked, front to back):
+
+  Layer 1 — Colored gradient (fills overlay, IS the main background):
+    Boy:  linear-gradient(160deg,
+            rgba(219,234,254,0.99) 0%,   — light blue tint
+            rgba(191,219,254,0.97) 50%,  — medium blue
+            rgba(255,251,235,0.99) 100%  — back to parchment warmth
+          )
+    Girl: linear-gradient(160deg,
+            rgba(254,228,232,0.99) 0%,   — light pink tint
+            rgba(251,207,215,0.97) 50%,  — medium pink
+            rgba(255,251,235,0.99) 100%  — back to parchment warmth
+          )
+
+  Layer 2 — Paper texture (position absolute, inset 0, pointer-events none):
+    backgroundImage: url(/paper-texture.jpg)
+    backgroundSize: cover
+    opacity: 0.20
+    This adds a subtle paper grain feel matching the rest of the app.
+
+  Layer 3 — Radial highlight (position absolute, inset 0, pointer-events none):
+    background: radial-gradient(ellipse at top, rgba(255,255,255,0.45) 0%, transparent 65%)
+    Creates a soft white glow at the top of the overlay.
+
+--- 4.3 OVERLAY CONTENT LAYOUT ---
+
+Full height flex column, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 20
+
+Top row (header controls):
+  - Handle bar: absolute position at top center
+      width: 40, height: 4, borderRadius: 2
+      background: rgba(0,0,0,0.15)
+      position: absolute, top: 12, left: 50%, translateX: -50%
+  - Right side: Close (X) button
+      Size: 32x32, borderRadius: 16
+      border: 1px rgba(0,0,0,0.10)
+      background: rgba(255,255,255,0.60)
+      X icon: size 14, color: mutedForeground
+      active:scale-90
+
+Middle section (flex-1, flex column, justify-center, gap: 20):
+
+  Header block (centered):
+    "About this name" — Patrick Hand, size 20 (text-xl), italic
+      Color: boyBlue or girlPink, opacity: 0.85
+
+    Divider line below "About this name":
+      height: 1.5px, width: 96, borderRadius: 999, opacity: 0.40
+      color: boyBlue or girlPink background
+      marginTop: 8, marginBottom: 12, centered
+
+    Name text — Fredoka_700Bold, size 48 (text-5xl), tracking-tight
+      Color: boyBlue or girlRed (same accent colors as front of card)
+
+    Last name (if set) — Fredoka_600SemiBold, size 24 (text-2xl), marginTop: 4
+      Color: boyBlue/80 or girlRed (full)
+
+    Pronunciation (if set) — Fredoka italic, size 14 (text-sm), marginTop: 6
+      Color: boyBlue/60 or girlRed/60, tracking-wide
+      Format: [AY-den] with square brackets
+
+  Info rows section (flex column, gap: 8):
+    Four rows, one for each data point.
+
+    Each InfoRow:
+      borderRadius: 12 (rounded-xl)
+      paddingHorizontal: 16, paddingVertical: 12
+      flex row, alignItems: flex-start, gap: 12
+
+      Background per gender:
+        Boy:  background: rgba(100,140,200,0.08)
+              border: 1px solid hsl(214,50%,80%)
+        Girl: background: rgba(255,160,170,0.08)
+              border: 1px solid hsl(345,50%,82%)
+
+      Icon (left, flex-shrink 0, marginTop: 2):
+        Size: 15
+        Color: accentColor (boy: hsl(214,55%,40%) / girl: hsl(345,55%,48%))
+        Opacity: 0.65
+
+      Text block (flex-1):
+        Label: Fredoka_600SemiBold, size 10 (text-[10px]), uppercase,
+               letterSpacing: widest (tracking-widest), marginBottom: 2
+               Color: accentColor, opacity: 0.60
+
+        Value: Fredoka_400Regular, size 14 (text-sm), lineHeight: snug
+               Color: foreground at 85% opacity (text-foreground/85)
+               Falls back to "—" if the value is null
+
+    Row 1: MapPin icon    — Label "Origin"           — origin value
+    Row 2: Sparkles icon  — Label "Meaning"          — meaning value
+    Row 3: Tag icon       — Label "Possible Nickname" — nickname value
+    Row 4: TrendingUp icon — Label "Popularity"      — "#N most popular" or "—"
+
+Bottom section of overlay (action buttons + hint):
+
+  Two action buttons (gap: 32 between them, centered row, marginTop: 16):
+    Each button:
+      Size: 64x64, borderRadius: 32
+      Same gradient/border/shadow as the main card action buttons, but:
+        border: 2px rgba(255,255,255,0.70)  — slightly more opaque than main card
+        shadow: 0 6px 20px rgba(0,0,0,0.20), 0 2px 6px rgba(0,0,0,0.10),
+                inset 0 1px 2px rgba(255,255,255,0.90)
+        background: linear-gradient(145deg, hsl(38,50%,96%) 0%, hsl(38,45%,92%) 100%)
+
+    Pass button (left):
+      Content: "✕" text, color destructive, size 30, bold
+               filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+      onPress: setShowInfo(false) + triggerSwipe(false)
+               (closes overlay AND fires the swipe)
+
+    Like button (right):
+      Content: Heart icon, size 28, color rose500, filled rose500
+               filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+      onPress: setShowInfo(false) + triggerSwipe(true)
+
+  Hint text at very bottom:
+    "swipe down to close"
+    Font: Fredoka, size 12 (text-xs), centered
+    Color: boyBlue at 35% opacity or girlPink at 35% opacity
+    marginTop: 12
+
+================================================================================
+PART 5 — MATCH CELEBRATION MODAL
+================================================================================
+
+Shown when both partners have liked the same name.
+Auto-dismisses after 4000ms.
+
+Overlay (fixed, inset 0, z-index 50):
+  background: rgba(0,0,0,0.70)
+  backdrop-filter: blur
+  display: flex, items: center, justify: center
+  Entrance animation: animate-fade-in (opacity 0→1)
+
+Inner card:
+  background: parchment hsl(38,45%,93%)
+  borderRadius: 24 (rounded-3xl)
+  shadow: shadow-2xl
+  border: 1px solid border hsl(35,22%,80%)
+  padding: 32 (p-8)
+  maxWidth: ~448 (max-w-md)
+  marginHorizontal: 16
+  Entrance animation: animate-scale-in (scale 0.8→1.0, opacity 0→1)
+    Using cubic-bezier spring feel, ~0.4s duration
+
+Card contents (all centered, flex column, align center):
+
+  1. Heart icon (animated bounce, repeated):
+     Heart from lucide, size: 64
+     color: heartRed hsl(0,75%,50%), filled heartRed
+     marginBottom: 16
+     animation: CSS bounce keyframes (up/down loop)
+
+  2. "It's a Match!" heading:
+     Font: Patrick Hand bold, size 36 (text-4xl)
+     Color: grass hsl(145,45%,35%)
+     marginBottom: 8
+
+  3. Subtitle:
+     "You both love the name"
+     Font: Fredoka, size 16 (font-display)
+     Color: mutedForeground
+     marginBottom: 24
+
+  4. The matched name:
+     Font: Fredoka_700Bold, size 48 (text-5xl)
+     Color: boyBlue if boy, girlRed if girl
+     marginBottom: 8
+
+  5. Baby last name (only if user.baby_last_name is set):
+     Font: Fredoka_500Medium, size 24 (text-2xl)
+     Color: foreground
+     marginBottom: 24
+
+  6. "Keep Swiping" button:
+     Padding: 12 top/bottom, 24 left/right
+     borderRadius: 999 (rounded-full)
+     background: boyBlue hsl(214,55%,42%)
+     color: white
+     Font: Fredoka_500Medium, size 16 (font-display font-medium)
+     Hover: opacity 0.90 + scale 1.05
+     onPress: sets matchedName to null (dismisses modal)
+
+================================================================================
+PART 6 — SWIPE SCREEN STATES
+================================================================================
+
+The SwipeView (parent of NameCard) manages several states:
+
+--- LOADING STATE ---
+Shown while names are being fetched from Supabase.
+Full-height centered: "Loading names..." text
+Font: Fredoka, color: mutedForeground
+Background: parchment
+
+--- ERROR STATE ---
+Shown if name loading throws an error.
+Full-height centered flex column:
+  "⚠️" emoji (large text, marginBottom 16)
+  "Oops!" — Patrick Hand bold, size 24, color grass, marginBottom 8
+  Error message text — Fredoka, color mutedForeground, marginBottom 24
+  "Try Again" button:
+    paddingHorizontal: 24, paddingVertical: 12
+    background: boyBlue, color: white
+    borderRadius: 8 (rounded-lg)
+    Font: Fredoka_500Medium, size 16
+
+--- EMPTY DECK STATE ---
+Shown when all names in the deck have been swiped.
+Full-height centered flex column:
+  "🎉" emoji (large text, marginBottom 16)
+  "All done!" — Patrick Hand bold, size 24, color grass, marginBottom 8
+  "You've swiped through all available names." — Fredoka, mutedForeground, marginBottom 24
+  "Start Over" button — same style as Try Again button
+
+--- NORMAL STATE ---
+Shows the card stack (up to 2 cards).
+Background: parchment, flex column, fills screen.
+Inner container: flex-1, position relative, paddingHorizontal: 20, paddingBottom: 8.
+Both cards positioned absolute inset: 0 inside this container.
+
+================================================================================
+PART 7 — THE COMPLETE GESTURE-TO-ANIMATION LIFECYCLE
+================================================================================
+
+This is the full sequence of events for a complete swipe:
+
+1. USER PUTS FINGER DOWN
+   onDragStart fires:
+     isDragging.current = true
+     hasCommitted.current = false
+
+2. USER DRAGS
+   onDrag fires repeatedly:
+     x updates → rotate, cardOpacity update via interpolation
+     dragProgress updates → back card scale/translateY update
+     likeOpacity/passOpacity/likeScale/passScale update
+     The sun image and text stamp fade in on the appropriate corner
+
+3a. USER RELEASES (not past threshold)
+   onDragEnd fires:
+     pastDistanceThreshold = false
+     pastVelocityThreshold = false
+     x.set(0) → card springs back to center
+     dragProgress.set(0) → back card returns to peeking position
+     All opacity/scale values return to resting state
+     hasCommitted remains false
+
+3b. USER RELEASES (past threshold) or BUTTON PRESSED
+   onDragEnd fires (or button calls triggerSwipe):
+     commitSwipe(liked, velocity) called
+     hasCommitted.current = true  ← guard prevents double-fire
+     velocityBonus calculated from velocity
+     exitX = direction * screenWidth * (1.8 + velocityBonus * 0.6)
+     duration = max(0.22, 0.42 - velocityBonus * 0.1)
+     HAPTIC: 12ms vibration fires
+     dragProgress.set(1)  ← back card jumps to full size
+     Card animates to exitX with opacity 0, using cubic-bezier tween
+     At 55% of animation duration:
+       onSwipe(liked) called in parent
+       Parent increments currentIndex
+       Next name is now the front card
+       The card that was "back" is now "front" (key change → re-mounts fresh)
+       dragProgress.set(0) is called by parent
+       The new back card starts at peeking position again
+
+================================================================================
+PART 8 — DATA PROPS REFERENCE
+================================================================================
+
+The NameCard component receives these props:
+
+  name:          string             Required. The first name. e.g. "Oliver"
+  pronunciation: string | null      Optional. e.g. "AH-lih-ver". Shown in brackets.
+  origin:        string | null      Optional. e.g. "Latin". Shown in info overlay.
+  meaning:       string | null      Optional. Full meaning text. Info overlay.
+  nickname:      string | null      Optional. e.g. "Ollie". Info overlay.
+  rank:          number | null      Optional. US popularity rank. Info overlay.
+  gender:        "boy" | "girl"     Required. Controls color theme + background image.
+  remaining:     number             Required. Names left in deck after this one.
+  lastName:      string | undefined Optional. User's baby last name setting.
+                                    If set, shows below the first name.
+  onSwipe:       (liked: boolean) → void  Required. Called when card commits a swipe.
+  onUndo:        () → void | undefined    Optional. Called when undo button pressed.
+  canUndo:       boolean            Optional. Default false. Enables undo button.
+  isNext:        boolean            Optional. Default false. True for the back card.
+  dragProgress:  MotionValue<number> | SharedValue<number>
+                                    Optional. Shared value for back-card animation.
+  isPartnerPick: boolean            Optional. Default false. Shows "Partner Added" badge.
+
+================================================================================
+PART 9 — REACT NATIVE IMPLEMENTATION NOTES
+================================================================================
+
+Replace every Framer Motion primitive with react-native-reanimated v3:
+
+  useMotionValue(0)             → useSharedValue(0)
+  useTransform(x, in, out)      → useDerivedValue(() => interpolate(x.value, in, out))
+  motion.div style={{ x, rotate, opacity }}  → Animated.View with useAnimatedStyle
+  useAnimate()                  → useAnimatedStyle + withTiming / withSpring
+  drag="x", onDragStart, onDrag, onDragEnd
+    →  PanGestureHandler from react-native-gesture-handler
+       onGestureEvent: update x.value = event.translationX
+       onHandlerStateChange: check state === END, run commit or reset logic
+
+  animate(ref, { x: exitX, opacity: 0 }, { type: "tween", duration, ease })
+    → x.value = withTiming(exitX, { duration: ms, easing: Easing.bezier(0.25, 0.46, 0.45, 0.94) })
+      then opacity.value = withTiming(0, { duration: ms })
+
+  dragElastic: 0.18
+    → When card is past constraints, multiply offset by 0.18 for resistance effect
+
+  spring stiffness: 350, damping: 35
+    → withSpring(0, { stiffness: 350, damping: 35 })
+
+  AnimatePresence with initial y:"100%" animate y:0 exit y:"100%"
+    → Use a boolean state to conditionally show the overlay.
+      On show: translateY.value = withSpring(0, { stiffness: 350, damping: 35 })
+      On hide: translateY.value = withSpring(screenHeight, ...)
+      Use Animated.View wrapping the overlay content.
+
+  The info overlay drag-to-dismiss:
+    → Separate PanGestureHandler tracking vertical direction only.
+      If gesture ends with translationY > 80: dismiss.
+      Otherwise: reset translateY to 0 with spring.
+
+Key RN-specific considerations:
+  - Use Dimensions.get('window').width instead of window.innerWidth for THRESHOLD.
+  - THRESHOLD = screenWidth * 0.27 (same ratio, just different source).
+  - Haptics: expo-haptics ImpactFeedbackStyle.Light instead of navigator.vibrate(12).
+  - Images: use <Image source={require('../assets/images/...')} resizeMode="cover" />.
+  - The "drop-shadow filter" CSS → use shadow props on the icon's container View.
+  - mix-blend-mode: overlay has no RN equivalent — omit the parchment tint overlay
+    or approximate with a very low opacity solid color View instead.
+  - The drag layer (invisible draggable area covering top portion of card) →
+    in RN this is just the PanGestureHandler area. Set the gesture's hitSlop
+    to exclude the bottom 128px where buttons live.
+  - touchAction: "pan-y" → handled automatically by RN gesture system.
+
+================================================================================
+PART 10 — COLOR & FONT QUICK REFERENCE
+================================================================================
+
+Colors used in the swipe card:
+  boyBlue:          hsl(214, 55%, 42%)   — #3a6fb0 approx. Boy text, borders, tints.
+  girlPink:         hsl(345, 55%, 50%)   — #c04070 approx. Girl label text, borders.
+  girlRed:          hsl(0, 70%, 48%)     — #c0392b approx. Girl name text (darker).
+  grass:            hsl(145, 45%, 35%)   — #316b46 approx. Match modal heading.
+  heartRed:         hsl(0, 75%, 50%)     — Match modal heart color.
+  destructive:      hsl(0, 72%, 50%)     — ✕ text color on Pass button.
+  rose500:          #f43f5e              — Heart icon on Like button.
+  mutedForeground:  hsl(25, 12%, 48%)    — Remaining count, undo icon.
+  foreground:       hsl(25, 30%, 20%)    — Value text in info rows.
+  parchment:        hsl(38, 45%, 93%)    — App background, card fallback bg.
+  border:           hsl(35, 22%, 80%)    — Card border.
+
+Action button gradient (Pass, Undo, Like — all share this):
+  linear-gradient(145deg, hsl(38,50%,96%) 0%, hsl(38,45%,92%) 100%)
+
+Fonts:
+  "display" = Fredoka (use Fredoka_400Regular, _500Medium, _600SemiBold, _700Bold)
+    Used for: name text, pronunciation, remaining count, info button, info row values,
+              action button feedback, match modal body text
+  "hand" = Patrick Hand (use PatrickHand_400Regular — only one weight available)
+    Used for: "Boy Name" / "Girl Name" label at top of card
+              "About this name" heading in info overlay
+              "It's a Match!" in the match modal
+
+Assets (all from the public/ or assets/images/ folder):
+  boy-card-rolling-hills.jpg   — Landscape, used as boy card background
+  girl-card-flowers.jpg        — Floral, used as girl card background
+  like_sun2.png                — Sun illustration for LIKE indicator overlay
+  dislike_sun.png              — Sun illustration for PASS indicator overlay
+  paper-texture.jpg            — Paper grain, used on info overlay at 20% opacity
+```
+
+---
+
+That is everything an AI needs to produce a pixel-exact, behavior-exact replica of the swipe card. To implement, switch back to **Build mode** using the "Implement this plan" button.

@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSharedValue } from "react-native-reanimated";
 
 import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
 import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
@@ -40,6 +41,7 @@ export default function SwipeScreen() {
   const [history, setHistory] = useState<{ nameId: string; liked: boolean }[]>([]);
   const [firstLikeOpen, setFirstLikeOpen] = useState(false);
   const cardRef = useRef<NameCardHandle>(null);
+  const dragProgress = useSharedValue(0);
 
   const limits = useDailyLimits(user, updateUser);
 
@@ -276,6 +278,7 @@ export default function SwipeScreen() {
             lastName={user.baby_last_name ?? undefined}
             isPartnerPick={partnerPickIds.has(next.id)}
             isNext
+            dragProgress={dragProgress}
             onSwipe={() => {}}
           />
         )}
@@ -293,7 +296,11 @@ export default function SwipeScreen() {
           lastName={user.baby_last_name ?? undefined}
           isPartnerPick={partnerPickIds.has(current.id)}
           canUndo={undoEnabled}
-          onSwipe={handleSwipe}
+          dragProgress={dragProgress}
+          onSwipe={(liked) => {
+            dragProgress.value = 0;
+            handleSwipe(liked);
+          }}
           onUndo={handleUndo}
         />
       </View>

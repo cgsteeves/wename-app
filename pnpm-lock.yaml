@@ -398,6 +398,12 @@ importers:
 
   artifacts/wename:
     dependencies:
+      '@expo-google-fonts/fredoka':
+        specifier: ^0.4.1
+        version: 0.4.1
+      '@expo-google-fonts/patrick-hand':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@supabase/supabase-js':
         specifier: ^2.104.0
         version: 2.104.0
@@ -1127,8 +1133,14 @@ packages:
     cpu: [x64]
     os: [linux]
 
+  '@expo-google-fonts/fredoka@0.4.1':
+    resolution: {integrity: sha512-px3uHDidG1RI7mMAjfKQktK9yZoVn/Uvqgp1G/Zkd6ZN9flXFxhUoPDRZdcCj2knFvkKmlvOx96SD3j4fxq7ig==}
+
   '@expo-google-fonts/inter@0.4.2':
     resolution: {integrity: sha512-syfiImMaDmq7cFi0of+waE2M4uSCyd16zgyWxdPOY7fN2VBmSLKEzkfbZgeOjJq61kSqPBNNtXjggiQiSD6gMQ==}
+
+  '@expo-google-fonts/patrick-hand@0.4.1':
+    resolution: {integrity: sha512-Z/gioyynhzrsF6Od8E2QKpQooHnEzUmfen9ohVT6uaeWAmQy3pkl9r7AGdJx9ersDSLUciCNFV442leHIieJqQ==}
 
   '@expo/cli@54.0.23':
     resolution: {integrity: sha512-km0h72SFfQCmVycH/JtPFTVy69w6Lx1cHNDmfLfQqgKFYeeHTjx7LVDP4POHCtNxFP2UeRazrygJhlh4zz498g==}
@@ -6325,7 +6337,11 @@ snapshots:
   '@esbuild/linux-x64@0.27.3':
     optional: true
 
+  '@expo-google-fonts/fredoka@0.4.1': {}
+
   '@expo-google-fonts/inter@0.4.2': {}
+
+  '@expo-google-fonts/patrick-hand@0.4.1': {}
 
   '@expo/cli@54.0.23(expo-router@6.0.23)(expo@54.0.33)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(typescript@5.9.3)':
     dependencies:

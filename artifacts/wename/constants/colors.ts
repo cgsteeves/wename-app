@@ -1,45 +1,42 @@
+// Exact HSL palette mirrored from the WeName web app (src/index.css)
 const colors = {
   light: {
-    text: "#3a2e22",
-    tint: "#4a7a4a",
+    text: "hsl(25, 30%, 20%)",
+    foreground: "hsl(25, 30%, 20%)",
+    mutedForeground: "hsl(25, 12%, 48%)",
 
-    background: "#f9f1de",
-    foreground: "#3a2e22",
+    background: "hsl(40, 30%, 95%)",
+    parchment: "hsl(38, 45%, 93%)",
+    parchmentDark: "hsl(38, 42%, 91%)",
 
-    parchment: "#f9f1de",
-    parchmentDark: "#f0e5c8",
+    card: "hsl(40, 40%, 93%)",
+    cardForeground: "hsl(25, 30%, 20%)",
 
-    card: "#fdf7e6",
-    cardForeground: "#3a2e22",
+    muted: "hsl(38, 25%, 87%)",
 
-    primary: "#4a7a4a",
+    border: "hsl(35, 22%, 80%)",
+    input: "hsl(35, 22%, 80%)",
+
+    primary: "hsl(214, 60%, 45%)",
     primaryForeground: "#ffffff",
-
-    secondary: "#efe4c5",
-    secondaryForeground: "#3a2e22",
-
-    muted: "#efe4c5",
-    mutedForeground: "#7a6a52",
-
-    accent: "#e8a838",
+    secondary: "hsl(345, 60%, 50%)",
+    secondaryForeground: "#ffffff",
+    accent: "hsl(28, 85%, 55%)",
     accentForeground: "#ffffff",
+    destructive: "hsl(0, 72%, 50%)",
 
-    destructive: "#d9534f",
-    destructiveForeground: "#ffffff",
-
-    border: "#d9c89c",
-    input: "#d9c89c",
-
-    boy: "#3b6fb8",
-    boyLight: "#dbeafe",
-    girl: "#e288a0",
-    girlPink: "#d6678a",
-    girlRed: "#c63a5c",
-    either: "#a673c4",
-
-    grass: "#4a7a4a",
-    sun: "#e8a838",
-    heart: "#e64570",
+    // Storybook palette
+    boy: "hsl(214, 55%, 42%)",
+    boyLight: "hsl(214, 70%, 92%)",
+    girl: "hsl(0, 70%, 48%)",
+    girlPink: "hsl(345, 55%, 50%)",
+    girlRed: "hsl(0, 70%, 48%)",
+    either: "hsl(28, 85%, 55%)",
+    grass: "hsl(145, 45%, 35%)",
+    sun: "hsl(42, 90%, 58%)",
+    heart: "hsl(0, 75%, 50%)",
+    rose: "#f43f5e",
+    tint: "hsl(214, 60%, 45%)",
   },
   radius: 16,
 };

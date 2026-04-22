@@ -14,8 +14,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import NameCard, { NameCardHandle } from "@/components/NameCard";
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
+import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
-import { useDailyLimits } from "@/hooks/useDailyLimits";
+import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
 import { getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
 import { Name, supabase } from "@/lib/supabase";
 
@@ -212,17 +213,93 @@ export default function SwipeScreen() {
     );
   }
 
+  const accent = current.gender === "boy" ? colors.boy : colors.girlRed;
+  const undoEnabled = history.length > 0 && currentIndex > 0;
+  const isPremium = user.plan_tier === "premium";
+  const swipeLeft = Math.max(0, FREE_LIMITS.swipes - (user.daily_swipe_count ?? 0));
+  const showLimitBanner = !isPremium && swipeLeft <= Math.ceil(FREE_LIMITS.swipes * 0.2);
+
   return (
     <View
       style={[
         styles.root,
         {
           backgroundColor: colors.parchment,
-          paddingTop: insets.top + 8,
-          paddingBottom: insets.bottom + 70,
+          paddingTop: insets.top,
+          paddingBottom: 0,
         },
       ]}
     >
+      {/* Top bar */}
+      <View style={styles.topBar}>
+        <Pressable
+          style={[
+            styles.iconBtn,
+            { backgroundColor: colors.card, borderColor: colors.border },
+            !undoEnabled && { opacity: 0.35 },
+          ]}
+          onPress={handleUndo}
+          disabled={!undoEnabled}
+        >
+          <Feather name="rotate-ccw" size={18} color={colors.mutedForeground} />
+        </Pressable>
+        <Text style={[styles.brand, { color: colors.grass, fontFamily: fonts.hand }]}>
+          WeName
+        </Text>
+        {user.partner_id ? (
+          <View
+            style={[
+              styles.partnerAvatar,
+              { backgroundColor: accent + "33", borderColor: accent },
+            ]}
+          >
+            <Text
+              style={{
+                color: accent,
+                fontFamily: fonts.displayBold,
+                fontSize: 16,
+              }}
+            >
+              P
+            </Text>
+          </View>
+        ) : (
+          <Pressable
+            style={[
+              styles.invitePill,
+              { backgroundColor: accent + "26", borderColor: accent + "55" },
+            ]}
+            onPress={() => router.push("/(tabs)/settings")}
+          >
+            <Feather name="users" size={14} color={accent} />
+            <Text
+              style={{
+                color: accent,
+                fontSize: 12,
+                fontFamily: fonts.displayBold,
+              }}
+            >
+              Invite Partner
+            </Text>
+          </Pressable>
+        )}
+      </View>
+
+      {showLimitBanner && (
+        <Pressable
+          style={styles.limitBanner}
+          onPress={() => {
+            setLimitType("swipe");
+            setPremiumOpen(true);
+          }}
+        >
+          <Feather name="zap" size={13} color="#d97706" />
+          <Text style={[styles.limitText, { fontFamily: fonts.displaySemibold }]}>
+            {swipeLeft} swipes left today
+          </Text>
+        </Pressable>
+      )}
+
       <View style={styles.cardArea}>
         {next && (
           <NameCard
@@ -254,10 +331,34 @@ export default function SwipeScreen() {
           remaining={remaining}
           lastName={user.baby_last_name ?? undefined}
           isPartnerPick={partnerPickIds.has(current.id)}
-          canUndo={history.length > 0 && currentIndex > 0}
+          canUndo={undoEnabled}
           onSwipe={handleSwipe}
           onUndo={handleUndo}
         />
+      </View>
+
+      {/* Bottom action bar */}
+      <View style={styles.actionBar}>
+        <Pressable
+          style={[styles.actionBtn, styles.actionBtnLg, { backgroundColor: colors.card }]}
+          onPress={() => cardRef.current?.swipe(false)}
+        >
+          <Feather name="x" size={28} color={colors.destructive} />
+        </Pressable>
+        <Pressable
+          style={[styles.actionBtn, styles.actionBtnSm, { backgroundColor: colors.card }]}
+          onPress={() => {
+            // tap front card to flip — handled inside NameCard. This is a fallback.
+          }}
+        >
+          <Feather name="info" size={20} color={colors.mutedForeground} />
+        </Pressable>
+        <Pressable
+          style={[styles.actionBtn, styles.actionBtnLg, { backgroundColor: colors.card }]}
+          onPress={() => cardRef.current?.swipe(true)}
+        >
+          <Feather name="heart" size={28} color={accent} />
+        </Pressable>
       </View>
 
       <Modal
@@ -323,6 +424,70 @@ export default function SwipeScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 16 },
+  topBar: {
+    height: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  brand: { fontSize: 26, fontWeight: "700" },
+  partnerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  invitePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  limitBanner: {
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fffbeb",
+    borderColor: "#fde68a",
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginTop: 4,
+  },
+  limitText: { color: "#b45309", fontSize: 12 },
+  actionBar: {
+    height: 90,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-evenly",
+    paddingHorizontal: 24,
+  },
+  actionBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  actionBtnLg: { width: 64, height: 64, borderRadius: 32 },
+  actionBtnSm: { width: 52, height: 52, borderRadius: 26 },
   cardArea: { flex: 1, position: "relative" },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8 },
   errorTitle: { fontSize: 22, fontWeight: "700", marginTop: 8 },

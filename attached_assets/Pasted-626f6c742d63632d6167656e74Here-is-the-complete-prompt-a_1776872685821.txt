@@ -1,0 +1,546 @@
+626f6c742d63632d6167656e74Here is the complete prompt as plain text you can copy and paste into Replit:
+
+---
+
+```
+Convert the following React + Vite web application into a React Native app using Expo (SDK 52+) with TypeScript. The goal is an exact replica of the existing UI and UX — same screens, same flows, same visual design, same Supabase backend.
+
+================================================================================
+PROJECT OVERVIEW
+================================================================================
+
+App name: WeName
+Concept: A baby name picker where couples swipe on names together and get notified when they both like the same name (a "match").
+Supabase project URL: https://cwpanlrimbccdgzchkdo.supabase.co
+Supabase anon key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48
+
+================================================================================
+TECH STACK
+================================================================================
+
+- Expo (managed workflow, SDK 52+)
+- TypeScript
+- React Navigation (bottom tabs + stack navigator) — replaces the custom tab state in App.tsx
+- @supabase/supabase-js v2 — keep all existing Supabase queries exactly as-is
+- react-native-reanimated v3 + react-native-gesture-handler — replaces Framer Motion for swipe card gestures
+- expo-secure-store — replaces localStorage for storing the guest user ID (baby_picker_user_id) and auth keys
+- expo-linking — handles deep links for the /auth/callback OAuth flow and /join/:token partner invite links
+- expo-web-browser — handles Google / Apple OAuth redirects
+- @expo-google-fonts/fredoka-one and @expo-google-fonts/patrick-hand — replaces Tailwind font classes (font-display = Fredoka One, font-hand = Patrick Hand)
+- lucide-react-native — drop-in replacement for lucide-react icons
+
+Do NOT use NativeWind or any Tailwind adapter. Use React Native StyleSheet throughout.
+
+================================================================================
+DESIGN SYSTEM CONSTANTS (src/theme.ts)
+================================================================================
+
+Colors (exact HSL values):
+  parchment:        hsl(38, 45%, 93%)     // app background, tab bar
+  card:             hsl(40, 40%, 93%)     // all card surfaces
+  background:       hsl(40, 30%, 95%)     // scroll-view backgrounds
+  foreground:       hsl(25, 30%, 20%)     // primary text
+  muted-foreground: hsl(25, 12%, 48%)     // secondary text
+  muted:            hsl(38, 25%, 87%)     // muted backgrounds
+  border:           hsl(35, 22%, 80%)     // card borders
+  boy-blue:         hsl(214, 55%, 42%)
+  girl-pink:        hsl(345, 55%, 50%)
+  grass:            hsl(145, 45%, 35%)
+  destructive:      hsl(0, 72%, 50%)
+  sun-yellow:       hsl(42, 90%, 58%)
+  heart-red:        hsl(0, 75%, 50%)
+  amber-500:        #f59e0b
+
+Fonts:
+  display: Fredoka (weights 400/500/600/700) — used for ALL body text
+  hand:    Patrick Hand — used for large headings and the app logo
+
+Border radius:
+  base radius: 16px (all cards, buttons, inputs)
+  inner radius: 12px (icon badges, small pills)
+
+Shadows:
+  card shadow: elevation 2, shadowColor #000, opacity 0.06
+  button shadow: elevation 3, shadowColor brand color, opacity 0.15
+
+================================================================================
+SCREENS & NAVIGATION
+================================================================================
+
+Bottom Tab Navigator (3 tabs):
+- Swipe — butterfly emoji icon, active color = boy or girl depending on user.baby_gender
+- Names — Heart icon (filled when active)
+- Settings — Settings icon
+
+The active tab pill/glow effect: a soft rounded background with an opacity tint of the active color.
+The tab bar background is parchment with a subtle top border and shadow.
+
+================================================================================
+SWIPE CARD DESIGN (SwipeCard.tsx)
+================================================================================
+
+The swipe card occupies roughly 85% of viewport width and 65% of viewport height, centered horizontally. borderRadius: 28.
+
+Card visual layers (back to front):
+
+1. Background image — boy-card-rolling-hills.jpg for boy names, a warm pink/sunrise image for girl names, drawn full-bleed with resizeMode: cover. Add a gradient overlay: transparent at top, rgba(0,0,0,0.22) at 60% down, rgba(0,0,0,0.55) at the bottom.
+
+2. Gender color tint overlay on the top portion: boy-blue at opacity 0.12 for boys, girl-pink at opacity 0.12 for girls.
+
+3. Top-right corner badge showing the name's popularity rank (e.g. "#42") in a small pill: white background at opacity 0.85, rounded, fontSize 12, Fredoka fontWeight 600. Omit if rank is null.
+
+4. Bottom text block:
+   - Name in Patrick Hand, fontSize 58-64, fontWeight 700, color white, text shadow (textShadowRadius 8, textShadowColor rgba(0,0,0,0.4)).
+   - Pronunciation below in Fredoka, fontSize 16, color rgba(255,255,255,0.80), italic. In parentheses e.g. (AY-den). Omit if null.
+   - Row of small pill badges: Origin and shortened meaning (max 20 chars). Pills: rgba(255,255,255,0.20) background, color white, borderRadius 20, paddingHorizontal 10, paddingVertical 4, fontSize 12.
+
+While dragging:
+- Rotate card +-12 degrees proportional to drag distance.
+- Dragging right: green heart overlay top-left corner. Circle diameter 80, backgroundColor grass, opacity 0 to 1 as drag reaches threshold. White Heart icon size 36 inside.
+- Dragging left: red X overlay top-right corner. Same size, backgroundColor destructive. White X icon inside.
+- Second card behind: scale 0.96, translateY 12. As top card dragged beyond 30% of threshold, second card animates toward full scale and 0 offset with spring.
+
+Card flip (tap to see detail):
+- Y-axis rotation. Front = name/background. Back = name detail panel.
+- Back face: card color background, same borderRadius 28, same shadow.
+- Back face content (centered, padding 24):
+  - Name: Patrick Hand, fontSize 48, color foreground.
+  - Pronunciation: Fredoka, fontSize 16, color muted-foreground, italic.
+  - Section "Origin" — label Fredoka 500 uppercase tracking-wide fontSize 11 color muted-foreground, value Fredoka 600 fontSize 15 color foreground.
+  - Section "Meaning" — same label pattern, full text wrapped, fontSize 14, lineHeight 22.
+  - Section "Nickname" — only if not null.
+  - Section "Popularity" — horizontal bar: gray track height 6 borderRadius 3, filled portion = (10000 - rank) / 10000 in gender accent color. Label "#42 in the US" to the right.
+  - "Tap to flip back" hint at bottom, muted-foreground, fontSize 11.
+
+================================================================================
+SWIPE SCREEN LAYOUT (SwipeScreen.tsx)
+================================================================================
+
+Top bar (height 56, horizontal padding 16):
+- Left: Undo button. Circle size 40, backgroundColor card, borderRadius 20, border 1px. RotateCcw icon size 18 color muted-foreground. Disabled (opacity 0.35) when no undo history.
+- Center: "WeName" in Patrick Hand fontSize 22 color grass.
+- Right: Partner button.
+  - No partner: rounded pill, backgroundColor boy/girl tint at 15%, label "Invite Partner" Fredoka 600 fontSize 12, Users icon size 14.
+  - Partner linked: circle avatar size 40, borderRadius 20, first initial of partner name, Fredoka bold, soft gender-tinted background.
+
+Card stack area: fills remaining space between top bar and action bar. Cards absolutely positioned, centered.
+
+Daily limit banner: shown when free user has used >= 80% of daily limit. Pill-shaped: backgroundColor amber-50, borderColor amber-200, borderRadius 20, padding 8px 16px. Zap icon size 13 color amber-500 + "X swipes left today" Fredoka 500 fontSize 12 color amber-700. Tap opens Premium modal.
+
+Bottom action bar (height 80, above system home indicator):
+Three buttons evenly spaced:
+- Left (Dislike): Circle size 64, backgroundColor card, borderRadius 32, shadow. X icon size 26, color destructive. Press: scale pulse with withSpring.
+- Center (Info/flip): Circle size 52. Info icon size 20, color muted-foreground. Flips front card.
+- Right (Like): Circle size 64, backgroundColor card, borderRadius 32, shadow. Heart icon size 26, color boy-blue or girl-pink.
+
+================================================================================
+MATCH CELEBRATION MODAL
+================================================================================
+
+Full-screen semi-transparent overlay rgba(0,0,0,0.65) with centered card (width 88%, borderRadius 28, backgroundColor card).
+
+Content (top to bottom, all centered):
+- Animated confetti burst (react-native-confetti-cannon or custom particles) fires once on mount.
+- Two avatar circles side by side with heart between: each circle size 52, borderRadius 26, backgroundColor grass/10, first initial. Heart icon size 20 color heart-red centered between.
+- Large name text: Patrick Hand fontSize 40 color foreground.
+- "It's a match!" Fredoka bold fontSize 18 color grass.
+- "You and [Partner] both love this name" Fredoka fontSize 13 color muted-foreground.
+- Origin and meaning snippet pills (same style as card badges but backgroundColor muted).
+- "Keep swiping" button: full-width, backgroundColor grass, borderRadius 16, height 52, white Fredoka bold fontSize 15.
+- "View Matches" text button below: color muted-foreground fontSize 13.
+
+================================================================================
+PARTNER INVITE MODAL (FirstLikePartnerModal)
+================================================================================
+
+Appears after user's first ever like, as a bottom sheet (position absolute, bottom 0, width 100%).
+- Handle bar at top: width 40, height 4, borderRadius 2, backgroundColor border, centered.
+- Padding 24, backgroundColor card, borderTopLeftRadius 28, borderTopRightRadius 28.
+- Dismiss X button top right: size 32 circle.
+- Icon: Users in a circle badge size 48, backgroundColor boy/girlTint, borderRadius 24.
+- Heading: "Swipe together" Patrick Hand fontSize 28.
+- Body text in Fredoka fontSize 14 color muted-foreground lineHeight 22 explaining how matching works.
+- Two full-width buttons stacked:
+  1. Primary: "Invite my partner" — backgroundColor boy/girl, white text, borderRadius 16, height 52.
+  2. Secondary: "Maybe later" — border only, borderColor border, color muted-foreground, borderRadius 16, height 48.
+
+================================================================================
+PREMIUM UPGRADE MODAL (PremiumUpgradeModal)
+================================================================================
+
+Bottom sheet, same structure as Partner Invite.
+- Icon: Star filled amber in amber circle.
+- Heading: "Unlock Premium" Patrick Hand fontSize 28.
+- Context-sensitive subtitle e.g. "You've reached your 8 daily likes" Fredoka fontSize 13 color muted-foreground.
+- Benefits list (4 items). Each row: small amber checkmark circle + Fredoka fontSize 13 color foreground text.
+  - Unlimited swipes and likes
+  - 10,000+ more names
+  - AI-powered name suggestions
+  - Advanced filters and packs
+- Price line: "$X.99 / month" Fredoka bold fontSize 18 color foreground + " — cancel anytime" in muted.
+- CTA button: gradient from amber-400 to orange-400, borderRadius 16, height 52, white Fredoka bold fontSize 15 "Upgrade to Premium".
+- Restore purchase text button below.
+- Legal micro-text fontSize 10 color muted-foreground about auto-renewal.
+
+================================================================================
+NAMES SCREEN — TAB BAR
+================================================================================
+
+Horizontal tab bar at top of screen (height 44, paddingHorizontal 16, backgroundColor parchment).
+Three tabs: Liked / Matches / Disliked.
+- Active tab: text in gender accent color + 2px bottom border line in same color. Fredoka bold fontSize 14.
+- Inactive tab: Fredoka fontSize 14 color muted-foreground.
+- Matches tab shows badge count (circle size 18, backgroundColor grass, borderRadius 9, white text fontSize 10) when count > 0.
+
+================================================================================
+LIKED NAMES LIST (LikedList)
+================================================================================
+
+FlatList rows:
+- backgroundColor card, borderRadius 16, marginBottom 8, paddingHorizontal 16, paddingVertical 12.
+- Left: drag handle (three horizontal lines icon, color muted-foreground opacity 0.5) — only shown in reorder mode.
+- Name text: Fredoka bold fontSize 17 color foreground.
+- Below name: origin + meaning snippet Fredoka fontSize 12 color muted-foreground.
+- Right: rank badge pill. backgroundColor muted, borderRadius 12, paddingHorizontal 8, paddingVertical 2. "#42" Fredoka fontSize 11 color muted-foreground.
+- On press: opens Name Detail Overlay.
+- Long press: enters reorder mode (drag handles appear, reorder with haptic feedback via expo-haptics).
+- Swipe left on row: reveals red "Unlike" action button.
+
+At bottom of Liked list — collapsible AI Suggestions panel:
+- Header row: Sparkles icon (amber) + "Name Suggestions" Fredoka bold fontSize 14 + chevron to expand/collapse.
+- When expanded: horizontal ScrollView of suggestion chips. Each chip: backgroundColor amber-50, borderRadius 20, borderColor amber-200, paddingHorizontal 14, paddingVertical 8. Name Fredoka bold fontSize 14 color amber-900 with small "+" icon. Tap to add to liked list. Refresh button at end of row.
+- Fetched from /functions/v1/name-suggestions Edge Function.
+
+================================================================================
+MATCHES LIST (MatchesView)
+================================================================================
+
+FlatList rows:
+- backgroundColor card, borderRadius 16, marginBottom 8, same padding as liked rows.
+- Left: double-heart icon color heart-red.
+- Name text: Fredoka bold fontSize 17 color foreground.
+- Below name: row showing two avatar initials (user + partner) separated by "+" in muted-foreground. Each initial is circle size 22, borderRadius 11, soft gender tint, Fredoka bold fontSize 11.
+- Right: Share2 icon button size 16 color muted-foreground. On press: native share sheet.
+- On press: Name Detail Overlay.
+
+No partner empty state: Users icon, "Connect a partner to see your matches", "Invite Partner" button.
+No matches empty state: heart icon, "Keep swiping — matches appear here when you both like the same name."
+
+================================================================================
+NAME DETAIL OVERLAY
+================================================================================
+
+Modal slides up from bottom. Takes ~75% screen height.
+- backgroundColor card, borderTopLeftRadius 28, borderTopRightRadius 28.
+- Handle bar at top.
+- Close X button top right: circle size 32.
+- Name: Patrick Hand fontSize 48 color foreground, centered.
+- Pronunciation: Fredoka italic fontSize 16 color muted-foreground.
+- Gender badge pill: backgroundColor boy/girl tint at 15%, color boy/girl, borderRadius 20, Fredoka bold fontSize 12. Text "Boy" or "Girl".
+- Divider.
+- Sections (label + value):
+  - "Origin" — label Fredoka semibold fontSize 12 uppercase color muted-foreground, value Fredoka fontSize 15 color foreground.
+  - "Meaning" — same, multi-line.
+  - "Nickname" — only if present.
+  - "Popularity" — rank bar (gray track height 6 borderRadius 3, filled = (10000-rank)/10000 in accent color) + "#42 in the US" label.
+- If in Matches: show "Matched!" badge with heart icon in grass color.
+- Bottom: two action buttons side by side (Liked/Disliked context):
+  - "Unlike": bordered destructive.
+  - "Share": bordered default with share icon.
+
+================================================================================
+SETTINGS HUB (SettingsScreen)
+================================================================================
+
+Header area (paddingTop safeAreaTop + 16, paddingBottom 16, paddingHorizontal 20):
+- Centered row: leaf emoji text + "Settings" Patrick Hand bold fontSize 30 color grass + sun emoji text.
+- Subtitle: "Customize your experience" Fredoka fontSize 13 color muted-foreground, centered.
+
+Settings sections — each section:
+- Section label: Fredoka semibold uppercase fontSize 11 letterSpacing 1 color muted-foreground, left-aligned, paddingHorizontal 4, marginBottom 6.
+- Card: backgroundColor card, borderRadius 16, borderWidth 1, borderColor border at 60% opacity, elevation 1.
+- Row divider: 1px borderColor border at 50% opacity, inset paddingLeft 52 to clear icon.
+
+Each SettingsRow (height 56, paddingHorizontal 16):
+- Left: icon in rounded square badge size 34, borderRadius 10, icon size 17.
+  - Profile: backgroundColor #dbeafe, icon color boy-blue
+  - Partner: backgroundColor #ffe4e6, icon color #f43f5e
+  - Name Packs: backgroundColor #dcfce7, icon color grass
+  - Premium: backgroundColor #fef3c7, icon color #f59e0b
+  - Account: backgroundColor #f1f5f9, icon color #64748b
+  - Support: backgroundColor #ccfbf1, icon color #14b8a6
+- Center: title Fredoka semibold fontSize 14 color foreground. Summary Fredoka fontSize 12 color muted-foreground.
+- Right: ChevronRight size 16 color muted-foreground opacity 0.5.
+- Press: Pressable backgroundColor rgba(0,0,0,0.04).
+
+Full-width action buttons at bottom (height 64, borderRadius 16, paddingHorizontal 20, marginBottom 12):
+
+Leave a Review:
+- backgroundColor #fffbeb, borderColor #fde68a
+- Left badge: size 40, borderRadius 12, backgroundColor #fef3c7, Star size 18 color amber-500
+- Title Fredoka bold fontSize 13 color #78350f, subtitle Fredoka fontSize 11 color #b45309
+- Right chevron in amber-400
+
+Share with Friends:
+- Same structure but green-50 / green-200 / green-100 / grass
+
+Bottom decoration: Image of grass-flower-border.png at absolute bottom of ScrollView, width 100%, height 80, resizeMode cover.
+
+================================================================================
+SUBPAGE HEADER (SubPageHeader)
+================================================================================
+
+height 52, paddingHorizontal 16, backgroundColor parchment.
+- Left: ChevronLeft size 24 color grass + "Back" Fredoka semibold fontSize 14 color grass. Pressable calling onBack.
+- Center: page title Fredoka bold fontSize 17 color foreground.
+- Right: empty spacer same width as back button for centering.
+- Bottom: 1px border in border color.
+
+================================================================================
+PROFILE PAGE
+================================================================================
+
+- Avatar circle top-center: size 72, borderRadius 36, first initial Patrick Hand bold fontSize 32 color white. Background: gender accent color. marginTop 16, marginBottom 12.
+- Display name input: height 52, borderRadius 14, borderWidth 1, borderColor border, backgroundColor card, paddingHorizontal 16, Fredoka fontSize 15.
+- Baby gender selector: three pill buttons in a row ("Boy", "Girl", "Either"). Active: backgroundColor gender-color color white. Inactive: backgroundColor card, borderColor border, color muted-foreground. Each height 44, flex 1, borderRadius 12, Fredoka bold fontSize 13.
+- Due date row (premium only): opens DateTimePicker.
+- "Save Changes" button: height 52, backgroundColor grass, borderRadius 14, white Fredoka bold fontSize 15.
+- Danger zone (top border divider):
+  - "Reset Swipes" button: bordered destructive, borderRadius 14, height 48.
+  - Micro-text below.
+
+================================================================================
+PARTNER PAGE
+================================================================================
+
+When connected:
+- Partner card: backgroundColor card, borderRadius 16, padding 16. Partner avatar initial circle size 52, display_name, "Connected" badge pill backgroundColor grass/10 color grass. Subtitle "You'll see matches when you both like the same name" Fredoka fontSize 12 color muted-foreground.
+- "Remove Partner" button: bordered destructive, full-width.
+
+When not connected:
+- Card with Users icon, heading "Invite your partner", body text.
+- Shareable link: read-only input font-mono fontSize 12, "Copy" button on right (Copy icon size 14).
+- "Share Link" button: full-width, backgroundColor boy/girl, white text, Share2 icon.
+- Divider "— or enter a code —".
+- "Enter Partner Code" input: font-mono uppercase, with "Join" button.
+
+================================================================================
+NAME PACKS PAGE
+================================================================================
+
+Category sections, each with:
+- Section header: small colored dot size 8 + category label Fredoka semibold uppercase fontSize 11 tracking-wide + dash + description muted-foreground fontSize 11.
+- Category card: borderRadius 16, borderWidth 1, overflow hidden.
+  - featured: amber-50 / amber-200
+  - origin: sky-50 / sky-200
+  - style: rose-50 / rose-200
+  - feeling: emerald-50 / emerald-200
+
+Each pack row (height 52, paddingHorizontal 16), separator 1px at 5% black opacity:
+- Left: radio circle size 20, borderRadius 10, borderWidth 2.
+  - Active: borderColor grass, backgroundColor grass, white Check size 11 inside.
+  - Inactive: borderColor rgba(0,0,0,0.2), backgroundColor rgba(255,255,255,0.5).
+- Pack name: Fredoka medium fontSize 13 color foreground.
+- Right (premium + user free): Lock size 12 color amber-600 + "Premium" Fredoka semibold fontSize 12 color amber-600.
+- Right (selected): "Active" badge pill in category colors.
+
+"More packs coming soon" card at bottom: backgroundColor card/60, borderRadius 16, borderColor border/40. Package icon grass. Two-line text.
+
+================================================================================
+PREMIUM PAGE
+================================================================================
+
+- Current plan card: amber-bordered, Star filled amber icon badge, plan name text.
+- Benefits card: gradient from amber-50 to orange-50, borderRadius 16, borderColor amber-200/60.
+  Each benefit row: amber checkmark circle size 20 + Fredoka fontSize 13 text.
+  Benefits:
+  - Access to 10,000+ more names
+  - AI name suggestions tailored to you
+  - Unlimited daily swipes and likes
+  - More name filtering — trendy, celeb, traditional, religious, and more
+  - Recommendations based on your current children's names
+
+If not premium:
+- Upgrade CTA: height 56, borderRadius 16, gradient from amber-400 to orange-400, Fredoka bold fontSize 16 color white.
+- Restore purchase: bordered height 48 borderRadius 16, muted-foreground.
+- Legal text fontSize 10 color muted-foreground textAlign center.
+
+If premium: amber-50 bordered success row with filled Star.
+
+================================================================================
+ACCOUNT PAGE (settings sub-screen)
+================================================================================
+
+Signed-in state:
+- Status card: green checkmark circle badge size 40 + "Signed In" title + email subtitle. borderRadius 16.
+- Actions card: rows divided by 1px border.
+  - Email row (non-tappable): Mail icon + "Email" label + email value.
+  - Sign Out row (tappable): LogOut icon + "Sign Out" label.
+- Danger zone (top divider):
+  - "Danger Zone" label uppercase Fredoka semibold muted-foreground fontSize 11.
+  - Delete Account button: borderColor destructive/30, backgroundColor destructive/5, borderRadius 16, height 48. Trash2 icon + "Delete Account" in destructive color.
+  - Link to wename.app/delete-account (opens expo-web-browser) in sky-600 underline.
+
+Signed-out state:
+- Guest mode card: Shield icon badge (slate-100) + "Guest Mode" / "Names saved on this device only". Body text about creating an account.
+- Google sign-in button: backgroundColor card, borderColor border, height 52, borderRadius 14. Google "G" SVG 4-color logo + "Continue with Google" Fredoka bold fontSize 14.
+- "or" divider row.
+- Email input with Mail icon inset left, height 52, borderRadius 14, borderWidth 1. Focus ring boy-blue/30.
+- "Continue with Email" button: backgroundColor boy-blue, height 52, borderRadius 14, white Fredoka bold fontSize 14, Mail icon size 15.
+
+================================================================================
+PREFERENCES PAGE (toggle rows)
+================================================================================
+
+Each toggle row (paddingVertical 14):
+- Left: title Fredoka semibold fontSize 13 color foreground + description Fredoka fontSize 11 color muted-foreground marginTop 2.
+- Right: custom switch — width 44, height 24, borderRadius 12. Track backgroundColor grass when on, muted when off. Thumb: white circle size 20 borderRadius 10, translated 20px right when on. Animate with withSpring.
+
+================================================================================
+SUPPORT PAGE
+================================================================================
+
+Simple list rows in a card (height 52, chevron right):
+- Contact Support: Mail icon
+- Privacy Policy: Lock icon
+- Terms of Service: FileText icon
+
+App version card: Info icon badge + "App Version" label + version string.
+
+================================================================================
+ONBOARDING SCREENS
+================================================================================
+
+Welcome screen:
+- Full parchment background.
+- Center: grass icon size 64 color grass + "WeName" Patrick Hand bold fontSize 48 color grass, marginTop 12.
+- Tagline: "Find the perfect name, together" Fredoka fontSize 18 color foreground textAlign center, marginBottom 48.
+- "Get Started" button: height 56, backgroundColor grass, borderRadius 16, width 85%, white Fredoka bold fontSize 16.
+- "Enter Partner Code" text button below: color muted-foreground fontSize 13.
+
+Personalize screen:
+- Back button top-left.
+- Heading "What are you expecting?" Patrick Hand bold fontSize 30.
+- Three gender selector cards stacked (height 72, borderRadius 16, borderWidth 2). Active border = accent color. Inside: gender emoji + label Fredoka bold fontSize 16 + subtitle Fredoka fontSize 12 color muted-foreground.
+- Optional last name input.
+- "Next" button same style as "Get Started".
+
+Tutorial screen:
+- Mini swipe card (50% size) auto-animates left and right to demonstrate the gesture.
+- Three instruction rows: icon + text for Like (heart), Dislike (X), Match (double heart).
+- "Start Swiping" button at bottom.
+
+================================================================================
+AUTHENTICATION
+================================================================================
+
+Replace all window.location-based OAuth with Expo's deep-link approach:
+- Google OAuth: expo-auth-session with makeRedirectUri({ scheme: 'wename' }). After token exchange, call finalizeLogin(userId, email).
+- Apple Sign-In: expo-apple-authentication.
+- Email magic link: POST to send-magic-link Edge Function with redirectTo set to wename://auth/callback. Handle deep link in expo-linking listener.
+- Configure app.json with scheme "wename" and proper intentFilters / associatedDomains.
+
+AuthContext shape must stay identical — same isAuthenticated, authUser, session, signOut, deleteAccount, openAuthModal, closeAuthModal values.
+
+================================================================================
+DATA LAYER
+================================================================================
+
+Keep all Supabase queries exactly as in the web app. Only replace:
+- localStorage.getItem/setItem/removeItem -> await SecureStore.getItemAsync/setItemAsync/deleteItemAsync
+- window.location.pathname routing -> React Navigation
+- navigator.share -> expo-sharing / Share from react-native
+- window.open -> expo-web-browser
+
+The useUser hook, authService.ts, inviteService.ts, and all other service files move into the Expo project with only the above substitutions.
+
+Daily limits system (useDailyLimits.ts):
+- Free tier: 30 swipes/day, 8 likes/day, 3 match reveals/day.
+- Premium users bypass all limits (user.plan_tier === 'premium').
+- Daily reset: compare today's YYYY-MM-DD against usage_last_reset_at stored in DB. If different, reset all counters to 0 in Supabase and update local state.
+- checkCanSwipe(liked): increments daily_swipe_count (and daily_like_count if liked). Returns { allowed: boolean, limitType: 'swipe' | 'like' | null }.
+- checkCanRevealMatch(): increments daily_match_count. Returns boolean.
+
+Supabase data types:
+  User: id, email, display_name, baby_last_name, baby_gender ('boy'|'girl'|'either'|null), partner_id, invite_code, onboarding_complete, plan_tier, daily_swipe_count, daily_like_count, daily_match_count, usage_last_reset_at, created_at, updated_at
+  Name: id, text, gender, pronunciation, origin, meaning, nickname, rank, created_at
+  Swipe: id, user_id, name_id, liked, created_at
+  Match: id, name_id, user_a_id, user_b_id, gender, created_at
+  NamePack: slug, display_name, category, is_premium, sort_order
+  PartnerInvite: id, token, short_code, inviter_id, invitee_id, status, created_at, expires_at
+
+================================================================================
+FILE STRUCTURE
+================================================================================
+
+app/
+  _layout.tsx
+  index.tsx
+src/
+  theme.ts
+  components/
+    SwipeCard.tsx
+    BottomNav.tsx
+    NameCard.tsx
+    NameDetailOverlay.tsx
+    MatchModal.tsx
+    PremiumUpgradeModal.tsx
+    FirstLikePartnerModal.tsx
+    NameSuggestions.tsx
+    DraggableList.tsx
+  screens/
+    SwipeScreen.tsx
+    NamesScreen.tsx
+    SettingsScreen.tsx
+    settings/
+      ProfileScreen.tsx
+      PartnerScreen.tsx
+      AccountScreen.tsx
+      PremiumScreen.tsx
+      NamePacksScreen.tsx
+      PreferencesScreen.tsx
+      SupportScreen.tsx
+      ContactScreen.tsx
+      DeleteAccountScreen.tsx
+      PrivacyPolicyScreen.tsx
+      TermsOfServiceScreen.tsx
+    onboarding/
+      OnboardingFlow.tsx
+      OnboardingWelcome.tsx
+      OnboardingPersonalize.tsx
+      OnboardingTutorial.tsx
+  context/
+    AuthContext.tsx
+  hooks/
+    useUser.ts
+    useDailyLimits.ts
+  services/
+    authService.ts
+    inviteService.ts
+  lib/
+    supabase.ts
+    namePacks.ts
+  utils/
+    guestDataMerge.ts
+    shareImage.ts
+assets/
+  fonts/
+  images/
+    grass-flower-border.png
+    boy-card-rolling-hills.jpg
+    list-bg.jpg
+
+================================================================================
+QUALITY REQUIREMENTS
+================================================================================
+
+- All screens must be pixel-close to the web version in spacing, card shapes, shadows, and colors.
+- Use SafeAreaView / useSafeAreaInsets on every screen.
+- Support both iOS and Android.
+- No purple, indigo, or violet hues anywhere.
+- Keyboard avoiding behavior on all input screens (KeyboardAvoidingView).
+- All lists use FlatList or SectionList (never ScrollView for long dynamic lists).
+- Use expo-haptics for haptic feedback on swipe completion, matches, and drag reorder.
+- All Pressable components use activeOpacity 0.7 or scale 0.96 press animations via withSpring.
+- No emoji in TypeScript source — use Text components with emoji strings.
+```

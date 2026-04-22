@@ -1,9 +1,9 @@
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -11,6 +11,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
+import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
 import NameCard, { NameCardHandle } from "@/components/NameCard";
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
@@ -20,7 +22,7 @@ import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
 import { getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
 import { Name, supabase } from "@/lib/supabase";
 
-type LimitType = "swipe" | "like" | "match" | null;
+type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
 export default function SwipeScreen() {
   const colors = useColors();
@@ -36,9 +38,19 @@ export default function SwipeScreen() {
   const [premiumOpen, setPremiumOpen] = useState(false);
   const [limitType, setLimitType] = useState<LimitType>(null);
   const [history, setHistory] = useState<{ nameId: string; liked: boolean }[]>([]);
+  const [firstLikeOpen, setFirstLikeOpen] = useState(false);
   const cardRef = useRef<NameCardHandle>(null);
 
   const limits = useDailyLimits(user, updateUser);
+
+  const firstLikeKey = user ? `first_like_partner_shown_${user.id}` : "";
+  const maybeShowFirstLike = useCallback(async () => {
+    if (!user || !firstLikeKey) return;
+    const seen = await AsyncStorage.getItem(firstLikeKey);
+    if (seen) return;
+    await AsyncStorage.setItem(firstLikeKey, "1");
+    setFirstLikeOpen(true);
+  }, [user, firstLikeKey]);
 
   const loadNames = useCallback(
     async (includeAlready = false) => {
@@ -90,8 +102,8 @@ export default function SwipeScreen() {
     }, [names.length, loading, loadNames]),
   );
 
-  async function checkForMatch(name: Name) {
-    if (!user?.partner_id) return;
+  async function checkForMatch(name: Name): Promise<boolean> {
+    if (!user?.partner_id) return false;
     const { data: partnerSwipe } = await supabase
       .from("swipes")
       .select("*")
@@ -99,7 +111,7 @@ export default function SwipeScreen() {
       .eq("name_id", name.id)
       .eq("liked", true)
       .maybeSingle();
-    if (!partnerSwipe) return;
+    if (!partnerSwipe) return false;
     const [a, b] = [user.id, user.partner_id].sort();
     await supabase
       .from("matches")
@@ -110,6 +122,7 @@ export default function SwipeScreen() {
       setLimitType("match");
       setPremiumOpen(true);
     }
+    return true;
   }
 
   async function handleSwipe(liked: boolean) {
@@ -130,7 +143,11 @@ export default function SwipeScreen() {
           { user_id: user.id, name_id: current.id, liked },
           { onConflict: "user_id,name_id" },
         );
-      if (liked && user.partner_id) await checkForMatch(current);
+      if (liked) {
+        let didMatch = false;
+        if (user.partner_id) didMatch = await checkForMatch(current);
+        if (!didMatch && !premiumOpen) await maybeShowFirstLike();
+      }
     } catch (e) {
       console.error("[SwipeScreen] save swipe error", e);
     }
@@ -281,62 +298,33 @@ export default function SwipeScreen() {
         />
       </View>
 
-      <Modal
-        visible={!!matchedName}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMatchedName(null)}
-      >
-        <View style={styles.matchBackdrop}>
-          <View style={[styles.matchCard, { backgroundColor: colors.parchment }]}>
-            <Feather name="heart" size={56} color={colors.heart} />
-            <Text style={[styles.matchTitle, { color: colors.grass }]}>
-              It's a Match!
-            </Text>
-            <Text style={[styles.matchBody, { color: colors.mutedForeground }]}>
-              You both love the name
-            </Text>
-            <Text
-              style={[
-                styles.matchName,
-                {
-                  color:
-                    matchedName?.gender === "boy" ? colors.boy : colors.girlRed,
-                },
-              ]}
-            >
-              {matchedName?.text}
-            </Text>
-            {!!user.baby_last_name && (
-              <Text style={[styles.matchLastName, { color: colors.foreground }]}>
-                {user.baby_last_name}
-              </Text>
-            )}
-            <Pressable
-              style={[styles.matchBtn, { backgroundColor: colors.primary }]}
-              onPress={() => setMatchedName(null)}
-            >
-              <Text style={styles.matchBtnText}>Keep swiping</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setMatchedName(null);
-                router.push("/(tabs)/names");
-              }}
-            >
-              <Text style={[styles.matchSecondary, { color: colors.primary }]}>
-                See all matches
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
+      <MatchCelebrationModal
+        open={!!matchedName}
+        name={matchedName?.text ?? null}
+        gender={(matchedName?.gender as "boy" | "girl") ?? null}
+        lastName={user.baby_last_name}
+        onClose={() => setMatchedName(null)}
+        onSeeAll={() => {
+          setMatchedName(null);
+          router.push("/(tabs)/names");
+        }}
+      />
 
       <PremiumModal
         open={premiumOpen}
         limitType={limitType}
         onClose={() => setPremiumOpen(false)}
         onUpgrade={() => setPremiumOpen(false)}
+      />
+
+      <FirstLikePartnerModal
+        open={firstLikeOpen}
+        hasPartner={!!user.partner_id}
+        onPrimary={() => {
+          setFirstLikeOpen(false);
+          if (!user.partner_id) router.push("/settings/partner");
+        }}
+        onClose={() => setFirstLikeOpen(false)}
       />
     </View>
   );
@@ -414,30 +402,4 @@ const styles = StyleSheet.create({
   errorBody: { fontSize: 14, textAlign: "center", marginBottom: 16 },
   retryBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   retryBtnText: { color: "#fff", fontWeight: "700" },
-  matchBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
-  matchCard: {
-    borderRadius: 28,
-    padding: 28,
-    alignItems: "center",
-    width: "100%",
-    maxWidth: 360,
-  },
-  matchTitle: { fontSize: 30, fontWeight: "800", marginTop: 8 },
-  matchBody: { fontSize: 14, marginTop: 4 },
-  matchName: { fontSize: 44, fontWeight: "800", marginTop: 12 },
-  matchLastName: { fontSize: 20, fontWeight: "600", marginTop: 4 },
-  matchBtn: {
-    marginTop: 20,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 999,
-  },
-  matchBtnText: { color: "#fff", fontWeight: "700" },
-  matchSecondary: { marginTop: 12, fontSize: 14, fontWeight: "500" },
 });

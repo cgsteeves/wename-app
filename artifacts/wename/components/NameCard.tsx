@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { ImageBackground } from "expo-image";
+import { Image, ImageBackground } from "expo-image";
 import React, { forwardRef, useImperativeHandle, useState } from "react";
 import {
   Dimensions,
@@ -35,6 +35,8 @@ const VELOCITY_THRESHOLD = 800;
 const boyBg = require("../assets/images/boy-card-bg.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
 const paperTexture = require("../assets/images/paper-texture.jpg");
+const likeSun = require("../assets/images/like_sun.png");
+const dislikeSun = require("../assets/images/dislike_sun.png");
 
 export interface NameCardHandle {
   swipe: (liked: boolean) => void;
@@ -283,22 +285,23 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         </View>
       )}
 
-      {/* Drag overlays — large translucent badges */}
+      {/* Drag overlays — sun image with rotated handwritten text */}
       {!isNext && (
         <>
           <Animated.View
             style={[styles.dragBadge, styles.dragBadgeLeft, likeOverlayStyle]}
             pointerEvents="none"
           >
+            <Image source={likeSun} style={styles.sunImg} contentFit="contain" />
             <Text
-              style={{
-                fontFamily: fonts.hand,
-                fontSize: 56,
-                color: colors.grass,
-                transform: [{ rotate: "-18deg" }],
-                textShadowColor: "rgba(255,255,255,0.9)",
-                textShadowRadius: 6,
-              }}
+              style={[
+                styles.overlayText,
+                {
+                  fontFamily: fonts.hand,
+                  color: "#3a7a2a",
+                  transform: [{ rotate: "-18deg" }],
+                },
+              ]}
             >
               LIKE
             </Text>
@@ -307,15 +310,16 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
             style={[styles.dragBadge, styles.dragBadgeRight, passOverlayStyle]}
             pointerEvents="none"
           >
+            <Image source={dislikeSun} style={styles.sunImg} contentFit="contain" />
             <Text
-              style={{
-                fontFamily: fonts.hand,
-                fontSize: 56,
-                color: colors.destructive,
-                transform: [{ rotate: "18deg" }],
-                textShadowColor: "rgba(255,255,255,0.9)",
-                textShadowRadius: 6,
-              }}
+              style={[
+                styles.overlayText,
+                {
+                  fontFamily: fonts.hand,
+                  color: "#a4351f",
+                  transform: [{ rotate: "18deg" }],
+                },
+              ]}
             >
               PASS
             </Text>
@@ -608,14 +612,25 @@ const styles = StyleSheet.create({
   },
   dragBadge: {
     position: "absolute",
-    top: 100,
-    width: 180,
-    height: 100,
+    top: 70,
+    width: 220,
+    height: 220,
     alignItems: "center",
     justifyContent: "center",
   },
-  dragBadgeLeft: { left: -10 },
-  dragBadgeRight: { right: -10 },
+  dragBadgeLeft: { left: -20 },
+  dragBadgeRight: { right: -20 },
+  sunImg: {
+    position: "absolute",
+    width: 220,
+    height: 220,
+  },
+  overlayText: {
+    fontSize: 56,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowRadius: 6,
+    letterSpacing: 1,
+  },
   sheetBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",

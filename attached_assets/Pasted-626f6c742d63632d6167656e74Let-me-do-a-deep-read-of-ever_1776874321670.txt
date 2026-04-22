@@ -1,0 +1,1593 @@
+626f6c742d63632d6167656e74Let me do a deep read of every visual detail — assets, CSS, spacing, and component-by-component layout.
+The agent summarized instead of returning file contents. Let me read the most visually critical files directly.
+Now I have every pixel-level detail. Here is the complete, copy-paste-ready plain text prompt:
+
+---
+
+```
+================================================================================
+WENAME — REACT NATIVE (EXPO) CONVERSION PROMPT
+COMPLETE UI/UX SPECIFICATION
+================================================================================
+
+This prompt contains everything needed to build an exact React Native replica of
+the WeName web app. Every color value, font, spacing measurement, asset filename,
+animation detail, and component structure is documented here.
+
+================================================================================
+SECTION 1 — PROJECT OVERVIEW
+================================================================================
+
+App name: WeName
+Concept: Baby name picker for couples. Users swipe names left (pass) or right
+(like). When both partners like the same name it becomes a match.
+
+Supabase URL:  https://cwpanlrimbccdgzchkdo.supabase.co
+Supabase anon: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48
+
+================================================================================
+SECTION 2 — TECH STACK
+================================================================================
+
+- Expo SDK 52+ (managed workflow)
+- TypeScript
+- React Navigation v6 (bottom tabs + native stack)
+- @supabase/supabase-js v2
+- react-native-reanimated v3 + react-native-gesture-handler v2
+- expo-secure-store (replaces localStorage)
+- expo-linking (deep links for /auth/callback and /join/:token)
+- expo-web-browser (OAuth and external links)
+- @expo-google-fonts/fredoka and @expo-google-fonts/patrick-hand
+- lucide-react-native
+- expo-haptics
+- expo-sharing + react-native-view-shot (share list as image)
+
+Do NOT use NativeWind or any Tailwind adapter.
+Use React Native StyleSheet for all styling.
+
+================================================================================
+SECTION 3 — DESIGN TOKENS (theme.ts)
+================================================================================
+
+Export a single theme.ts file with all values below. Reference only this file
+for colors, fonts, radii, and shadows throughout the app.
+
+--- COLORS ---
+
+parchment:        hsl(38, 45%, 93%)     // #EDE0C8 approx — app background
+card:             hsl(40, 40%, 93%)     // slightly cooler than parchment
+background:       hsl(40, 30%, 95%)     // scroll view backgrounds
+foreground:       hsl(25, 30%, 20%)     // primary text
+mutedForeground:  hsl(25, 12%, 48%)     // secondary/hint text
+muted:            hsl(38, 25%, 87%)     // muted backgrounds, dividers
+border:           hsl(35, 22%, 80%)     // card borders
+
+boyBlue:          hsl(214, 55%, 42%)    // #3a6fb0 approx
+girlPink:         hsl(345, 55%, 50%)    // #c04070 approx
+girlRed:          hsl(0, 70%, 48%)      // used for fill on heart icons: #c0392b
+grass:            hsl(145, 45%, 35%)    // #316b46 approx
+destructive:      hsl(0, 72%, 50%)      // #d63030 approx
+heartRed:         hsl(0, 75%, 50%)
+sunYellow:        hsl(42, 90%, 58%)
+accent:           hsl(28, 85%, 55%)     // warm orange, used for CTA buttons
+
+--- Named shades used inline ---
+amber50:   #fffbeb
+amber100:  #fef3c7
+amber200:  #fde68a
+amber400:  #fbbf24
+amber500:  #f59e0b
+amber700:  #b45309
+amber900:  #78350f
+orange400: #fb923c
+rose500:   #f43f5e
+sky500:    #0ea5e9
+sky600:    #0284c7
+green600:  #16a34a
+slate100:  #f1f5f9
+slate500:  #64748b
+teal100:   #ccfbf1
+teal500:   #14b8a6
+blue100:   #dbeafe
+red50:     #fef2f2
+red200:    #fecaca
+red400:    #f87171
+red500:    #ef4444
+
+--- FONTS ---
+
+display: Fredoka (regular 400, medium 500, semibold 600, bold 700)
+  Used for: all body text, labels, subtitles, buttons, nav items
+  Replace every `font-display` Tailwind class with { fontFamily: 'Fredoka_600SemiBold' }
+  etc per weight
+
+hand: Patrick Hand (regular 400 only, feels bold due to stroke)
+  Used for: app logo "WeName", screen headings ("It's a Match!", "Find names
+  together"), italic accent labels inside cards ("Boy Name", "About this name")
+
+Load both via @expo-google-fonts at app startup. Show a splash screen until
+fonts are ready.
+
+--- BORDER RADIUS ---
+
+card:        24  (rounded-3xl equivalent)
+button:      16  (rounded-2xl equivalent)
+input:       16
+smallCard:   12  (rounded-xl)
+badge:       999 (pill)
+iconBadge:   12  (rounded-xl, icon containers in settings)
+listItem:    8   (rounded-lg, list row cards)
+
+--- SPACING ---
+
+screenPaddingH:  20  (horizontal padding on all screens)
+sectionGap:      20  (vertical gap between sections)
+rowPaddingH:     16
+rowPaddingV:     14
+iconBadgeSize:   36  (w-9 h-9)
+actionBtnSize:   64  (w-16 h-16, main swipe action buttons)
+undoBtnSize:     56  (w-14 h-14, undo button)
+tabBarHeight:    56  (bottom nav)
+subHeaderHeight: 52  (settings sub-page header)
+listItemGap:     8   (space between list rows)
+
+--- SHADOWS ---
+
+cardShadow:   { elevation: 4, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }
+buttonShadow: { elevation: 6, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 20, shadowOffset: { width: 0, height: 6 } }
+buttonInner (applied as gradient-like border):
+  border: 2, borderColor: 'rgba(255,255,255,0.6)'
+  background: linear gradient from hsl(38,50%,96%) to hsl(38,45%,92%)
+
+================================================================================
+SECTION 4 — IMAGE ASSETS
+================================================================================
+
+All images live in the public/ folder in the web app.
+Copy every file below into assets/images/ in the Expo project.
+
+  boy-card-background.jpg       — landscape with rolling green hills and blue sky.
+                                   Used as full-bleed background on BOY swipe cards
+                                   and as background texture on boy list rows.
+                                   File also exists as: boy-card-rolling-hills.jpg
+                                   (same image, two names — use either)
+
+  girl-card-flowers.jpg          — floral soft-focus image.
+                                   Used as full-bleed background on GIRL swipe cards.
+
+  grass-flower-border.png        — horizontal decorative strip of illustrated grass
+                                   and flowers. Used at the BOTTOM of:
+                                   - The Names screen (below list content, above tab bar)
+                                   - The Settings hub (very bottom of scroll view)
+                                   Rendered at: width 100%, height 60px,
+                                   resizeMode 'cover', objectPosition 'top'
+
+  like_sun2.png                  — illustrated sun graphic with warm rays.
+                                   Used in two places:
+                                   1. The LIKE overlay on swipe cards (top-right corner,
+                                      w-40 h-40 / 160x160, with "LIKE" text rotated 22deg)
+                                   2. The icon inside the Premium Upgrade Modal
+                                      (40x40 inside a 64x64 amber rounded square)
+
+  dislike_sun.png                — similar sun graphic in cooler tone.
+                                   Used as the PASS overlay on swipe cards
+                                   (top-left corner, w-40 h-40 / 160x160,
+                                   with "PASS" text rotated -22deg)
+
+  paper-texture.jpg              — subtle paper grain texture.
+                                   Applied as background image at opacity 0.20–0.25
+                                   on ALL bottom-sheet overlays:
+                                   - Name info overlay (cards and Names screen)
+                                   - Premium Upgrade Modal
+                                   - Any other modal with the warm parchment style
+                                   backgroundSize: 'cover'
+
+  onboarding-welcome-bg_(1).jpg  — full-screen background photo for the Welcome
+                                   onboarding screen. Natural/outdoor scene.
+
+  onboarding-personalize-bg.jpg  — full-screen background photo for the Personalize
+                                   onboarding screen.
+
+  onboarding-tutorial-bg.jpg     — full-screen background photo for the Tutorial
+                                   onboarding screen.
+
+  list-bg.jpg                    — texture/background for the Names screen.
+                                   Rendered as absolute full-bleed behind the Names
+                                   screen with a white/30 overlay on top.
+                                   Import path in web: src/assets/list-bg.jpg
+
+  butterfly.png                  — NOT used in app UI. Ignore.
+  sun.png                        — NOT used in main UI. Ignore.
+  app_icon.png                   — Use as app icon in app.json.
+
+================================================================================
+SECTION 5 — NAVIGATION STRUCTURE
+================================================================================
+
+Root: NavigationContainer
+  └── BottomTabNavigator (3 tabs, no header)
+        ├── "swipe"    → SwipeStack
+        ├── "names"    → NamesScreen
+        └── "settings" → SettingsStack
+
+SwipeStack (no header visible):
+  └── SwipeScreen
+
+SettingsStack (no header, each screen manages its own header):
+  ├── SettingsHub
+  ├── ProfileScreen
+  ├── PartnerScreen
+  ├── PremiumScreen
+  ├── AccountScreen
+  ├── SupportScreen
+  ├── NamePacksScreen
+  ├── ContactScreen
+  ├── PrivacyPolicyScreen
+  ├── TermsOfServiceScreen
+  └── DeleteAccountScreen
+
+Onboarding is a separate navigator shown before the main app if
+SecureStore key "onboarded" !== "true":
+  OnboardingStack:
+    ├── OnboardingWelcome
+    ├── OnboardingPersonalize
+    └── OnboardingTutorial
+
+================================================================================
+SECTION 6 — BOTTOM TAB BAR
+================================================================================
+
+Height: 56px + safe area bottom inset
+Background: gradient from parchment hsl(38,42%,91%) to hsl(38,45%,93%)
+Top border: 1px, color border (hsl(35,22%,80%)) at 30% opacity
+Shadow: shadowOffset {0,-2}, shadowRadius 8, shadowOpacity 0.06
+
+Three tabs:
+  1. Swipe    — icon: butterfly emoji (Text "🦋" size 18)
+  2. Names    — icon: Heart (lucide, size 16), filled when active
+  3. Settings — icon: Settings (lucide, size 16)
+
+Active state per tab:
+  - Text and icon color = boyBlue or girlPink (based on user.baby_gender !== 'girl')
+  - Background pill behind icon+label:
+    borderRadius 16, marginHorizontal -8, marginVertical -4
+    Boy: backgroundColor hsla(214,55%,42%,0.08), border 1px hsla(214,55%,42%,0.15)
+    Girl: backgroundColor hsla(345,55%,50%,0.08), border 1px hsla(345,55%,50%,0.15)
+
+Inactive state:
+  - Color: mutedForeground at 70% opacity
+
+Label: Fredoka_500Medium, size 11
+Active label: opacity 1. Inactive label: opacity 0.70.
+
+Layout per tab button: column, items centered, gap 2
+Each button: paddingHorizontal 24, paddingVertical 4
+
+================================================================================
+SECTION 7 — SWIPE CARD (NameCard)
+================================================================================
+
+--- CARD CONTAINER ---
+
+Fills the available area between the top of the screen and bottom tab bar.
+Horizontal padding from parent: 20 (px-5 in web).
+Card has: borderRadius 16 (rounded-2xl), overflow hidden, shadow (shadow-2xl),
+background parchment, border 2px border/40.
+
+Two cards are rendered in a stack (position absolute, inset 0):
+  - Back card (isNext=true): scale 0.95, translateY 14. Uses Reanimated
+    interpolation: as top card drags, back card animates to scale 1, translateY 0.
+  - Front card (isNext=false): draggable, has all interactive elements.
+
+--- CARD BACKGROUND ---
+
+Full-bleed image (resizeMode cover, position absolute, inset 0):
+  - Boy names: assets/images/boy-card-background.jpg
+  - Girl names: assets/images/girl-card-flowers.jpg
+
+Two overlay layers on top of the image (non-interactive, pointer-events none):
+  1. Radial vignette:
+     background: radial-gradient(ellipse at center, transparent 0%,
+                 transparent 60%, rgba(0,0,0,0.15) 100%)
+  2. Parchment tint: backgroundColor parchment at opacity 5%, blendMode overlay
+
+--- CARD TOP SECTION (inside card, above center name) ---
+
+paddingTop 20, paddingBottom 8, paddingHorizontal 24
+
+Gender label line:
+  - Text: "Boy Name" or "Girl Name"
+  - Font: Patrick Hand, size ~26 (text-3xl), italic
+  - Color: boyBlue or girlPink
+  - Centered horizontally
+
+Accent divider line below label:
+  - Height 1.5, width 112 (w-28), auto margin, borderRadius 999
+  - Background: boyBlue or girlPink at 50% opacity
+
+Remaining count text:
+  - "{N} names remaining"
+  - Fredoka, size 14, color mutedForeground, centered
+  - marginTop 4
+
+"More info" button (opens info overlay):
+  - Centered, marginTop 8
+  - Pill shape: paddingHorizontal 12, paddingVertical 4, borderRadius 999
+  - Border 1px: boyBlue/30 or girlPink/30
+  - Text color: boyBlue/70 or girlPink/70
+  - Background: rgba(255,255,255,0.35)
+  - Left icon: Info size 12
+  - Text: "More info", Fredoka size 12
+  - onPress: show info overlay panel
+
+--- CARD CENTER NAME ---
+
+Absolutely centered in the card, with marginTop -112 (negative to counteract the
+top section height, pulling it visually to center)
+
+Name text:
+  - Fredoka_700Bold, size 60 (text-6xl), tracking tight
+  - Color: boyBlue (text-boy) or girlRed (text-girl-red)
+  - Centered
+
+Optional last name (if user.baby_last_name is set):
+  - Fredoka_600SemiBold, size 30 (text-3xl), marginTop 8
+  - Color: boyBlue/80 or girlRed (full)
+  - Centered
+
+Pronunciation (if present):
+  - Fredoka italic, size 16, marginTop 4, tracking wide
+  - Color: boyBlue/60 or girlRed/60
+  - Format: [pronunciation] (with square brackets)
+
+"Partner Added" badge (if isPartnerPick):
+  - Small pill, marginTop 12
+  - backgroundColor: boyBlue/10 or girlPink/10
+  - borderColor: boyBlue/20 or girlPink/20
+  - Icon: Heart size 10, filled, left of text
+  - Text: "Partner Added", Fredoka 500 size 12
+  - Color: boyBlue or girlRed
+
+--- CARD LIKE / PASS OVERLAYS ---
+
+These appear at top corners as the user drags.
+
+LIKE overlay (top-right corner, position absolute, top 20, right 16, zIndex 20):
+  - Image: assets/images/like_sun2.png, size 160x160
+  - On top of image: text "LIKE", Fredoka_900 (or heaviest weight), size 18,
+    color white, tracking letterSpacing 0.18em, transform rotate(22deg)
+  - Text positioned absolute top 28, right 28
+  - textShadow: 0 1px 4px rgba(0,0,0,0.35)
+  - Animated: opacity 0→1 over drag 0→THRESHOLD, scale 0.7→1.15
+
+PASS overlay (top-left corner, position absolute, top 20, left 16, zIndex 20):
+  - Image: assets/images/dislike_sun.png, size 160x160
+  - On top of image: text "PASS", same style as LIKE but rotate(-22deg)
+  - Text positioned absolute top 28, left 28
+  - Animated: opacity 0→1 as card drags LEFT past threshold, scale 0.7→1.15
+
+--- CARD BOTTOM ACTION BUTTONS ---
+
+Row at bottom of card, marginBottom 24, paddingHorizontal 32, gap 24
+Three buttons, evenly spaced:
+
+PASS button (left):
+  - Size 64x64, borderRadius 32
+  - Background gradient: 145deg, from hsl(38,50%,96%) to hsl(38,45%,92%)
+  - Border 2, borderColor rgba(255,255,255,0.6)
+  - boxShadow / elevation: 0 6px 20px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.15),
+    inner: 0 1px 2px rgba(255,255,255,0.8)
+  - Content: Text "✕", color destructive, size 30, fontWeight bold
+  - filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - onPress: trigger swipe false
+
+UNDO button (center):
+  - Size 56x56 (w-14 h-14), borderRadius 28
+  - Same gradient and border as above
+  - When canUndo=false: opacity 0.40, cursor not-allowed
+  - When canUndo=true: full shadow as above
+  - Icon: RotateCcw, size 22, color mutedForeground
+  - filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - onPress: undo last swipe
+
+LIKE button (right):
+  - Size 64x64, same style as PASS button
+  - Icon: Heart, size 26, color rose500 (#f43f5e), filled rose500
+  - filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2))
+  - onPress: trigger swipe true
+
+--- SWIPE GESTURE ---
+
+SWIPE_THRESHOLD_RATIO: 0.27 (27% of screen width)
+VELOCITY_THRESHOLD: 600
+MAX_ROTATION: 18 degrees
+
+On drag:
+  - translateX tracks finger
+  - rotation: interpolate -screenWidth*0.6 → 0 → screenWidth*0.6 to -18 → 0 → 18deg
+  - card opacity: at ±30% threshold = 0.90, at ±60% screen = 0.55, center = 1.0
+
+On release:
+  - If not past distance OR velocity threshold: spring back to x=0
+  - If past threshold: fly off screen with withTiming
+    exitX = direction * screenWidth * (1.8 + velocityBonus * 0.6)
+    duration = max(0.22, 0.42 - velocityBonus * 0.1)
+    easing: cubic-bezier(0.25, 0.46, 0.45, 0.94)
+
+Haptic: expo-haptics, ImpactFeedbackStyle.Light on commit
+
+--- INFO OVERLAY (slides up inside the card) ---
+
+Triggered by "More info" button. Slides up from bottom of card with spring
+(stiffness 350, damping 35). Can also be dismissed by dragging down > 80px.
+
+Background (full overlay covering entire card):
+  Boy: linear-gradient(160deg, rgba(219,234,254,0.99) 0%, rgba(191,219,254,0.97) 50%,
+       rgba(255,251,235,0.99) 100%)
+  Girl: linear-gradient(160deg, rgba(254,228,232,0.99) 0%, rgba(251,207,215,0.97) 50%,
+        rgba(255,251,235,0.99) 100%)
+
+Texture overlay on top: paper-texture.jpg at opacity 0.20
+Radial highlight: rgba(255,255,255,0.45) at top, transparent at 65%
+
+Handle bar: width 40, height 4, borderRadius 2, backgroundColor rgba(0,0,0,0.15)
+  centered at top, absolute position top 12
+
+Close X button (top-right):
+  - 32x32, borderRadius 16, border 1px rgba(0,0,0,0.10), background rgba(255,255,255,0.60)
+  - X icon size 14, color mutedForeground
+
+Content layout (flex column, fill height, paddingHorizontal 24, paddingTop 16,
+paddingBottom 20):
+
+  Top header (centered):
+    - "About this name" — Patrick Hand, size 20, italic, boyBlue or girlPink, opacity 0.85
+    - Divider: height 1.5, width 96, borderRadius 999, boyBlue/girlPink, opacity 0.40, marginTop 8
+    - Name: Fredoka_700Bold, size 48 (text-5xl), tracking tight, boyBlue or girlRed
+    - Last name (if set): Fredoka_600SemiBold, size 24, boyBlue/80 or girlRed
+    - Pronunciation: Fredoka italic, size 14, boyBlue/60 or girlRed/60, marginTop 6
+
+  Info rows (4 rows, gap 8 between each):
+    Each row:
+      backgroundColor: Boy rgba(100,140,200,0.08) / Girl rgba(255,160,170,0.08)
+      border: Boy 1px hsl(214,50%,80%) / Girl 1px hsl(345,50%,82%)
+      borderRadius 12, paddingHorizontal 16, paddingVertical 12
+      Row layout: icon (size 15, color=accentColor opacity 0.65) | label + value
+
+    Label text: Fredoka_600SemiBold, size 10, uppercase, letterSpacing widest,
+      color = accentColor, opacity 0.60
+    Value text: Fredoka_400Regular, size 14, lineHeight snug, foreground/85
+
+    Row 1: MapPin icon — "Origin" — origin value (or "—")
+    Row 2: Sparkles icon — "Meaning" — meaning value (or "—")
+    Row 3: Tag icon — "Possible Nickname" — nickname (or "—")
+    Row 4: TrendingUp icon — "Popularity" — "#N most popular" or "—"
+
+  Action buttons at bottom of overlay (gap 32 between them):
+    Two buttons, same style as the main card action buttons (gradient, shadow, border)
+    but size 64x64 with border-white/70
+    Left: ✕ text, destructive, onPress: close overlay + swipe false
+    Right: Heart filled rose500, size 28, onPress: close overlay + swipe true
+
+  Hint at bottom: "swipe down to close"
+    Fredoka, size 12, boyBlue/35 or girlPink/35, centered
+
+================================================================================
+SECTION 8 — SWIPE SCREEN (SwipeScreen)
+================================================================================
+
+Background: parchment
+Layout: flex column, fills safe area
+
+Top area: flex 1, paddingHorizontal 20, paddingBottom 8, overflow hidden
+  Contains the two stacked NameCard components positioned absolute inset 0.
+
+No explicit top bar is rendered on the SwipeScreen — the card's own top section
+(gender label, remaining count, info button) serves as the de-facto header.
+
+--- MATCH CELEBRATION MODAL ---
+
+Triggered when a mutual match is detected. Auto-dismisses after 4000ms or on
+button tap.
+
+Overlay: fixed inset 0, zIndex 50, backgroundColor rgba(0,0,0,0.70),
+backdrop-blur, animate fade-in
+
+Inner card:
+  - backgroundColor parchment, borderRadius 24, border 1px border
+  - paddingHorizontal 32, paddingVertical 32
+  - max-width ~380, marginHorizontal 16
+  - Centered on screen
+  - Animate: scale-in (scale 0.8→1.0, opacity 0→1, cubic-bezier(0.34,1.56,0.64,1) 0.4s)
+
+Card content (all centered):
+  - Heart icon: Heart from lucide, size 64, color heartRed, filled heartRed
+    Animated: bounce loop
+    marginBottom 16
+
+  - "It's a Match!" — Patrick Hand, bold, size 36 (text-4xl), color grass
+
+  - "You both love the name" — Fredoka, size 16, color mutedForeground
+    marginBottom 24
+
+  - Matched name: Fredoka_700Bold, size 48 (text-5xl)
+    Color: boyBlue if boy, girlRed if girl
+    marginBottom 8
+
+  - Optional last name (if user.baby_last_name set):
+    Fredoka_500Medium, size 24, color foreground
+    marginBottom 24
+
+  - "Keep Swiping" button:
+    paddingHorizontal 24, paddingVertical 12, borderRadius 999 (rounded-full)
+    backgroundColor boyBlue, color white
+    Fredoka_500Medium, size 16
+    Hover scale 1.05
+
+--- LOADING STATE ---
+Centered: "Loading names..." Fredoka, mutedForeground
+
+--- ERROR STATE ---
+Centered column: warning emoji text, "Oops!" Patrick Hand bold grass,
+error message text, "Try Again" button (boyBlue bg, white text, rounded-lg)
+
+--- EMPTY STATE ---
+Centered column: "🎉" emoji, "All done!" Patrick Hand bold grass,
+"You've swiped through all available names." Fredoka muted,
+"Start Over" button same style as Try Again
+
+--- PREMIUM UPGRADE MODAL ---
+Shown when daily limits are reached (see Section 14)
+
+--- FIRST LIKE PARTNER MODAL ---
+Shown once after user's first like (see Section 15)
+
+================================================================================
+SECTION 9 — NAMES SCREEN (NamesScreen)
+================================================================================
+
+Background:
+  - Full-bleed image: assets/images/list-bg.jpg (position absolute, inset 0,
+    resizeMode cover)
+  - White overlay on top: backgroundColor rgba(255,255,255,0.30)
+    (position absolute, inset 0, pointer-events none)
+
+Layout: flex column, fills safe area, no padding except inside sections.
+
+--- TAB BAR (top of Names screen) ---
+
+paddingHorizontal 12, paddingVertical 12
+borderBottom 1px border/20
+background: rgba(255,255,255,0.20), backdrop-blur 2px
+
+Three tab buttons in a row (flex, gap 8):
+  Each button: flex 1, paddingVertical 8, paddingHorizontal 4, borderRadius 12
+  Fredoka_500Medium, size 12
+
+  Active tab: (boy) bg boyBlue/10, color boyBlue, border boyBlue/20, shadow sm
+              (girl) bg girlPink/10, color girlPink, border girlPink/20, shadow sm
+  Inactive tab: bg rgba(255,255,255,0.50), color mutedForeground, border border/30
+
+  Tab 1 — "Your Picks":
+    Icon: Heart size 13, left of text
+
+  Tab 2 — "Shared Matches":
+    Icon: Handshake size 13 (lucide), left of text
+
+  Tab 3 — "AI Suggestions":
+    Icon: Sparkles size 13, left of text
+    Below icon+text row (if user is NOT premium):
+      Badge: "PRO", size 9, uppercase, bold, tracking wide
+      Background: hsl(38,85%,48%) (warm amber), color white
+      paddingHorizontal 6, paddingVertical 2, borderRadius 6
+
+--- HEADER AREA (below tab bar, above list) ---
+
+paddingHorizontal 20, paddingTop 16, paddingBottom 12
+
+If Suggestions tab active:
+  Title: "AI Suggestions" Fredoka_700Bold size 24, with Sparkles icon size 22
+  (boyBlue or girlPink) inline to the right
+
+If Your Picks or Shared Matches:
+  Row: title on left, count on right
+    Title: "Your Picks" or "Shared Matches" — Fredoka_700Bold size 24
+    Count: "{N} names" or "{N} name" — Fredoka size 14, mutedForeground
+
+  Subtitle row below:
+    "Drag to reorder. See more information by tapping" + inline Info icon size 13
+    Fredoka size 14, color mutedForeground, marginBottom 12
+
+  Add name button + Share button row:
+    Add name: flex 1, paddingVertical 12, paddingHorizontal 16, borderRadius 16
+      Border 2px dashed: color hsl(145,45%,55%)
+      Text color: hsl(145,45%,35%), Fredoka_600SemiBold size 14
+      Content: "+" text size 16 + "Add name"
+      Background transparent, hover grass/5
+
+    Share button: paddingVertical 12, paddingHorizontal 20, borderRadius 16
+      backgroundColor rgba(255,255,255,0.60), border 1px border
+      Fredoka_600SemiBold size 14, color foreground
+      Share2 icon size 15, left of text
+      Disabled: opacity 0.40
+
+--- ADD NAME INLINE FORM ---
+
+Shown when user taps "Add name". Replaces the button row.
+backgroundColor card/70, border border/50, borderRadius 12, padding 12, gap 8
+
+  Row 1: Text input + X cancel button
+    Input: flex 1, backgroundColor rgba(255,255,255,0.60), border 1px (boyBlue/30 or
+           girlPink/30 focus ring), borderRadius 8, paddingH 12, paddingV 6
+           Fredoka size 14, placeholder: mutedForeground/50
+    X button: size 28, padding 6, color mutedForeground/60
+
+  Row 2: Boy / Girl gender selector buttons
+    Each: flex 1, paddingVertical 6, borderRadius 8, Fredoka_500Medium size 12
+    Boy active: bg boyBlue/10, color boyBlue, border boyBlue/20
+    Girl active: bg girlPink/10, color girlPink, border girlPink/20
+    Inactive: bg rgba(255,255,255,0.40), color mutedForeground, border border/30
+
+  Error message (if present):
+    bg red50/80, border red200, borderRadius 8, paddingH 10, paddingV 8
+    "!" text red400 + error text Fredoka size 12 color red500
+
+  Hint text (centered): Fredoka size 12 color gray400,
+    "Manually added names in Your Picks will appear as swipable names for your partner"
+
+  Submit button: full width, paddingVertical 6, borderRadius 8, Fredoka_500Medium size 12
+    Boy: bg boyBlue/10, color boyBlue, border boyBlue/20
+    Girl: bg girlPink/10, color girlPink, border girlPink/20
+
+--- LIST ROWS (both Your Picks and Shared Matches) ---
+
+Each row is a card with:
+  borderRadius 8 (rounded-lg)
+  overflow hidden
+  shadow (shadow-md, elevation 4)
+  marginBottom 4 (space-y-1.5)
+  flex row, items center, gap 10
+  Height: auto, paddingVertical 12 (py-3)
+
+Background layers (position absolute, inset 0):
+  BOY names:
+    - Image: assets/images/boy-card-background.jpg, resizeMode cover
+      backgroundPosition varies per index: center (index*17)%60 %
+    - Gradient overlay on top:
+      linear-gradient(90deg, hsl(214,72%,88%,0.82) 0%, hsl(210,65%,86%,0.72) 100%)
+    - Border: 1px hsl(214,50%,62%) for matches or hsl(214,50%,56%) for picks
+
+  GIRL names:
+    - NO image. Gradient background:
+      radial-gradient(ellipse 120% 80% at 85% 60%, rgba(255,182,193,0.55) 0%, transparent 55%),
+      radial-gradient(ellipse 80% 100% at 10% 30%, rgba(255,160,170,0.3) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 70% at 50% 90%, rgba(255,192,203,0.25) 0%, transparent 50%),
+      linear-gradient(135deg, rgba(255,228,225,0.9) 0%, rgba(255,210,215,0.85) 40%,
+      rgba(255,240,242,0.95) 100%)
+    - Border: 1px hsl(345,50%,68%) for picks or hsl(345,50%,62%) for matches
+
+Foreground content row (z-index 10, relative):
+  Color for girl names: hsl(345,55%,38%) — this overrides default text color
+
+  Drag handle (left, 44px min-width):
+    paddingH 12, GripHorizontal icon size 18
+    Color: hsl(214,50%,42%) for boy, hsl(345,50%,55%) for girl
+    touch-action none (prevents scroll), cursor grab
+
+  Rank number:
+    Top 3 rows: "#1", "#2", "#3" — Fredoka_700Bold size 12
+    Below top 3: plain "4", "5"... — same style
+    Color: hsl(214,55%,38%) boy / hsl(345,55%,48%) girl
+    min-width 16
+
+  Name text (flex 1, paddingLeft 8):
+    Fredoka_500Medium size 16, color foreground (overridden to hsl(345,55%,38%) for girl)
+
+  For Shared Matches only — subtitle below name:
+    "You both liked this" — Fredoka_400Regular size 10, opacity 0.70
+
+  Action icons (paddingRight 8, gap 4):
+    Info button: 32x32, borderRadius 16
+      Default: mutedForeground/60
+      Press/hover: color sky500, bg sky500/10
+      Icon: Info size 16
+
+    Delete button: 32x32, borderRadius 16
+      Default: mutedForeground/60
+      Press/hover: color red400, bg red400/10
+      Icon: Trash2 size 16
+
+--- NAME INFO OVERLAY (from Names screen) ---
+
+Identical in structure to the card info overlay (Section 7) but mounted as a
+Modal/bottom sheet from the Names screen rather than inside the card.
+
+backdrop: bg rgba(0,0,0,0.40), blur, covers full screen, onClick closes overlay
+
+Sheet:
+  - Position: fixed bottom, full width, max-width md, borderTopRadius 24
+  - Spring animation: stiffness 350, damping 35
+  - Drag-to-dismiss: > 80px drag down
+
+Background:
+  Boy:  linear-gradient(160deg, rgba(219,234,254,0.99) 0%, rgba(191,219,254,0.97) 50%,
+        rgba(255,251,235,0.99) 100%)
+  Girl: linear-gradient(160deg, rgba(254,228,232,0.99) 0%, rgba(251,207,215,0.97) 50%,
+        rgba(255,251,235,0.99) 100%)
+Texture: paper-texture.jpg at opacity 0.20
+Radial highlight: rgba(255,255,255,0.45) at top
+
+Content:
+  paddingHorizontal 24, paddingTop 16, paddingBottom 32
+
+  Handle bar: width 40, height 4, borderRadius 2, bg rgba(0,0,0,0.20), centered
+
+  Close X button: top right, 32x32, borderRadius 16, bg rgba(255,255,255,0.60),
+    border rgba(0,0,0,0.10), X icon size 14, mutedForeground
+
+  Header block (centered, marginBottom 24):
+    "About this name" — Patrick Hand, size 20, italic, accentColor, opacity 0.80
+    Divider: height 1.5, width 96, accentColor, opacity 0.40, marginTop 8
+    Name: Fredoka_700Bold, size 48, tracking tight, accentColor
+    Pronunciation: Fredoka italic, size 14, accentColor opacity 0.60, marginTop 8
+    (in square brackets)
+
+  Info rows (gap 10):
+    Same structure as card info rows.
+    4 rows: Origin (MapPin), Meaning (Sparkles), Possible Nickname (Tag),
+            Popularity (TrendingUp)
+
+  Hint: "swipe down to close", Fredoka size 12, accentColor opacity 0.35, centered, marginTop 20
+
+--- BOTTOM DECORATION ---
+
+Image: assets/images/grass-flower-border.png
+width 100%, height 60, resizeMode cover, objectFit top
+Positioned at bottom of Names screen, above tab bar.
+z-index 10, flex-shrink 0
+
+--- TOAST NOTIFICATION ---
+
+Appears at top of screen when a name is added or action is confirmed.
+Position: fixed, top ~80, centered, zIndex 50
+Animation: fade-in + slide-in-from-top, 300ms
+
+Inner: bg green600 (#16a34a), color white, paddingH 16, paddingV 12, borderRadius 8
+       shadow-lg, flex row, gap 8
+CheckCircle2 icon size 18 + message text, Fredoka_500Medium
+
+Auto-dismiss after 3000ms
+
+--- NO PARTNER EMPTY STATE (Shared Matches tab) ---
+
+Centered column, paddingH 24, paddingV 32:
+  Users icon size 64, color muted, marginBottom 16
+  "No Partner Yet" — Patrick Hand bold size 20, color grass
+  "Invite your partner to start finding shared matches together!" — Fredoka size 16,
+    color mutedForeground, marginBottom 24
+  "Connect with Partner" button:
+    paddingH 24, paddingV 12, borderRadius 16, bg grass
+    Fredoka_600SemiBold size 14, color white, shadow-md
+    Users icon size 16, left of text
+
+================================================================================
+SECTION 10 — SETTINGS HUB (SettingsHub)
+================================================================================
+
+Background: parchment
+Layout: flex column, overflow scroll, fills safe area
+
+--- HEADER ---
+
+paddingTop safeArea + 32, paddingBottom 16, paddingHorizontal 20, shrink 0
+
+Centered row (gap 8):
+  "🌿" emoji Text size 24
+  "Settings" — Patrick Hand bold, size 30, color grass
+  "☀️" emoji Text size 24
+
+Subtitle below (centered):
+  "Customize your experience" — Fredoka, size 13, mutedForeground
+
+--- SETTINGS SECTIONS ---
+
+paddingHorizontal 16, paddingBottom 32, gap 20 between sections
+
+Each section has:
+  1. Section label (if provided):
+     Fredoka_600SemiBold, size 11, uppercase, tracking wide (letterSpacing 1),
+     color mutedForeground, paddingHorizontal 4, marginBottom 4
+  2. Section rows: gap 8 between rows
+
+Each row is a separate card (NOT grouped in one card like iOS Settings):
+  Full-width pressable button:
+  - backgroundColor card
+  - borderRadius 16 (rounded-2xl)
+  - border 1px border/60
+  - paddingHorizontal 16, paddingVertical 14
+  - shadow sm (elevation 1)
+  - flex row, alignItems center, gap 14
+  - onPress: scale 0.98 (active:scale-[0.98])
+  - Hover: shadow md
+
+  Icon badge (left):
+    36x36, borderRadius 12, flex center
+    Per row:
+      Profile:    bg blue100 (#dbeafe),   icon User size 17,       color boyBlue
+      Partner:    bg #ffe4e6 (rose-100),  icon Users size 17,      color #f43f5e
+      Name Packs: bg #dcfce7 (green-100), icon Package size 17,    color grass
+      Premium:    bg amber100 (#fef3c7),  icon Star size 17,       color amber500
+      Account:    bg slate100 (#f1f5f9),  icon Shield size 17,     color slate500 (#64748b)
+      Support:    bg teal100 (#ccfbf1),   icon HelpCircle size 17, color teal500 (#14b8a6)
+
+  Text block (flex 1):
+    Title: Fredoka_600SemiBold, size 14, color foreground
+    Summary: Fredoka size 12, color mutedForeground, marginTop 2, single line truncated
+
+  ChevronRight icon (right): size 16, color mutedForeground
+
+Sections and rows:
+  Section "Your Account":
+    - Profile row: summary = display_name or "Set up your profile"
+    - Partner row: summary = "Connected with [name]" or "Invite your partner"
+  Section "App":
+    - Name Packs row: summary = "Choose your swipe collections"
+    - Premium row: summary = "Premium plan" or "Free plan"
+  Section "More":
+    - Account row: summary = "Save your progress"
+    - Support row: summary = "Help, privacy, and terms"
+
+--- FULL-WIDTH ACTION BUTTONS (below sections) ---
+
+gap 12 between the two buttons, paddingHorizontal 0 (inherits section padding)
+
+Both buttons: height 64, borderRadius 16, paddingHorizontal 20, border 1px
+
+"Leave a Review" button:
+  backgroundColor #fffbeb (amber-50)
+  borderColor #fde68a (amber-200)
+  hover: shadow-md
+  Layout: icon badge | text block | chevron
+    Icon badge: 40x40, borderRadius 12, bg #fef3c7 (amber-100)
+      Star size 18, color amber500
+    Text block:
+      "Leave a Review" — Fredoka_700Bold size 13, color #78350f (amber-900)
+      "Your feedback helps us grow" — Fredoka size 11, color #b45309 (amber-700), marginTop 2
+    Chevron: "›" text (not lucide), color #fbbf24 (amber-400), size 16
+
+"Share with Friends" button:
+  backgroundColor #f0fdf4 (green-50)
+  borderColor #bbf7d0 (green-200)
+  Layout identical structure:
+    Icon badge: bg #dcfce7 (green-100)
+      Share2 size 18, color grass
+    Text:
+      "Share with Friends" — color #14532d (green-900)
+      "Spread the love to expectant parents" — color #166534 (green-700)
+    Chevron: color #4ade80 (green-400)
+
+--- BOTTOM DECORATION ---
+
+Image: assets/images/grass-flower-border.png
+width 100%, height 80, resizeMode cover
+Positioned as last element in the ScrollView.
+flex-shrink 0
+
+================================================================================
+SECTION 11 — SETTINGS SUB-PAGE HEADER (SubPageHeader)
+================================================================================
+
+Used at the top of every Settings sub-screen.
+Does NOT have a border — just spacing.
+
+Layout: flex row, justifyContent space-between, alignItems center
+paddingHorizontal 16, paddingTop 20, paddingBottom 12, flex-shrink 0
+
+Left: Back button
+  - Pressable, flex row, gap 4, alignItems center
+  - ChevronLeft size 18, color grass
+  - "Settings" text: Fredoka_600SemiBold, size 14, color grass
+  - onPress: opacity 0.70 feedback, calls onBack
+
+Center: Page title
+  - Fredoka_700Bold, size 16, color foreground
+  - Absolutely centered (or textAlign center with fixed width)
+
+Right: optional rightAction slot
+  - width 64, justifyContent flex-end
+  - If no rightAction: empty spacer to balance back button
+
+================================================================================
+SECTION 12 — PROFILE PAGE
+================================================================================
+
+Background: parchment, full scroll
+
+After SubPageHeader:
+
+Avatar circle (centered, marginTop 8, marginBottom 12):
+  72x72, borderRadius 36
+  backgroundColor: boyBlue if boy, girlPink if girl
+  First initial of display_name, Patrick Hand bold, size 32, color white
+  If no name: "?" placeholder
+
+Display name input:
+  Label: "Your name" — Fredoka_600SemiBold size 12, uppercase, tracking wide,
+    mutedForeground, marginBottom 4
+  Input: height 52, borderRadius 14, border 1px border,
+    backgroundColor card, paddingHorizontal 16
+    Fredoka size 15, color foreground, placeholder mutedForeground
+    Focus ring: ring-2 ring-primary (boyBlue)
+
+Baby gender section:
+  Label: "Baby gender" same style as display name label
+  Three pill buttons in a row (gap 8):
+    "Boy" | "Girl" | "Either"
+    Each: flex 1, height 44, borderRadius 12, Fredoka_700Bold size 13
+    Active boy:    bg boyBlue, color white, shadow-md
+    Active girl:   bg girlPink, color white, shadow-md
+    Active either: bg gradient (boyBlue → girlPink → accent), color white, shadow-md
+    Inactive:      bg rgba(255,255,255,0.80), border border/60, color mutedForeground
+
+Baby's last name input:
+  Same structure as display name input above.
+
+"Save Changes" button:
+  Full width, height 52, borderRadius 14, bg grass, color white
+  Fredoka_700Bold, size 15
+  shadow-md
+
+Danger zone (separated by a divider: height 1px, bg border/40, marginVertical 24):
+  "Reset Swipes" button:
+    Full width, height 48, borderRadius 14
+    border 1px destructive/30, bg destructive/5, color destructive
+    Fredoka_600SemiBold size 14
+    Confirmation dialog before executing
+
+================================================================================
+SECTION 13 — PARTNER PAGE
+================================================================================
+
+Background: parchment, full scroll
+
+After SubPageHeader:
+
+--- WHEN PARTNER IS CONNECTED ---
+
+Partner card (bg card, borderRadius 16, padding 16, border border/60, shadow sm):
+  Row: avatar (52x52, borderRadius 26, bg boyBlue/20, first initial
+       Patrick Hand bold size 22, color boyBlue) | text block | "Connected" badge
+  Text: display_name Fredoka_700Bold size 15 / "Partner" if no name
+  "Connected" badge: bg grass/10, color grass, paddingH 10, paddingV 4, borderRadius 999,
+    Fredoka_600SemiBold size 11
+
+  Subtitle below row:
+    "You'll see matches when you both like the same name"
+    Fredoka size 12, mutedForeground, marginTop 8
+
+"Remove Partner" button (below card, marginTop 16):
+  Full width, height 48, borderRadius 14
+  border 1px destructive/30, bg destructive/5
+  Trash2 icon size 14, color destructive + "Remove Partner" text destructive
+  Fredoka_600SemiBold size 14
+
+--- WHEN NO PARTNER ---
+
+Invite card (bg card, borderRadius 16, padding 24, border border/60, shadow sm):
+
+  Users icon badge: 48x48 centered, borderRadius 24, bg boyBlue/10 or girlPink/10
+    Users size 22, color boyBlue or girlPink, marginBottom 12
+
+  "Invite your partner" — Patrick Hand bold size 22, color foreground, centered
+  Body text — Fredoka size 13, mutedForeground, centered, lineHeight 20, marginBottom 20
+
+  Share link row:
+    Read-only input showing invite URL:
+      flex 1, height 44, borderRadius 12, bg muted, border border/40
+      fontFamily monospace, size 12, color foreground/80, paddingH 12
+      truncate text, non-editable
+
+    Copy button (right of input):
+      paddingH 14, paddingV 10, borderRadius 12, bg boyBlue or girlPink
+      Copy icon size 14, color white
+
+  "Share Link" button (full width, marginTop 12):
+    height 52, borderRadius 14, bg boyBlue or girlPink, color white
+    Fredoka_700Bold size 14
+    Share2 icon size 15, left of text
+
+  Divider "— or enter a code —":
+    Fredoka size 12, mutedForeground, centered, marginVertical 12
+
+  Enter code row:
+    TextInput + "Join" button side by side (gap 8)
+    Input: flex 1, height 48, borderRadius 12, border border, bg background
+      fontFamily monospace, size 14, uppercase, letterSpacing widest
+      color foreground, placeholder mutedForeground
+      focus ring: ring-2 ring-primary
+
+    Join button: paddingH 16, height 48, borderRadius 12, bg boyBlue, color white
+      Link2 icon size 14 + "Join" Fredoka_600SemiBold size 14
+      disabled opacity 0.50 if input empty
+
+  Error message (if linking fails):
+    flex row, gap 6
+    AlertCircle size 12, color destructive
+    error text Fredoka size 12, color destructive
+
+  Footer note:
+    "You'll see a match whenever you and your partner both swipe right on the same name."
+    Fredoka size 12, mutedForeground, centered, paddingH 16, marginTop 4
+
+================================================================================
+SECTION 14 — PREMIUM UPGRADE MODAL
+================================================================================
+
+Shown when free user hits daily limits (30 swipes, 8 likes, 3 match reveals,
+or taps AI Suggestions tab).
+
+Fixed bottom sheet (same pattern as other modals):
+zIndex 60, items end (bottom of screen on mobile)
+
+Backdrop: bg rgba(0,0,0,0.45), blur
+  Note: tapping backdrop does NOT dismiss. User must use a button.
+
+Sheet:
+  width full, max-width md, borderTopRadius 24 (mobile) or borderRadius 24 (tablet)
+  overflow hidden, shadow-2xl
+  Background: linear-gradient(160deg, rgba(255,251,235,0.99) 0%, rgba(255,245,220,0.98)
+    60%, rgba(255,237,200,0.99) 100%)
+  Texture overlay: paper-texture.jpg opacity 0.25
+  Radial highlight: rgba(255,255,255,0.50) at top, transparent at 65%
+
+Spring animation: stiffness 340, damping 36, enters from y: '100%'
+
+Content (paddingH 24, paddingTop 20, paddingBottom 36):
+
+  Drag handle (mobile only): 40x4, bg border, borderRadius 2, centered, marginBottom 20
+
+  Close X button (absolute, top 16, right 16):
+    32x32, borderRadius 16, bg card/80, color mutedForeground
+    X icon size 16
+
+  Sun icon accent:
+    64x64, borderRadius 16, centered, marginBottom 16
+    bg gradient: 145deg, hsl(42,90%,88%) → hsl(42,85%,82%)
+    border: hsl(42,80%,75%)
+    Image inside: assets/images/like_sun2.png, size 40x40, resizeMode contain
+
+  Title: "Keep going"
+    Patrick Hand bold, size 24, color hsl(25,50%,30%), centered, marginBottom 8
+
+  Subtitle (context-sensitive based on limitType):
+    swipe:   "You've used all 30 of your daily swipes. Upgrade to keep discovering names together."
+    like:    "You've liked 8 names today — that's your daily limit. Upgrade to keep liking names together."
+    match:   "You've seen 3 new matches today. Upgrade to reveal every match the moment it happens."
+    discover: "Get smarter name suggestions—our AI learns what you like and recommends names with a similar style and vibe."
+    default: "You've reached your daily limit. Upgrade to keep discovering names together."
+    Fredoka size 14, mutedForeground, centered, lineHeight 22, paddingH 8, marginBottom 24
+
+  Feature list (3 items, gap 10, marginBottom 28):
+    Each item:
+      borderRadius 12, paddingH 16, paddingV 12
+      bg rgba(180,140,60,0.07), border 1px hsl(42,60%,78%)
+      flex row, gap 12
+      Icon (size 16, color hsl(38,70%,40%) opacity 0.75) | text Fredoka size 14 foreground/80
+
+    Item 1: Infinity icon — "Unlimited daily swipes, likes and matches"
+    Item 2: Package icon — "Access to themed name packs (Classic, Arabic, Spiritual, and more)"
+    Item 3: Sparkles icon — "AI name suggestions based on your likes"
+
+  Upgrade CTA button:
+    Full width, height 52, borderRadius 12
+    bg gradient: 135deg, hsl(38,85%,48%) → hsl(32,80%,44%)
+    color white, Fredoka_700Bold size 14
+    Sparkles icon size 16, left of text
+    Content: "Upgrade to Premium"
+    active scale 0.95, shadow-md
+
+  Secondary "Come back tomorrow" button:
+    Full width, marginTop 12, paddingV 12, borderRadius 12
+    Fredoka_600SemiBold size 14, color mutedForeground
+    bg card/60, border border/50
+    active scale 0.95
+
+================================================================================
+SECTION 15 — FIRST LIKE PARTNER MODAL
+================================================================================
+
+Shown ONCE after user's very first like. Stored in SecureStore:
+key: "first_like_partner_shown_{userId}", set to "1" when triggered.
+
+Structure:
+  Fixed overlay: bg rgba(0,0,0,0.40), blur
+  Centered card (not full-width sheet this time — it's a centered modal):
+    bg #fdf6ef (warm off-white), borderRadius 24, shadow-2xl
+    paddingH 32, paddingV 32
+    width full, max-width ~344 (max-w-sm), marginH 16, marginBottom 16
+
+  Dismiss: tap outside card = dismiss (stopPropagation on card)
+
+  Heart badge (centered):
+    64x64, borderRadius 32, bg white, shadow-sm
+    Heart icon size 28, color girlRed (#c0392b), filled girlRed
+    marginBottom 20
+
+  Title: "Find names together"
+    Patrick Hand bold, size 24, color foreground, centered, marginBottom 12
+
+  Body: "Invite your partner to swipe on names and discover the ones you both love."
+    Fredoka size 14, mutedForeground, lineHeight 22, centered, marginBottom 24
+
+  Primary button (if hasPartner = false):
+    "Invite Partner" — full width, height 56, borderRadius 16
+    bg #c0392b (heart red), color white, Fredoka_700Bold size 14
+    Heart icon size 16, filled, left of text
+    active scale 0.95, shadow-md
+
+  Primary button (if hasPartner = true):
+    "Keep Swiping" — same style
+
+  Secondary "Maybe later" button:
+    marginTop 12, full width, paddingV 10
+    Fredoka size 14, color mutedForeground
+    active opacity 0.70
+
+================================================================================
+SECTION 16 — ACCOUNT PAGE
+================================================================================
+
+Background: parchment
+
+After SubPageHeader:
+
+--- SIGNED OUT STATE ---
+
+Guest mode info card (bg card, borderRadius 16, padding 16, border border/60, marginBottom 16):
+  Shield icon badge: 40x40, borderRadius 12, bg slate100, Shield size 18, slate500
+  "Guest Mode" — Fredoka_700Bold size 14, foreground
+  "Your names are saved on this device" — Fredoka size 12, mutedForeground, marginTop 2
+  Body: Fredoka size 13, mutedForeground, lineHeight 20, marginTop 8
+    "Create a free account to back up your picks, sync across devices..."
+
+Auth actions:
+
+  Google sign-in button (full width, height 52, borderRadius 14):
+    bg card, border 1px border, shadow sm
+    Flex row centered, gap 12
+    Google "G" SVG logo (4-color: #4285F4, #34A853, #FBBC05, #EA4335), size ~20
+    "Continue with Google" — Fredoka_700Bold size 14, color foreground
+
+  "or" divider:
+    Horizontal line + centered "or" text
+    Line: bg border, height 1
+    Text: Fredoka size 12, mutedForeground, paddingH 12
+
+  Email input:
+    height 52, borderRadius 14, border 1px border, bg card
+    Inset left icon: Mail size 16, mutedForeground, absolute left 14, verticalCenter
+    paddingLeft 44 (to clear icon)
+    Fredoka size 14, placeholder "Enter your email", mutedForeground
+    Focus ring: 2px boyBlue/30
+
+  "Continue with Email" button (full width, height 52, borderRadius 14):
+    bg boyBlue, color white
+    Mail icon size 15, left of text, gap 8
+    Fredoka_700Bold size 14
+    Disabled: opacity 0.50
+
+--- SIGNED IN STATE ---
+
+Status card (bg card, borderRadius 16, padding 16, border border/60, marginBottom 16):
+  flex row, gap 12
+  Green checkmark badge: 40x40, borderRadius 12, bg green50,
+    CheckCircle2 (or checkmark) size 20, color green600 (#16a34a)
+  Text: "Signed In" Fredoka_700Bold size 14 / email Fredoka size 12 mutedForeground
+
+Actions card (bg card, borderRadius 16, border border/60, shadow sm):
+  Rows divided by 1px border/40 (inset, not full-bleed)
+  Each row: height 52, paddingH 16, flex row, alignItems center, gap 12
+
+  Email row (non-tappable):
+    Mail icon size 16, mutedForeground
+    "Email" Fredoka_600SemiBold size 14 foreground
+    email value right-aligned, Fredoka size 12, mutedForeground
+
+  Sign Out row (tappable):
+    LogOut icon size 16, mutedForeground
+    "Sign Out" Fredoka_600SemiBold size 14, foreground
+
+Danger zone section (marginTop 24):
+  Section label: "Danger Zone" Fredoka_600SemiBold size 11, uppercase, tracking wide,
+    mutedForeground, paddingH 4, marginBottom 8
+
+  Delete Account button (full width, height 48, borderRadius 14):
+    border 1px destructive/30, bg destructive/5
+    Trash2 icon size 14, color destructive
+    "Delete Account" Fredoka_600SemiBold size 14, destructive
+
+  Fine print below (Fredoka size 11, mutedForeground, lineHeight 18, paddingH 4):
+    "This will permanently delete your account and all associated data."
+
+  Link to delete page (opens expo-web-browser):
+    "wename.app/delete-account" — Fredoka size 12, sky600, underline
+
+================================================================================
+SECTION 17 — ONBOARDING SCREENS
+================================================================================
+
+All three screens use full-screen background images with a gradient overlay.
+Max width: 390 (max-w-md, centered), height: full screen (h-dvh / full safe area).
+Overflow hidden.
+
+--- WELCOME SCREEN ---
+
+Background image: assets/images/onboarding-welcome-bg_(1).jpg
+  resizeMode cover, position absolute, inset 0
+
+Gradient overlay (position absolute, inset 0):
+  bg linear-gradient(to bottom, rgba(0,0,0,0.05) 0%, transparent 50%, rgba(0,0,0,0.20) 100%)
+
+Layout:
+  flex 1 spacer (min 20% height)
+
+  Content card (centered, animated: opacity 0→1, y 24→0 over 0.7s ease-out):
+    bg hsla(38,45%,96%,0.82), borderRadius 24, paddingH 32, paddingV 32, shadow-xl
+    border: hsla(35,40%,80%,0.65)
+    backdrop-blur
+
+    Logo image: /ChatGPT_Image_Mar_30,_2026,_02_49_34_PM.png (app icon)
+      96x96, centered, marginBottom 16, drop-shadow-md
+      [Use the app_icon.png asset as fallback if this file is not present]
+
+    "Welcome to WeName" — Fredoka_700Bold, size 30, foreground, centered
+
+    "Find Your Baby Name Together" — Fredoka_600SemiBold, size 16, color accent
+      (hsl(28,85%,55%)), centered, marginTop 4
+
+    Description text: Fredoka size 14, mutedForeground, centered, lineHeight 22,
+      maxWidth 260, marginTop 12
+      "Swipe names you love, match with your partner, and build a shortlist together."
+
+  flex 1 spacer (min 8% height)
+
+  Button group (animated: opacity 0→1, y 24→0 delay 0.25s, paddingBottom 56, gap 12):
+
+    "Get started" button:
+      Full width, height 56, borderRadius 16, bg primary (boyBlue), color white
+      Fredoka_600SemiBold size 16, shadow-lg, active scale 0.98
+
+    "I already have a partner code" button:
+      Full width, height 52, borderRadius 16
+      bg rgba(255,255,255,0.70), backdrop-blur, border rgba(255,255,255,0.60)
+      color foreground/70, Fredoka size 14, shadow sm
+
+      On tap: morphs into a 2-input row:
+        TextInput (flex 1, height 52, borderRadius 16, border rgba(255,255,255,0.60),
+          bg rgba(255,255,255,0.70), backdrop-blur, uppercase tracking-widest centered
+          Fredoka size 14, placeholder "Enter partner code", max 8 chars) +
+        Join button (paddingH 20, height 52, borderRadius 16, bg accent, color white,
+          Fredoka_600SemiBold size 14)
+        Animated in: opacity 0→1, y 8→0, 0.3s
+
+Step dots: NOT shown on Welcome screen (step 0 has no dots).
+
+--- PERSONALIZE SCREEN ---
+
+Background image: assets/images/onboarding-personalize-bg.jpg
+  (same full-bleed treatment as Welcome)
+
+Gradient overlay: rgba(0,0,0,0.05) → transparent → rgba(0,0,0,0.15)
+
+Step dots at top (3 dots):
+  marginTop safeArea + 56 (pt-14)
+  Active dot (index 1): width 24, height 8, borderRadius 4, bg primary
+  Inactive dot: width 8, height 8, borderRadius 4, bg border
+  gap 8, centered row
+
+Content (animated: opacity 0→1, y 24→0, 0.6s ease-out):
+  Title: "Tell us a bit about yourself\nand your little one"
+    Fredoka_700Bold, size 24, foreground, centered, marginBottom 32
+
+  White card (bg rgba(255,255,255,0.65), backdrop-blur, borderRadius 24, padding 24,
+    shadow-xl, border rgba(255,255,255,0.60)):
+
+    Baby gender section:
+      Label: "Baby gender preference" — Patrick Hand, size 14, mutedForeground,
+        italic, centered, marginBottom 12
+      Three buttons in row (gap 8):
+        "👦 Boy" | "👧 Girl" | "✨ Either"
+        Each: flex 1, paddingV 12, borderRadius 16, Fredoka_600SemiBold size 14
+        Boy active:    bg boyBlue (#3a6fb0), color white, shadow-md
+        Girl active:   bg girlPink (#c04070), color white, shadow-md
+        Either active: bg gradient (90deg, boyBlue, girlPink, accent), color white, shadow-md
+        Inactive: bg rgba(255,255,255,0.80), border 1px border/60, color mutedForeground
+
+    Baby's last name section (marginTop 24):
+      Label: "Baby's last name (optional)" — same Patrick Hand italic style
+      Input: full width, height 52, borderRadius 16, border border/50,
+        bg rgba(255,255,255,0.80), Fredoka size 14, centered text
+        placeholder "Enter or skip for now", focus ring primary
+
+Button group (animated, delay 0.2s, paddingBottom 56, gap 12):
+  "Next" — full width, height 56, borderRadius 16, bg primary, color white,
+    Fredoka_600SemiBold size 16, shadow-lg
+  "Skip" — full width, paddingV 12, borderRadius 16, color foreground/60, Fredoka size 14
+
+--- TUTORIAL SCREEN ---
+
+Background image: assets/images/onboarding-tutorial-bg.jpg
+Same overlay as above.
+
+Step dots at top: index 2 active (third dot).
+
+Content (animated: opacity 0→1, y 20→0, 0.6s):
+  Title: "How it works" — Fredoka_700Bold, size 24, foreground, centered, marginBottom 24
+
+  5 instruction cards (gap 12, animated in sequence with stagger 0.08s delay):
+    Each card: flex row, gap 16, padding 16, borderRadius 16
+      bg rgba(255,255,255,0.65), backdrop-blur, border rgba(255,255,255,0.60), shadow-md
+
+    Icon badge: 40x40, borderRadius 12
+    Text: Fredoka size 14, foreground, lineHeight 22
+
+    Card 1: bg grass/15, ArrowRight icon, grass — "Swipe right to like"
+    Card 2: bg heartRed/15, ArrowLeft icon, heartRed — "Swipe left to pass"
+    Card 3: bg girlPink/15, Heart icon, girlPink — "If your partner likes the same name, it becomes a match"
+    Card 4: bg sunYellow/15, ListPlus icon, sunYellow — "Add names manually and share rankings with friends and family"
+    Card 5: bg muted, Settings icon, mutedForeground — "Connect with your partner, update preferences, and upgrade to premium in settings"
+
+Button group (animated, delay 0.5s, paddingBottom 56):
+  "Start Swiping ✨" — full width, height 56, borderRadius 16, bg primary, color white,
+    Fredoka_600SemiBold size 16, shadow-lg
+
+================================================================================
+SECTION 18 — NAME PACKS PAGE
+================================================================================
+
+Background: parchment, scroll
+
+After SubPageHeader:
+
+Intro text (paddingH 20, paddingBottom 8):
+  "Choose name packs to customize which names appear in your swipe deck."
+  Fredoka size 14, mutedForeground, centered, lineHeight 22
+
+Category sections (gap 24, paddingH 16, paddingBottom 32):
+
+Section header row (gap 8, paddingH 4, marginBottom 10):
+  Dot: 8x8, borderRadius 4, color per category
+  Label: Fredoka_600SemiBold, size 11, uppercase, tracking wide, mutedForeground
+  " — " separator
+  Description: Fredoka size 11, mutedForeground
+
+Category colors:
+  featured: dot amber400, bg amber50, border amber200, badge bg amber100 text amber700
+  origin:   dot sky400,  bg sky50,   border sky200,   badge bg sky100 text sky700
+  style:    dot rose400, bg rose50,  border rose200,  badge bg rose100 text rose700
+  feeling:  dot emerald400, bg emerald50, border emerald200, badge bg emerald100 text emerald700
+
+Category card: borderRadius 16, border 1px (category border color), overflow hidden
+  background: category bg color
+
+Pack rows (height 52, paddingH 16):
+  Separator: height 1px, bg rgba(0,0,0,0.05), full width
+
+  Radio circle (left, 20x20, borderRadius 10, border 2px):
+    Selected: borderColor grass, bg grass — white Check icon size 11, strokeWidth 3 inside
+    Unselected: borderColor rgba(0,0,0,0.20), bg rgba(255,255,255,0.50)
+
+  Pack display_name: Fredoka_500Medium, size 13, color foreground (or /80 if unselected)
+
+  Right side:
+    If premium pack AND user is free:
+      Lock icon size 12, color amber600 + "Premium" Fredoka_600SemiBold size 12, amber600
+    If selected:
+      "Active" badge pill, category badge colors, Fredoka_600SemiBold size 11
+      paddingH 8, paddingV 2, borderRadius 999
+
+Loading skeleton:
+  3 placeholder blocks, bg card/40 with border, pulsing animation
+
+"More packs coming soon" card (marginTop 8, borderRadius 16, border border/40,
+  bg card/60, paddingH 16, paddingV 14):
+  flex row, gap 12
+  Icon badge: 32x32, borderRadius 12, bg grass/10, Package size 15, grass
+  Title Fredoka_600SemiBold size 14 + body Fredoka size 12 mutedForeground lineHeight 22
+
+================================================================================
+SECTION 19 — PREMIUM PAGE
+================================================================================
+
+Background: parchment, scroll
+
+After SubPageHeader:
+
+Current plan card (bg card, borderRadius 16, border amber200/80, padding 16, marginBottom 0):
+  flex row, gap 12
+  Badge: 40x40, borderRadius 12, bg amber100, Star size 20, amber500 filled amber400
+  "Current Plan" Fredoka_700Bold size 14, foreground
+  "Premium — all features unlocked" or "Free — basic features" Fredoka size 12, mutedForeground
+
+Benefits card (bg gradient amber50→orange50, borderRadius 16, border amber200/60, padding 20):
+  Sparkles icon size 18, amber500, left of "Premium Benefits" Fredoka_700Bold foreground
+  marginBottom 16
+
+  5 benefit rows (gap 12):
+    Check circle: 20x20, borderRadius 10, bg amber100, Check size 11, amber600, strokeWidth 3
+    Benefit text: Fredoka size 13, foreground/80
+
+    Benefits text:
+    1. "Access to 10,000+ more names"
+    2. "AI name suggestions tailored to you"
+    3. "Unlimited daily swipes and likes"
+    4. "More name filtering — trendy, celeb, traditional, religious, and more"
+    5. "Recommendations based on your current children's names"
+
+If NOT premium:
+  Upgrade button: full width, height 56, borderRadius 16
+    bg gradient 135deg amber400→orange400, color white
+    Fredoka_700Bold size 16, shadow-lg, active scale 0.95
+
+  Restore purchase button: full width, height 48, borderRadius 16
+    bg card, border border/60, color mutedForeground, Fredoka_500Medium size 14
+
+  Legal text: Fredoka size 10, mutedForeground, centered, paddingH 16, lineHeight 16
+    "Purchases are processed securely. Subscriptions renew automatically unless cancelled."
+
+If premium:
+  Success row: full width, paddingV 16, bg amber50, border amber200, borderRadius 16
+    flex row centered, gap 8
+    Star size 16, amber500, filled amber400
+    "You are on Premium" Fredoka_700Bold, amber800
+
+================================================================================
+SECTION 20 — SUPPORT PAGE
+================================================================================
+
+Background: parchment, scroll
+
+After SubPageHeader:
+
+Single card (bg card, borderRadius 16, border border/60, shadow sm):
+  Rows divided by 1px border/50 inset (paddingLeft 52 to clear icon area)
+
+  "Contact Support" row: Mail icon (16, mutedForeground) | label | chevron ›
+  (Each row: height 52, paddingH 16, Fredoka_600SemiBold size 14 foreground)
+
+  Pushing to ContactScreen on press.
+
+Section label "Legal" (Fredoka_600SemiBold size 11, uppercase, tracking wide,
+  mutedForeground, marginTop 20, marginBottom 8, paddingH 4)
+
+Second card (same style):
+  "Privacy Policy" row: Lock icon
+  "Terms of Service" row: FileText icon
+
+App version card (bg card, borderRadius 16, border border/60, padding 16, marginTop 20):
+  flex row, gap 12
+  Badge: 36x36, borderRadius 10, bg muted, Info size 16, mutedForeground
+  "App Version" Fredoka_600SemiBold size 14 / version string Fredoka size 12 mutedForeground
+
+Footer note (centered, paddingH 16, marginTop 8):
+  "WeName — made with love for growing families"
+  Fredoka size 12, mutedForeground
+
+================================================================================
+SECTION 21 — DATA LAYER SUBSTITUTIONS
+================================================================================
+
+Replace all web APIs with React Native equivalents:
+
+localStorage.getItem(key)          → await SecureStore.getItemAsync(key)
+localStorage.setItem(key, val)     → await SecureStore.setItemAsync(key, val)
+localStorage.removeItem(key)       → await SecureStore.deleteItemAsync(key)
+
+window.location.pathname           → React Navigation current route
+window.location.href = '/'         → navigation.reset({ routes: [{ name: 'Main' }] })
+window.open(url)                   → await WebBrowser.openBrowserAsync(url)
+navigator.share(data)              → await Share.share({ message, url }) from react-native
+
+import.meta.env.VITE_SUPABASE_URL  → process.env.EXPO_PUBLIC_SUPABASE_URL
+import.meta.env.VITE_SUPABASE_ANON_KEY → process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
+
+"vibrate" in navigator / navigator.vibrate(12)  → await Haptics.impactAsync(ImpactFeedbackStyle.Light)
+
+window.innerWidth                  → Dimensions.get('window').width from react-native
+
+All Supabase queries, RPC calls, real-time subscriptions, and auth service
+functions remain IDENTICAL in logic. Only the storage and navigation APIs change.
+
+================================================================================
+SECTION 22 — APP CONFIG (app.json)
+================================================================================
+
+{
+  "expo": {
+    "name": "WeName",
+    "slug": "wename",
+    "scheme": "wename",
+    "icon": "./assets/images/app_icon.png",
+    "splash": { "backgroundColor": "#EDE0C8" },
+    "ios": {
+      "bundleIdentifier": "com.wename.app",
+      "associatedDomains": ["applinks:wename.app"]
+    },
+    "android": {
+      "package": "com.wename.app",
+      "intentFilters": [{
+        "action": "VIEW",
+        "autoVerify": true,
+        "data": [{ "scheme": "https", "host": "wename.app" }],
+        "category": ["BROWSABLE", "DEFAULT"]
+      }]
+    }
+  }
+}
+
+Deep link paths to handle:
+  wename://auth/callback   → AuthCallback handler
+  wename://join/:token     → JoinView (partner invite acceptance)
+
+================================================================================
+SECTION 23 — ANIMATION REFERENCE
+================================================================================
+
+All Framer Motion animations translate to react-native-reanimated as follows:
+
+Framer: initial opacity 0, y 24, animate opacity 1, y 0, duration 0.7
+RN:     useSharedValue(0) + withTiming, entering: FadeInDown.duration(700)
+
+Framer: spring stiffness 350, damping 35 (used on ALL bottom sheets)
+RN:     withSpring(0, { stiffness: 350, damping: 35 })
+
+Framer: AnimatePresence (fade + scale on mount/unmount)
+RN:     Animated.Modal or conditional render with FadeIn/FadeOut from reanimated
+
+Onboarding page transitions:
+  Framer: horizontal slide, x: ±40, opacity 0→1, duration 0.35 ease-in-out
+  RN:     SlideInRight / SlideOutLeft from reanimated layouts
+
+Swipe card rotation + opacity interpolation:
+  RN: useAnimatedStyle + interpolate(dragX, inputRange, outputRange)
+
+Swipe fly-off:
+  RN: withTiming(exitX, { duration: ms, easing: Easing.bezier(0.25,0.46,0.45,0.94) })
+
+Toast notification:
+  RN: FadeInDown.duration(300) entering, FadeOutUp exiting
+
+Scale-in match modal:
+  RN: ZoomIn.springify() or custom: withSpring(1, { stiffness: 300, damping: 18 })
+  Starting scale: 0.8, starting opacity: 0
+
+Bounce (heart icon in match modal):
+  RN: withRepeat(withSequence(withTiming(-8), withTiming(0)), -1, true)
+  or use Animated.loop with spring
+
+Step dots (active dot width 24→8 transition):
+  RN: withTiming on width, 300ms
+
+================================================================================
+SECTION 24 — QUALITY CHECKLIST
+================================================================================
+
+Every screen must:
+  [ ] Use useSafeAreaInsets() for top and bottom padding
+  [ ] Never clip content behind system home indicator
+  [ ] Use KeyboardAvoidingView on all screens with text inputs
+  [ ] Use FlatList (not ScrollView) for all variable-length name lists
+  [ ] Apply activeOpacity={0.7} or scale 0.98 to every Pressable
+  [ ] Have expo-haptics feedback on: swipe commit, match reveal, drag reorder,
+      button press on primary actions
+  [ ] Work on both iOS and Android
+  [ ] Use no purple, indigo, or violet hues anywhere
+  [ ] Never use emoji characters directly in JSX — wrap in <Text> component
+  [ ] Have loading states for all async operations
+  [ ] Handle empty states with the exact illustrated text shown above
+  [ ] Have error states with retry actions for all network calls
+```
+
+---
+
+To use: copy everything between the first and last ``` lines and paste it into Replit. This is fully self-contained — no prior context needed. Remember to switch back to **Build mode** using the "Implement this plan" button to have Claude execute any work.

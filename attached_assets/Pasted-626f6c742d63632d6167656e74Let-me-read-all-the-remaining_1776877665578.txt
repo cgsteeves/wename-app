@@ -1,0 +1,808 @@
+626f6c742d63632d6167656e74Let me read all the remaining functional files I haven't fully examined yet.
+Now I have complete functional knowledge of every system. Here is the full plain-text functionality document:
+
+---
+
+```
+================================================================================
+WENAME — FUNCTIONALITY SPECIFICATION
+Complete description of all application behavior, data flows, and business logic
+================================================================================
+
+This document describes WHAT the app does and HOW it works. It covers every
+user-facing behavior, every database interaction, every edge case, and every
+background system. Use this alongside the UI specification to build a complete
+replica.
+
+================================================================================
+SECTION 1 — USER IDENTITY SYSTEM
+================================================================================
+
+WeName uses a two-layer identity model: a persistent guest identity and an
+optional authenticated identity. Both are backed by rows in the public.users
+table in Supabase.
+
+--- GUEST (ANONYMOUS) USERS ---
+
+On first launch, if no user ID is found in storage, the app automatically
+creates a new row in public.users with no email, no display_name, and a randomly
+generated invite_code. The resulting UUID is immediately saved to
+SecureStore (key: "baby_picker_user_id"). This happens silently with no user
+interaction required.
+
+From this point forward, all swipes, matches, and settings are tied to this UUID.
+The user can swipe, rank, and configure everything as a guest. Data is fully
+functional but only exists as long as the device retains the stored ID.
+
+When a guest user's stored ID is found but no matching row exists in public.users,
+a new guest row is created (this handles data loss scenarios).
+
+--- AUTHENTICATED USERS ---
+
+When a user signs in (via Google, Apple, or email magic link), the auth.users.id
+from Supabase Auth becomes the canonical identity. After sign-in:
+
+1. A row is upserted into public.users using the auth ID (never a new random UUID).
+2. If a guest session was active (stored ID differs from auth ID), guestDataMerge
+   runs to transfer all swipes, matches, and profile fields to the new auth ID.
+3. The auth user ID overwrites the stored ID in SecureStore.
+
+After this, the guest row is no longer referenced (it is not deleted, but it
+becomes orphaned).
+
+--- INVITE CODE ---
+
+Every public.users row has a unique invite_code field (8 uppercase alphanumeric
+characters, generated with Math.random().toString(36)). This code is used as
+a fallback partner linking method when the full invite link is not available.
+The invite_code is generated at row creation time and never changes.
+
+--- USER FIELDS ---
+
+id:                   UUID (from auth.users or randomly generated for guests)
+email:                nullable, set on authentication
+display_name:         nullable, set by user in Profile settings
+baby_last_name:       nullable, shown alongside names during swiping
+baby_gender:          'boy' | 'girl' | 'either' — controls which names appear
+partner_id:           nullable UUID, references another public.users.id
+invite_code:          8-char uppercase string, never null after creation
+onboarding_complete:  boolean, set to true after tutorial is finished
+plan_tier:            'free' | 'premium' — controls daily limits
+daily_swipe_count:    integer, reset daily
+daily_like_count:     integer, reset daily
+daily_match_count:    integer, reset daily
+usage_last_reset_at:  timestamp, used to determine if daily reset is needed
+
+================================================================================
+SECTION 2 — ONBOARDING FLOW
+================================================================================
+
+Shown to users where user.onboarding_complete is null or false.
+The flow has 3 screens navigated in sequence.
+
+--- SCREEN 1: WELCOME ---
+
+Displays the app logo, tagline, and two options:
+
+Option A — "Get started":
+  Navigates to Screen 2 (Personalize).
+
+Option B — "I already have a partner code":
+  Reveals an inline text input for a partner code. When the user submits a
+  non-empty code, the app calls onEnterCode(code) which should:
+    1. Look up the code in partner_invites (short_code) or users (invite_code).
+    2. If found and valid, link partners immediately before proceeding.
+    3. Navigate to the main app.
+
+--- SCREEN 2: PERSONALIZE ---
+
+Step dot index 1 (second dot active).
+
+Two inputs:
+  1. Baby gender: three buttons — Boy / Girl / Either. Default: "Either".
+     Selection stored in local state.
+  2. Baby's last name: optional text input. Default: empty.
+
+Two buttons:
+  "Next" — saves gender and lastName to state, navigates to Screen 3.
+  "Skip" — navigates to Screen 3 without saving (values remain as defaults).
+
+--- SCREEN 3: TUTORIAL ---
+
+Step dot index 2 (third dot active).
+
+Displays 5 instruction cards explaining how the app works. No user input needed.
+
+Single button: "Start Swiping"
+  Action:
+    1. Calls updateUser with { baby_gender, baby_last_name, onboarding_complete: true }
+       (using whatever was set in Screen 2, or defaults).
+    2. Updates the user row in public.users.
+    3. Navigates to the main app (Swipe tab).
+
+================================================================================
+SECTION 3 — SWIPE SYSTEM
+================================================================================
+
+--- LOADING NAMES ---
+
+On mount and whenever user.baby_gender or user.partner_id changes, the app
+loads the swipe deck:
+
+Step 1: Fetch all existing swipe records for this user from public.swipes
+  (select name_id only) to build a set of already-swiped name IDs.
+
+Step 2: Call getSwipeableNames(userId, gender):
+  This calls the Supabase RPC function get_swipeable_names with:
+    pack_slugs: the user's selected name packs (from user_selected_packs table)
+    gender_filter: 'boy', 'girl', or null (for 'either')
+  Returns an array of Name objects.
+
+Step 3: If user has a partner_id, also call get_partner_created_names RPC:
+  This returns names that the partner manually added to their liked list
+  (names with created_by_user_id = partner_id). These are special "partner picks"
+  that appear in the deck so the current user can swipe on them.
+
+Step 4: Filter out already-swiped names from the catalog.
+  If all names have been swiped, use the full unfiltered catalog anyway
+  (so the user always has something to swipe on).
+
+Step 5: Shuffle the combined catalog.
+  For 'either' gender: interleave boy and girl names alternately (not random)
+  to ensure variety. Both sub-lists are individually shuffled first.
+  For single gender: random shuffle.
+
+Step 6: Set names array and currentIndex = 0.
+
+--- CARD STACK ---
+
+At most 2 cards are rendered simultaneously:
+  currentName = names[currentIndex]     → front card (interactive)
+  nextName    = names[currentIndex + 1] → back card (decorative, no interaction)
+
+The back card is pre-rendered so it appears instantly after a swipe.
+
+--- SWIPING ---
+
+When the user swipes or taps a button:
+
+1. Limit check (BEFORE any DB write):
+   Call checkCanSwipe(liked) from useDailyLimits hook.
+   If not allowed:
+     - Show PremiumUpgradeModal with the appropriate limitType.
+     - ABORT the swipe — nothing is written to the DB.
+     - The card does not advance.
+   If allowed:
+     - Increment daily_swipe_count (and daily_like_count if liked) in DB.
+     - Proceed.
+
+2. Update local state:
+   - Add to swipeHistory: { nameId: currentName.id, liked }
+   - Advance currentIndex by 1.
+   - Reset dragProgress to 0.
+
+3. Write to DB (async, non-blocking):
+   Upsert into public.swipes:
+     { user_id, name_id: currentName.id, liked }
+   onConflict: 'user_id,name_id' (if user swipes the same name twice, update)
+
+4. If liked AND user has a partner_id:
+   Call checkForMatch(currentName).
+
+5. First-like check:
+   If liked AND SecureStore key "first_like_partner_shown_{userId}" is not set:
+     - Set the key to "1".
+     - Show the FirstLikePartnerModal.
+
+--- MATCH CHECKING ---
+
+Called after every like when partner_id is set:
+
+1. Query public.swipes for a row where:
+     user_id = partner_id
+     name_id = currentName.id
+     liked = true
+   Use maybeSingle() — no error if not found.
+
+2. If partner has liked the same name:
+   a. Sort [user.id, partner_id] alphabetically → [userA, userB].
+   b. Insert into public.matches:
+        { name_id, user_a_id: userA, user_b_id: userB, gender: name.gender }
+   c. Call checkCanRevealMatch():
+        If allowed (within daily limit): set matchedName state → show match modal.
+        If blocked: show PremiumUpgradeModal with limitType = 'match'.
+        The match IS saved to DB in both cases — only the notification is gated.
+
+--- UNDO ---
+
+Available when swipeHistory.length > 0 AND currentIndex > 0.
+
+Steps:
+1. Get lastSwipe from swipeHistory.
+2. Delete the swipe from public.swipes:
+     WHERE user_id = user.id AND name_id = lastSwipe.nameId
+3. If lastSwipe.liked AND partner_id:
+   Delete the potential match from public.matches:
+     WHERE name_id = prevName.id AND user_a_id = sorted[0] AND user_b_id = sorted[1]
+4. Remove last item from swipeHistory.
+5. Decrease currentIndex by 1.
+
+--- MATCH CELEBRATION MODAL ---
+
+When matchedName is set, a full-screen modal appears with:
+  - The matched name displayed large
+  - A bouncing heart animation
+  - Optional last name display
+
+The modal auto-dismisses after 4000ms via setTimeout, or immediately when
+the user taps "Keep Swiping".
+
+--- EMPTY AND ERROR STATES ---
+
+If names array is empty after loading: show "All done!" with a "Start Over"
+button that calls loadNames(includeAlreadySwiped = true).
+
+If loading throws: show error message with "Try Again" button.
+
+--- PARTNER PICKS ---
+
+Names returned by get_partner_created_names are flagged with isPartnerPick=true.
+These names show a "Partner Added" badge on the card. When swiped right on,
+they trigger match checking immediately (since the partner already "liked" them
+by adding them manually).
+
+================================================================================
+SECTION 4 — DAILY LIMITS SYSTEM (useDailyLimits)
+================================================================================
+
+Applies to FREE users only. Premium users (plan_tier = 'premium') bypass all
+limits — checkCanSwipe and checkCanRevealMatch always return allowed=true.
+
+Free limits per calendar day:
+  Swipes:         30
+  Likes:          8   (a like also counts as a swipe — both counters increment)
+  Match reveals:  3
+
+--- DAILY RESET ---
+
+Before any limit check, the hook compares today's date (YYYY-MM-DD in local
+timezone) against the date portion of user.usage_last_reset_at.
+
+If they differ (or if usage_last_reset_at is null):
+  - Set daily_swipe_count, daily_like_count, daily_match_count to 0 in DB.
+  - Set usage_last_reset_at to current timestamp.
+  - Call updateUser() to sync local state.
+  - Use the reset counts (all 0) for the current check.
+
+A resetInFlight ref prevents concurrent reset calls.
+
+--- checkCanSwipe(liked: boolean) ---
+
+Returns: { allowed: boolean, limitType: 'swipe' | 'like' | null }
+
+Logic:
+  1. Run daily reset if needed.
+  2. If swipe_count >= 30: return { allowed: false, limitType: 'swipe' }
+  3. If liked AND like_count >= 8: return { allowed: false, limitType: 'like' }
+  4. Otherwise: increment swipe_count (+1) and like_count (+1 if liked) in DB,
+     call updateUser, return { allowed: true, limitType: null }
+
+--- checkCanRevealMatch() ---
+
+Returns: boolean
+
+Logic:
+  1. Run daily reset if needed.
+  2. If match_count >= 3: return false
+  3. Otherwise: increment match_count (+1) in DB, call updateUser, return true
+
+================================================================================
+SECTION 5 — NAMES SCREEN
+================================================================================
+
+Three sub-tabs: Your Picks / Shared Matches / AI Suggestions
+
+--- YOUR PICKS TAB ---
+
+On mount: load all swipes for this user where liked = true.
+  Query: supabase.from('swipes').select('id, ranking, name_id')
+    .eq('user_id').eq('liked', true)
+    .order('ranking', ascending, nullsFirst: false)
+    .order('created_at', descending)
+  Then join with names table to get name data.
+
+The list is ordered by: ranking (nulls last), then by most recently liked.
+Names with no ranking float to the bottom.
+
+DRAG TO REORDER:
+  When the user drags a row to a new position, handleReorderSwipes is called
+  with the new array order. This:
+    1. Updates local state immediately (optimistic).
+    2. Iterates through the new order and writes ranking = (index + 1) to each
+       swipe row in public.swipes.
+  If the DB write fails, loadLikedNames() is called to restore from DB.
+
+DELETE (unlike):
+  Tapping trash icon calls handleDeleteSwipe(swipeId, local):
+    - If not a local (optimistic) row: update public.swipes SET liked = false.
+    - Remove from local state array.
+  Note: the swipe row is UPDATED (liked=false), not deleted. This preserves
+  the swipe history so the name does not reappear in the swipe deck.
+
+MANUALLY ADD A NAME:
+  User taps "Add name" → inline form appears with name input and Boy/Girl selector.
+  On submit (handleAddName):
+    1. Validate name is not empty and not a duplicate in the current tab.
+    2. Add optimistic row to local state immediately.
+    3. Look up name in public.names by (name, gender). If not found, insert it:
+       { name, gender, user_created: true, created_by_user_id: user.id }
+    4. Insert into public.swipes: { user_id, name_id, liked: true }
+    5. Replace optimistic row with real DB row.
+    6. Show success toast.
+  On DB error: roll back optimistic row, re-show form with error message.
+
+  NOTE: Manually added names in "Your Picks" become swipeable for the partner
+  (they appear via the get_partner_created_names RPC).
+
+INFO OVERLAY:
+  Tapping the Info icon on any row opens a bottom sheet showing:
+  origin, meaning, nickname, popularity rank for that name.
+  The sheet slides up from the bottom with spring animation and can be
+  dismissed by dragging down >80px or tapping the X button.
+
+SHARE:
+  Tapping Share calls shareNameList() which:
+    1. Tries navigator.share (web) / expo-sharing (native).
+    2. Shares the list as text: "My Favorite Baby Names: Name1, Name2..."
+    3. In a full implementation: renders a styled image of the list using
+       react-native-view-shot and shares as an image file.
+
+--- SHARED MATCHES TAB ---
+
+Loaded only when this tab is first activated (lazy loading).
+Also loaded on mount if activeSubTab is already 'matches'.
+
+Real-time subscription: when user has a partner_id AND this tab is active,
+a Supabase channel subscribes to postgres_changes on the matches table
+(filtered by user_a_id = user.id OR user_b_id = user.id). On any change,
+loadMatches() is called. Channel is cleaned up when tab changes or component
+unmounts.
+
+Query: supabase.from('matches').select('*')
+  .or('user_a_id.eq.{id},user_b_id.eq.{id}')
+  .order('ranking', ascending, nullsFirst: false)
+  .order('created_at', descending)
+Then join with names table.
+
+NO PARTNER STATE: If user.partner_id is null, shows an empty state with an
+"Invite Partner" button. No data is loaded.
+
+REORDER: Same drag-to-reorder system as Your Picks, but writes to
+public.matches ranking column.
+
+DELETE: Calls supabase.from('matches').delete().eq('id', matchId).
+This permanently deletes the match record.
+
+MANUALLY ADD TO MATCHES: Same form as Picks, but inserts into public.matches:
+{ name_id, user_a_id, user_b_id, gender }
+where userA/userB are sorted by ID string to ensure consistent ordering.
+
+FINALISTS (sub-feature within Shared Matches):
+A separate public.finalists table allows users to mark certain names as top
+candidates. Finalists appear at the TOP of the Shared Matches list with a star
+icon, rendered before the draggable match list.
+  - Load: query public.finalists where user_id = user.id, join with names.
+  - Add: insert into public.finalists { user_id, name_id }.
+    Shows toast "Added to Finalists!" on success.
+    If already a finalist: shows toast "Already a finalist".
+  - Remove: delete from public.finalists by id.
+    Shows toast "{name} removed from Finalists".
+
+--- AI SUGGESTIONS TAB ---
+
+PREMIUM GATE: If user.plan_tier !== 'premium', tapping this tab opens
+PremiumUpgradeModal with limitType = 'discover' and stays on the current tab.
+If premium, navigates to the tab normally.
+
+Context loading (when switching to this tab):
+  1. Load all swiped name strings for this user (all swipes, not just liked).
+  2. If partner_id set, load all partner liked name strings.
+  These are passed to the NameSuggestions component.
+
+The NameSuggestions component:
+  - Auto-fetches on mount if likedNames.length >= 3.
+  - Does NOT auto-fetch if user has fewer than 3 liked names. Shows a prompt
+    to "Like a few more names while swiping to unlock personalized suggestions."
+
+FETCHING: POST request to Supabase Edge Function /functions/v1/suggest-names
+  Body:
+    gender:           'boy' or 'girl' (derived from user.baby_gender, defaults to 'boy')
+    likedNames:       array of name strings the user has liked
+    matchedNames:     array of mutually matched name strings
+    partnerLikedNames: array of names the partner has liked
+    excludeNames:     all previously swiped name strings (to avoid repeats)
+    style:            null | 'classic' | 'modern' | 'unique' (from style filter pills)
+    lastName:         user.baby_last_name or ''
+
+  The Edge Function streams results as newline-delimited JSON. Each line is a
+  JSON object: { name, meaning, gender, reason? }
+  The component reads the stream incrementally and appends each suggestion to
+  the list as it arrives (progressive rendering).
+
+STYLE FILTER: Three toggle pills — Classic / Modern / Unique.
+  Tapping a pill toggles it (tap again to deselect). Only one can be active.
+  When selection changes and suggestions have already loaded, fetchSuggestions
+  is called again automatically.
+
+REFRESH: "Refresh Suggestions" button calls fetchSuggestions(isRefresh = true).
+  When isRefresh = true, the excludeNames list grows to include all previously
+  shown names (accumulated in shownNames Set), preventing repeats across refreshes.
+
+ADD TO PICKS: Tapping "Add to My Picks" on a suggestion:
+  1. Marks the suggestion as added (prevents double-tapping).
+  2. Adds the name to the allSwipedNames exclude list immediately.
+  3. Calls onNameAdded(name, gender) callback in parent (NamesView).
+  4. Parent (handleAddFromSuggestion) creates an optimistic swipe row and
+     writes it to public.swipes.
+
+================================================================================
+SECTION 6 — PARTNER SYSTEM
+================================================================================
+
+--- PARTNER INVITE FLOW (SENDER) ---
+
+Only available to authenticated users. If user is a guest, tapping "Invite Partner"
+triggers the auth flow first (via AuthModal). On successful auth, the pending
+invite action completes automatically (tracked via pendingInviteRef).
+
+InvitePartnerView:
+  On mount: calls createInvite(userId):
+    1. Marks all existing pending invites from this user as 'expired' in
+       public.partner_invites (UPDATE status = 'expired' WHERE inviter_id = userId
+       AND status = 'pending').
+    2. Generates a cryptographically random 48-char hex token (24 bytes via
+       crypto.getRandomValues).
+    3. Generates an 8-char uppercase alphanumeric short code (avoiding ambiguous
+       chars like 0/O, 1/I).
+    4. Inserts into public.partner_invites:
+         { token, short_code, inviter_id: userId, status: 'pending' }
+    5. Returns the invite record.
+
+  The invite URL is: {appOrigin}/join/{token}
+  (In React Native: wename://join/{token} or https://wename.app/join/{token})
+
+  Display:
+    - Full URL shown in a read-only field with a Copy button.
+    - Short code shown large with a Copy button.
+    - "Share Invite Link" button triggers native share sheet with the URL and
+      a pre-written message.
+    - Footer note: "This link and code expire in 7 days."
+
+--- PARTNER INVITE FLOW (RECEIVER — VIA LINK) ---
+
+When the app is opened via a /join/{token} deep link, JoinView renders.
+
+States: loading → confirm → joining → success / error / invalid
+
+VALIDATE: getInviteByToken(token):
+  Query public.partner_invites WHERE token = token AND status = 'pending'.
+  If not found: show "Link not valid" state.
+  If found: fetch inviter's display_name. Show "confirm" state.
+
+JOIN (handleJoin):
+  1. Ensure a user ID exists in storage. If not, create a new guest user row.
+  2. Call acceptInvite(invite, userId):
+     This calls the Supabase RPC accept_partner_invite with:
+       p_token: invite.token
+       p_joiner_id: userId
+     The RPC (server-side) handles:
+       - Validating the token is still pending and not expired.
+       - Setting user_a.partner_id = user_b.id and user_b.partner_id = user_a.id.
+       - Marking the invite as 'accepted'.
+     Returns { success: boolean, error?: string, inviter_id?: string }
+  3. If success: update local user state with { partner_id: invite.inviter_id }.
+     Show "You're connected!" success state.
+  4. If error: show error state with "Try again" button.
+
+--- PARTNER INVITE FLOW (RECEIVER — VIA CODE) ---
+
+In the Partner settings page, the "Join with code" section:
+  User enters an 8-char code. On submit (handleJoinWithCode):
+
+  Step 1: Try getInviteByShortCode(code):
+    Query public.partner_invites WHERE short_code = code AND status = 'pending'.
+
+  Step 2a: If invite found:
+    Call acceptInvite(invite, user.id) — same RPC as link flow.
+    On success: call onUpdate({ partner_id: invite.inviter_id }), show success.
+
+  Step 2b: If no invite found:
+    Fall back to legacy invite_code lookup:
+    Query public.users WHERE invite_code = code.
+    Validate: partner must exist, must not be the current user, must not already
+    have a partner.
+    If valid: directly update both user rows:
+      UPDATE users SET partner_id = partner.id WHERE id = user.id
+      UPDATE users SET partner_id = user.id WHERE id = partner.id
+    Call onUpdate({ partner_id: partner.id }), show success.
+
+  Errors shown inline:
+    "Invalid code. Please check and try again."
+    "You cannot link to yourself."
+    "This user is already connected with someone else."
+    "Failed to link partner. Please try again."
+
+--- REMOVING A PARTNER ---
+
+In Partner settings page, "Unlink Partner" button calls removePartner():
+  1. UPDATE public.users SET partner_id = null WHERE id = partner.id
+  2. UPDATE public.users SET partner_id = null WHERE id = user.id
+  3. DELETE FROM public.matches WHERE user_a_id = user.id OR user_b_id = user.id
+     (ALL match history is deleted when partners unlink)
+  4. Update local user state: partner_id = null.
+
+================================================================================
+SECTION 7 — AUTHENTICATION
+================================================================================
+
+--- AUTH FLOWS ---
+
+GOOGLE OAUTH:
+  Calls supabase.auth.signInWithOAuth({ provider: 'google' })
+  with redirectTo pointing to the app's auth callback URL.
+  The browser (or in-app WebView) opens Google's auth page.
+  After approval, Supabase redirects back with session tokens.
+  In React Native: use expo-auth-session with makeRedirectUri({ scheme: 'wename' }).
+
+EMAIL MAGIC LINK:
+  POSTs to Supabase Edge Function /functions/v1/send-magic-link:
+    Body: { email, redirectTo: '{origin}/auth/callback' }
+  The Edge Function uses Supabase Admin API to generate a magic link and sends
+  it via SendGrid as a branded email.
+  User clicks link → auth callback page → session established.
+  Magic links expire after 1 hour.
+
+AUTH CALLBACK:
+  After any successful auth, the /auth/callback handler (web) or deep link
+  handler (wename://auth/callback in native) calls finalizeLogin(userId, email):
+    1. Upsert into public.users: { id: userId, email, updated_at: now() }
+    2. If display_name not already set, check auth user metadata for full_name.
+    3. If invite_code not set, generate one.
+    4. If a different guest ID was in storage, call mergeGuestData(guestId, authId).
+    5. Save auth user ID to SecureStore key "baby_picker_user_id".
+
+POST-AUTH REDIRECT:
+  Before opening auth, certain actions set a "post_auth_redirect" value in
+  storage (e.g., "partner"). After successful auth, this value is consumed
+  and the appropriate action is taken (e.g., navigating to the partner invite view).
+
+SIGN OUT:
+  Calls supabase.auth.signOut(). This clears the session.
+  The app falls back to guest mode — a new guest user row will be created on
+  next app launch if the stored ID is no longer valid.
+  Guest data from before sign-in is NOT retained after sign-out
+  (user.id was changed to auth ID during login).
+
+DELETE ACCOUNT:
+  Requires active session. POSTs to /functions/v1/delete-account with the
+  user's access token. The Edge Function:
+    - Deletes the public.users row.
+    - Deletes the auth.users entry via Admin API.
+    - Deletes all related data (swipes, matches, finalists).
+  After success: removes stored ID from SecureStore, calls signOut().
+
+--- AUTH STATE ---
+
+AuthContext subscribes to supabase.auth.onAuthStateChange. On SIGNED_IN or
+USER_UPDATED events, if the user has an email, upserts { id, email } into
+public.users as a lightweight backstop.
+
+isAuthenticated is true whenever session is not null.
+
+--- GUEST DATA MIGRATION (mergeGuestData) ---
+
+Called after login if stored guest ID differs from auth user ID.
+
+1. mergeSwipes:
+   - Fetch all guest swipes (name_id, liked).
+   - Fetch all auth user swipes (name_id).
+   - Insert guest swipes that don't already exist for the auth user.
+   - Names the auth user already swiped are NOT overwritten.
+
+2. mergeMatches:
+   - UPDATE matches SET user_a_id = authId WHERE user_a_id = guestId
+   - UPDATE matches SET user_b_id = authId WHERE user_b_id = guestId
+
+3. mergeProfileSettings:
+   - Fetch guest profile fields.
+   - Fetch auth profile fields.
+   - For each field (display_name, baby_last_name, baby_gender, partner_id,
+     invite_code, onboarding_complete, plan_tier):
+     Only copy from guest if auth profile field is null/empty.
+   - Exception: baby_gender is copied only if guest value is not 'either'
+     (i.e., if the guest set a specific preference).
+
+================================================================================
+SECTION 8 — SETTINGS FUNCTIONALITY
+================================================================================
+
+--- PROFILE PAGE ---
+
+Displays current user.display_name, user.baby_last_name, user.baby_gender.
+User can edit all three. "Save Changes" button is DISABLED if no changes have
+been made (compared against the original values).
+
+On save: calls onUpdate({ display_name, baby_last_name, baby_gender }).
+This calls supabase.from('users').update(updates).eq('id', user.id).
+After save, shows "Saved!" briefly (2000ms) then returns to "Save Changes".
+
+RESET ALL SWIPES:
+  Calls onResetSwipes() which (in App.tsx or equivalent):
+    DELETE FROM public.swipes WHERE user_id = user.id
+  After deletion, reloads the swipe deck (new empty deck, all names are fresh).
+  Note: matches are NOT deleted by this action. Only the user's swipe records.
+
+--- PARTNER PAGE ---
+
+CONNECTED STATE:
+  Shows partner's display_name (fetched from public.users WHERE id = partner_id)
+  and partner's baby_gender preference.
+  "Unlink Partner" button calls removePartner() (see Section 6).
+
+DISCONNECTED STATE:
+  Shows "Invite Partner" button (leads to InvitePartnerView — requires auth).
+  Shows "Join with code" input (works without auth).
+
+AUTH GATE FOR INVITE:
+  If user is not authenticated and taps "Invite Partner":
+    - Sets post_auth_redirect = 'partner' in storage.
+    - Sets pendingInviteRef.current = true.
+    - Shows AuthModal with context-specific text about partner inviting.
+  When isAuthenticated becomes true while pendingInviteRef is set:
+    - Clears the ref.
+    - Closes AuthModal.
+    - Navigates to InvitePartnerView.
+
+--- NAME PACKS PAGE ---
+
+Displays all rows from public.name_packs, grouped by category field.
+
+Category display order: featured → origin → style → feeling → (others)
+
+USER SELECTION:
+  Loads current selection from public.user_selected_packs WHERE user_id = user.id.
+  Only ONE pack can be selected at a time (radio buttons, not checkboxes).
+
+ON SELECT (handleToggle):
+  - If pack is premium AND user.plan_tier !== 'premium':
+    Navigate to Premium page (do not change selection).
+  - If pack is already selected: do nothing (can't deselect without selecting another).
+  - Otherwise: call setUserPack(userId, pack.slug):
+      1. DELETE FROM public.user_selected_packs WHERE user_id = userId
+         (removes all current selections)
+      2. INSERT INTO public.user_selected_packs { user_id, pack_slug }
+    Update local selectedSlugs state to reflect only the new selection.
+
+DEFAULT PACK: 'top_2000' (constant DEFAULT_PACK_SLUG).
+  If no selection exists for a user, getSwipeableNames treats 'top_2000' as default.
+
+--- PREFERENCES PAGE ---
+
+Currently UI-only — toggles are local state only and not persisted to DB.
+Future implementation will persist these to the users table.
+
+Toggles:
+  - Exclude Disliked Names: Skip names user has swiped left on (default: true)
+  - Show Only New Names: Only show unswiped names (default: false)
+  - Show Popularity Ranking: Show rank badge on card (default: true)
+  - Show Pronunciation: Show phonetic guide (default: true)
+
+Disabled/coming-soon toggles:
+  - Filter by Origin (premium)
+  - Filter by Length (premium)
+  - Filter by Starting Letter (premium)
+
+--- ACCOUNT PAGE ---
+
+See Section 7 for auth flows.
+
+The Account page is the PRIMARY auth entry point. The Sign In button here
+is the main way users create accounts. No other part of the app auto-triggers
+auth except where partner inviting requires it.
+
+--- SUPPORT PAGE ---
+
+Links to sub-pages:
+  - Contact Support → ContactPage (email form or mailto link)
+  - Privacy Policy → PrivacyPolicyPage (inline text)
+  - Terms of Service → TermsOfServicePage (inline text)
+
+App version displayed as static string "1.0.0".
+
+--- PREMIUM PAGE ---
+
+Displays current plan status (free or premium).
+Lists 5 premium benefits.
+
+For free users:
+  "Upgrade to Premium" button: currently shows the button but upgrade logic
+  (RevenueCat, Stripe, or App Store) is not yet connected. The button exists
+  as a placeholder.
+  "Restore Purchase" button: also a placeholder.
+
+For premium users: shows a static "You are on Premium" confirmation.
+
+================================================================================
+SECTION 9 — FIRST-LIKE PARTNER MODAL
+================================================================================
+
+Triggered once, the first time a user swipes right on any name.
+
+TRIGGER CONDITION:
+  In handleSwipe, after a successful like:
+  Check SecureStore key "first_like_partner_shown_{userId}".
+  If NOT set:
+    - Set the key to "1".
+    - Set showPartnerModal = true.
+
+MODAL BEHAVIOR:
+  If user already has a partner (user.partner_id is set):
+    Shows "Keep Swiping" button. Modal is informational only.
+
+  If user does NOT have a partner:
+    Shows "Invite Partner" button.
+    If user is authenticated: closes modal, navigates to partner invite view.
+    If user is NOT authenticated:
+      - Sets post_auth_redirect = 'partner'.
+      - Sets pendingInviteRef = true.
+      - Shows AuthModal with partner-invite-specific text.
+      On successful auth:
+        - Closes AuthModal.
+        - Closes partner modal.
+        - Navigates to partner invite view.
+
+  "Maybe later" button simply closes the modal.
+
+================================================================================
+SECTION 10 — DATA SCHEMA REFERENCE
+================================================================================
+
+--- public.users ---
+id:                   uuid (primary key)
+email:                text (nullable)
+display_name:         text (nullable)
+baby_last_name:       text (nullable)
+baby_gender:          text ('boy'|'girl'|'either') (nullable)
+partner_id:           uuid (nullable, references users.id)
+invite_code:          text (not null, unique)
+onboarding_complete:  boolean (nullable, treated as false if null)
+plan_tier:            text (nullable, defaults to 'free' behavior)
+daily_swipe_count:    integer (default 0)
+daily_like_count:     integer (default 0)
+daily_match_count:    integer (default 0)
+usage_last_reset_at:  timestamptz (nullable)
+created_at:           timestamptz
+updated_at:           timestamptz (nullable)
+
+--- public.names ---
+uuid:          uuid (primary key — note: column name is 'uuid' not 'id')
+name:          text
+gender:        text ('boy'|'girl')
+pronunciation: text (nullable)
+origin_raw:    text (nullable)
+meaning:       text (nullable)
+nicknames:     text (nullable)
+us_rank:       text (nullable, may contain non-numeric values — sanitize!)
+user_created:  boolean (nullable)
+created_by_user_id: uuid (nullable)
+
+NOTE: When reading names, sanitize us_rank with:
+  rank = us_rank != null && /^\d+$/.test(String(us_rank)) ? Number(us_rank) : null
+Also sanitize: if value is '\N' or 'Unknown' or empty string, treat as null.
+
+--- public.swipes ---
+id:         uuid (primary key)
+user_id:    uuid (references users.id)
+name_id:    uuid (references names.uuid)
+liked:      boolean
+ranking:    integer (nullable — user's manual

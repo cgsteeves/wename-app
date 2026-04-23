@@ -17,7 +17,6 @@ import { Feather } from "@expo/vector-icons";
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
-import { FREE_LIMITS } from "@/hooks/useDailyLimits";
 import { supabase } from "@/lib/supabase";
 
 // ─── Design tokens ───────────────────────────────────────────────────────────
@@ -30,7 +29,6 @@ const MUTED_BG       = "#dfd6c8";
 const BORDER         = "#cec5b9";
 const BORDER_60      = "rgba(206,197,185,0.6)";
 const BORDER_50      = "rgba(206,197,185,0.5)";
-const GRASS          = "#316b46";
 const BOY_BLUE       = "#3a71b5";
 const GIRL_PINK      = "#c04070";
 const EITHER_ORANGE  = "#f07e29";
@@ -65,8 +63,6 @@ export default function ProfileScreen() {
     displayName   !== (user.display_name    ?? "")  ||
     babyLastName  !== (user.baby_last_name  ?? "")  ||
     babyGender    !==  user.baby_gender;
-
-  const isPremium = user.plan_tier === "premium";
 
   // ─── Save ─────────────────────────────────────────────────────────────────
   async function handleSave() {
@@ -142,16 +138,6 @@ export default function ProfileScreen() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Daily Usage ─────────────────────────────────────────────────── */}
-        <SectionLabel text="DAILY USAGE" />
-        <View style={styles.formCard}>
-          <View style={styles.usageRow}>
-            <Stat label="Swipes"  value={user.daily_swipe_count  ?? 0} max={FREE_LIMITS.swipes}  pro={isPremium} color={BOY_BLUE}    />
-            <Stat label="Likes"   value={user.daily_like_count   ?? 0} max={FREE_LIMITS.likes}   pro={isPremium} color="#f43f5e"    />
-            <Stat label="Matches" value={user.daily_match_count  ?? 0} max={FREE_LIMITS.matches} pro={isPremium} color={GRASS}      />
-          </View>
-        </View>
-
         {/* ── Form card ───────────────────────────────────────────────────── */}
         <View style={styles.formCard}>
           {/* Your Name */}
@@ -316,23 +302,6 @@ function GenderButton({
   );
 }
 
-function Stat({
-  label, value, max, pro, color,
-}: {
-  label: string; value: number; max: number; pro: boolean; color: string;
-}) {
-  return (
-    <View style={{ flex: 1, alignItems: "center" }}>
-      <Text style={{ color, fontSize: 22, fontFamily: fonts.displayBold }}>
-        {pro ? "∞" : `${value}/${max}`}
-      </Text>
-      <Text style={{ color: MUTED_FG, fontSize: 12, fontFamily: fonts.display }}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
@@ -455,8 +424,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  usageRow: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
 });

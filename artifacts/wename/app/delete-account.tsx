@@ -4,7 +4,6 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -236,6 +235,7 @@ function AuthenticatedView({
 }
 
 function UnauthenticatedView({ bottomPad }: { bottomPad: number }) {
+  const router = useRouter();
   const [email, setEmail]       = useState("");
   const [reason, setReason]     = useState("");
   const [emailError, setEmailError] = useState("");
@@ -314,7 +314,7 @@ function UnauthenticatedView({ bottomPad }: { bottomPad: number }) {
             Already have an account?{" "}
             <Text
               style={{ color: SKY_BLUE, textDecorationLine: "underline" }}
-              onPress={() => Linking.openURL("/")}
+              onPress={() => router.replace("/")}
             >
               Sign in to delete instantly
             </Text>

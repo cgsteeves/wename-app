@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Haptics from "expo-haptics";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -42,6 +43,7 @@ export default function SwipeScreen() {
   const [firstLikeOpen, setFirstLikeOpen] = useState(false);
   const cardRef = useRef<NameCardHandle>(null);
   const dragProgress = useSharedValue(0);
+  const undoInProgress = useRef(false);
 
   const limits = useDailyLimits(user, updateUser);
 
@@ -162,10 +164,13 @@ export default function SwipeScreen() {
   }
 
   async function handleUndo() {
-    if (history.length === 0 || currentIndex === 0 || !user) return;
+    if (undoInProgress.current || history.length === 0 || currentIndex === 0 || !user) return;
+    undoInProgress.current = true;
     const last = history[history.length - 1];
     setHistory((p) => p.slice(0, -1));
     setCurrentIndex((i) => i - 1);
+    dragProgress.value = 0;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
       await supabase
         .from("swipes")
@@ -174,6 +179,8 @@ export default function SwipeScreen() {
         .eq("name_id", last.nameId);
     } catch (e) {
       console.error("[SwipeScreen] undo error", e);
+    } finally {
+      undoInProgress.current = false;
     }
   }
 

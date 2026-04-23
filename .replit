@@ -14,6 +14,7 @@ runButton = "Project"
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true
+integrations = ["github:1.0.0"]
 
 [postMerge]
 path = "scripts/post-merge.sh"
@@ -28,6 +29,10 @@ localPort = 8081
 externalPort = 8081
 
 [[ports]]
+localPort = 8082
+externalPort = 3001
+
+[[ports]]
 localPort = 19315
 externalPort = 3000
 
@@ -36,3 +41,6 @@ externalPort = 3000
 [userenv.shared]
 EXPO_PUBLIC_SUPABASE_URL = "https://cwpanlrimbccdgzchkdo.supabase.co"
 EXPO_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48"
+
+[nix]
+channel = "stable-25_05"

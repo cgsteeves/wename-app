@@ -1,12 +1,15 @@
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Print from "expo-print";
 import { useFocusEffect } from "expo-router";
+import * as Sharing from "expo-sharing";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   Share,
@@ -15,6 +18,13 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { GestureDetector, Gesture } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const listBg = require("../../assets/images/list-bg.png");
@@ -73,6 +83,9 @@ export default function NamesScreen() {
     user?.baby_gender === "girl" ? "girl" : "boy",
   );
   const [infoItem, setInfoItem] = useState<NameItem | null>(null);
+  const [isReordering, setIsReordering] = useState(false);
+  const activeDragIdx = useSharedValue(-1);
+  const dragY = useSharedValue(0);
 
   const fetchNamesByIds = useCallback(async (ids: string[]) => {
     if (ids.length === 0)
@@ -342,17 +355,81 @@ export default function NamesScreen() {
     }
   }
 
+  async function persistReorder(orderedItems: NameItem[], table: "swipes" | "matches") {
+    for (let i = 0; i < orderedItems.length; i++) {
+      await supabase
+        .from(table)
+        .update({ ranking: i + 1 })
+        .eq("id", orderedItems[i].recordId);
+    }
+  }
+
+  function handleReorder(fromIndex: number, toIndex: number) {
+    const isLiked = tab === "liked";
+    const setter = isLiked ? setLiked : setMatches;
+    setter((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      persistReorder(next, isLiked ? "swipes" : "matches").catch(console.error);
+      return next;
+    });
+  }
+
   async function shareList() {
     const list = tab === "liked" ? liked : matches;
     if (list.length === 0) return;
-    const title =
-      tab === "liked" ? "My Favorite Baby Names" : "Our Matched Baby Names";
-    const intro =
-      tab === "liked"
-        ? "Check out my favorite baby names: "
-        : "Check out the baby names we both love: ";
-    const body = list.map((n) => n.text).join(", ");
-    await Share.share({ message: `${title}\n\n${intro}${body}` });
+    const title = tab === "liked" ? "My Favorite Baby Names" : "Our Matched Baby Names";
+    const accentHex = (user?.baby_gender === "girl") ? "#a83060" : "#2a5f9e";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Georgia, serif; background: #fef9f0; padding: 32px 24px 40px; min-height: 100vh; }
+    h1 { color: #5b3a29; font-size: 26px; text-align: center; margin-bottom: 6px; }
+    .sub { text-align: center; color: #9c7b5e; font-size: 14px; margin-bottom: 28px; }
+    .row { background: rgba(255,255,255,0.88); border-radius: 14px; padding: 14px 18px;
+           margin-bottom: 10px; display: flex; align-items: center; gap: 14px;
+           border: 1.5px solid rgba(180,150,110,0.25);
+           box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+    .rank { color: #9c7b5e; font-size: 13px; min-width: 28px; font-style: italic; }
+    .name { font-size: 22px; font-weight: bold; color: ${accentHex}; flex: 1; }
+    .gender { font-size: 11px; color: #aaa; text-transform: capitalize; }
+    .footer { text-align: center; margin-top: 28px; color: #c9a87c; font-size: 12px; letter-spacing: 0.5px; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <p class="sub">${list.length} ${list.length === 1 ? "name" : "names"}</p>
+  ${list.map((n, i) => `
+    <div class="row">
+      <span class="rank">${i < 3 ? `#${i + 1}` : `${i + 1}`}</span>
+      <span class="name">${n.text}</span>
+      <span class="gender">${n.gender}</span>
+    </div>`).join("")}
+  <div class="footer">Made with WeName ✨</div>
+</body>
+</html>`;
+
+    try {
+      if (Platform.OS === "web") {
+        await Share.share({ message: `${title}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
+        return;
+      }
+      const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58) });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: title });
+      } else {
+        await Share.share({ message: `${title}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
+      }
+    } catch (e) {
+      await Share.share({ message: `${title}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
+    }
   }
 
   const items = tab === "liked" ? liked : tab === "matches" ? matches : [];
@@ -535,6 +612,7 @@ export default function NamesScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: insets.bottom + 80 }}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!isReordering}
       >
         {noPartner ? (
           <View style={styles.bigEmpty}>
@@ -602,16 +680,24 @@ export default function NamesScreen() {
                 </Text>
               )
             ) : (
-              <View style={{ paddingTop: 8, gap: 6 }}>
+              <View style={{ paddingTop: 8, gap: 0 }}>
                 {items.map((item, index) => (
-                  <NameRow
+                  <DraggableNameRow
                     key={item.recordId}
                     item={item}
                     index={index}
+                    totalCount={items.length}
                     showHash={tab === "liked"}
                     showMatchSubtitle={tab === "matches"}
+                    activeDragIdx={activeDragIdx}
+                    dragY={dragY}
                     onInfo={() => setInfoItem(item)}
                     onDelete={() => deleteItem(item, false)}
+                    onDragStart={() => setIsReordering(true)}
+                    onDragEnd={(from, to) => {
+                      setIsReordering(false);
+                      if (from !== to) handleReorder(from, to);
+                    }}
                   />
                 ))}
               </View>
@@ -709,20 +795,32 @@ function GenderPill({
   );
 }
 
-function NameRow({
+const ROW_H = 54; // minHeight(48) + marginBottom(6)
+
+function DraggableNameRow({
   item,
   index,
+  totalCount,
   showHash,
   showMatchSubtitle,
+  activeDragIdx,
+  dragY,
   onInfo,
   onDelete,
+  onDragStart,
+  onDragEnd,
 }: {
   item: NameItem;
   index: number;
+  totalCount: number;
   showHash: boolean;
   showMatchSubtitle?: boolean;
+  activeDragIdx: { value: number };
+  dragY: { value: number };
   onInfo: () => void;
   onDelete: () => void;
+  onDragStart: () => void;
+  onDragEnd: (from: number, to: number) => void;
 }) {
   const isBoy = item.gender !== "girl";
   const accent = isBoy ? BOY : GIRL;
@@ -730,72 +828,127 @@ function NameRow({
   const rankLabel = showHash && index < 3 ? `#${index + 1}` : `${index + 1}`;
   const offsetPct = (index * 17) % 60;
 
+  const animStyle = useAnimatedStyle(() => {
+    const ai = activeDragIdx.value;
+    const isActive = ai === index;
+
+    if (ai < 0) {
+      return { transform: [{ translateY: 0 }], zIndex: 1, shadowOpacity: 0.1, elevation: 2 };
+    }
+
+    if (isActive) {
+      return {
+        transform: [{ translateY: dragY.value }],
+        zIndex: 100,
+        shadowOpacity: 0.28,
+        elevation: 12,
+        borderRadius: 10,
+      };
+    }
+
+    // Compute where the dragged item would land
+    const clamped = Math.min(
+      Math.max(0, ai + Math.round(dragY.value / ROW_H)),
+      totalCount - 1,
+    );
+    let shift = 0;
+    if (ai < index && index <= clamped) shift = -ROW_H;
+    if (ai > index && index >= clamped) shift = ROW_H;
+
+    return {
+      transform: [{ translateY: withTiming(shift, { duration: 150 }) }],
+      zIndex: 1,
+      shadowOpacity: 0.1,
+      elevation: 2,
+    };
+  });
+
+  const panGesture = Gesture.Pan()
+    .minDistance(4)
+    .onStart(() => {
+      activeDragIdx.value = index;
+      dragY.value = 0;
+      runOnJS(onDragStart)();
+    })
+    .onUpdate((e) => {
+      dragY.value = e.translationY;
+    })
+    .onEnd(() => {
+      const finalIdx = Math.min(
+        Math.max(0, index + Math.round(dragY.value / ROW_H)),
+        totalCount - 1,
+      );
+      const from = index;
+      activeDragIdx.value = -1;
+      dragY.value = withTiming(0, { duration: 80 });
+      runOnJS(onDragEnd)(from, finalIdx);
+    });
+
   return (
-    <View
-      style={[
-        styles.row,
-        { borderColor },
-      ]}
-    >
-      {isBoy ? (
-        <>
-          <Image
-            source={boyRowBg}
-            style={[StyleSheet.absoluteFillObject]}
-            contentFit="cover"
-            contentPosition={{ left: "50%", top: `${offsetPct}%` }}
-          />
+    <Animated.View style={[{ marginBottom: 6 }, animStyle]}>
+      <View style={[styles.row, { borderColor }]}>
+        {isBoy ? (
+          <>
+            <Image
+              source={boyRowBg}
+              style={[StyleSheet.absoluteFillObject]}
+              contentFit="cover"
+              contentPosition={{ left: "50%", top: `${offsetPct}%` }}
+            />
+            <LinearGradient
+              colors={["hsla(214,72%,88%,0.82)", "hsla(210,65%,86%,0.72)"]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </>
+        ) : (
           <LinearGradient
-            colors={["hsla(214,72%,88%,0.82)", "hsla(210,65%,86%,0.72)"]}
-            start={{ x: 0, y: 0.5 }}
-            end={{ x: 1, y: 0.5 }}
+            colors={[
+              "rgba(255,228,225,0.90)",
+              "rgba(255,210,215,0.85)",
+              "rgba(255,240,242,0.95)",
+            ]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-        </>
-      ) : (
-        <LinearGradient
-          colors={[
-            "rgba(255,228,225,0.90)",
-            "rgba(255,210,215,0.85)",
-            "rgba(255,240,242,0.95)",
-          ]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
-
-      <View style={styles.rowGrip}>
-        <Feather name="menu" size={16} color={accent} style={{ opacity: 0.55 }} />
-      </View>
-      <Text style={[styles.rowRank, { color: accent }]}>{rankLabel}</Text>
-      <View style={{ flex: 1, paddingLeft: 8 }}>
-        <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
-          {item.text}
-        </Text>
-        {showMatchSubtitle && (
-          <Text
-            style={{
-              fontFamily: fonts.display,
-              fontSize: 10,
-              color: accent,
-              opacity: 0.7,
-              marginTop: 1,
-            }}
-          >
-            You both liked this
-          </Text>
         )}
+
+        <GestureDetector gesture={panGesture}>
+          <View style={[styles.rowGrip, { paddingHorizontal: 14 }]}>
+            <Feather name="menu" size={18} color={accent} style={{ opacity: 0.65 }} />
+          </View>
+        </GestureDetector>
+        <Text style={[styles.rowRank, { color: accent }]}>{rankLabel}</Text>
+        <View style={{ flex: 1, paddingLeft: 8 }}>
+          <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
+            {item.text}
+          </Text>
+          {showMatchSubtitle && (
+            <Text
+              style={{
+                fontFamily: fonts.display,
+                fontSize: 10,
+                color: accent,
+                opacity: 0.7,
+                marginTop: 1,
+              }}
+            >
+              You both liked this
+            </Text>
+          )}
+        </View>
+        <View style={styles.rowActions}>
+          <Pressable onPress={onInfo} hitSlop={8} style={styles.iconBtn}>
+            <Feather name="info" size={16} color={MUTED} />
+          </Pressable>
+          <Pressable onPress={onDelete} hitSlop={8} style={styles.iconBtn}>
+            <Feather name="trash-2" size={16} color={MUTED} />
+          </Pressable>
+        </View>
       </View>
-      <View style={styles.rowActions}>
-        <Pressable onPress={onInfo} hitSlop={8} style={styles.iconBtn}>
-          <Feather name="info" size={16} color={MUTED} />
-        </Pressable>
-        <Pressable onPress={onDelete} hitSlop={8} style={styles.iconBtn}>
-          <Feather name="trash-2" size={16} color={MUTED} />
-        </Pressable>
-      </View>
-    </View>
+    </Animated.View>
   );
 }
 

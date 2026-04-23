@@ -60,6 +60,8 @@
     "@expo-google-fonts/patrick-hand": "^0.4.1",
     "@supabase/supabase-js": "^2.104.0",
     "expo-clipboard": "^8.0.8",
+    "expo-print": "^15.0.8",
+    "expo-sharing": "^14.0.8",
     "react-native-url-polyfill": "^3.0.0"
   }
 }

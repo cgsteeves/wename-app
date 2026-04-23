@@ -97,7 +97,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
 
   function openInfo() {
     setInfoOpen(true);
-    sheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+    sheetY.value = withTiming(0, { duration: 180 });
   }
   function closeInfo() {
     sheetY.value = withTiming(CARD_H, { duration: 240 }, (finished) => {
@@ -118,7 +118,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
           if (finished) runOnJS(dismissSheetState)();
         });
       } else {
-        sheetY.value = withSpring(0, { damping: 22, stiffness: 220 });
+        sheetY.value = withTiming(0, { duration: 160 });
       }
     });
 

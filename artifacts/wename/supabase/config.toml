@@ -1,0 +1,11 @@
+[project]
+project_id = "cwpanlrimbccdgzchkdo"
+
+[functions.send-magic-link]
+enabled = true
+
+[functions.delete-account]
+enabled = true
+
+[functions.submit-deletion-request]
+enabled = true

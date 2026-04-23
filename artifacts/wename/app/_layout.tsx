@@ -16,11 +16,11 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { AuthProvider, useAuth } from "@/components/AuthContext";
+import { AuthModal } from "@/components/AuthModal";
 import { UserProvider } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 
-// Apply Fredoka as default font for all Text/TextInput so the entire app
-// matches the web app's typography without rewriting every screen.
 const TextAny = Text as any;
 TextAny.defaultProps = TextAny.defaultProps || {};
 TextAny.defaultProps.style = [{ fontFamily: fonts.display }, TextAny.defaultProps.style];
@@ -34,6 +34,19 @@ TextInputAny.defaultProps.style = [
 SplashScreen.preventAutoHideAsync();
 
 const queryClient = new QueryClient();
+
+function AuthModalOverlay() {
+  const { showAuthModal, authModalProps, closeAuthModal } = useAuth();
+  if (!showAuthModal) return null;
+  return (
+    <AuthModal
+      onClose={closeAuthModal}
+      title={authModalProps?.title}
+      body={authModalProps?.body}
+      preHeader={authModalProps?.preHeader}
+    />
+  );
+}
 
 export default function RootLayout() {
   const [loaded] = useFredoka({
@@ -56,19 +69,23 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <KeyboardProvider>
-              <UserProvider>
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen
-                    name="onboarding"
-                    options={{ animation: "fade" }}
-                  />
-                  <Stack.Screen
-                    name="join/[token]"
-                    options={{ presentation: "modal" }}
-                  />
-                </Stack>
-              </UserProvider>
+              <AuthProvider>
+                <UserProvider>
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen
+                      name="onboarding"
+                      options={{ animation: "fade" }}
+                    />
+                    <Stack.Screen
+                      name="join/[token]"
+                      options={{ presentation: "modal" }}
+                    />
+                    <Stack.Screen name="auth/callback" />
+                  </Stack>
+                </UserProvider>
+                <AuthModalOverlay />
+              </AuthProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>
         </QueryClientProvider>

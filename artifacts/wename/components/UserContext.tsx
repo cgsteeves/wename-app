@@ -72,6 +72,18 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     load();
   }, [load]);
 
+  // React to Supabase auth events so the user profile stays in sync
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        load();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [load]);
+
   const updateUser = useCallback(
     async (updates: Partial<User>) => {
       if (!user) return;

@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
 import React, { useCallback, useEffect, useState } from "react";
 import {
@@ -15,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import type { EdgeInsets } from "react-native-safe-area-context";
 import { SubPageHeader } from "@/components/SubPageHeader";
+import { useAuth } from "@/components/AuthContext";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { supabase } from "@/lib/supabase";
@@ -65,8 +67,22 @@ export default function PartnerScreen() {
   const [subView, setSubView] = useState<SubView>("main");
   const insets = useSafeAreaInsets();
   const { user, updateUser, removePartner } = useUser();
+  const { isAuthenticated, openAuthModal } = useAuth();
 
   if (!user) return null;
+
+  function handleInvitePress() {
+    if (!isAuthenticated) {
+      AsyncStorage.setItem("post_auth_redirect", "partner");
+      openAuthModal({
+        preHeader: "To invite a partner",
+        title: "Save your account first",
+        body: "Create a free account so your partner can find and connect with you.",
+      });
+    } else {
+      setSubView("invite");
+    }
+  }
 
   const title       = subView === "main" ? "Partner" : "Invite Partner";
   const handleBack  = subView === "main" ? undefined : () => setSubView("main");
@@ -79,7 +95,7 @@ export default function PartnerScreen() {
         <MainView
           user={user}
           insets={insets}
-          onInvite={() => setSubView("invite")}
+          onInvite={handleInvitePress}
           onRemovePartner={removePartner}
           onUpdate={updateUser}
         />

@@ -50,6 +50,10 @@ export default function DeleteAccountPage() {
   const { isAuthenticated, authUser, deleteAccount } = useAuth();
   const insets = useSafeAreaInsets();
 
+  // Top-level completion flag — once set, it overrides auth branching so the
+  // success screen stays visible even after the session is cleared by deleteAccount().
+  const [accountDeleted, setAccountDeleted] = useState(false);
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: PARCHMENT }}
@@ -60,10 +64,13 @@ export default function DeleteAccountPage() {
         <Text style={styles.pageTitle}>Delete Account</Text>
       </View>
 
-      {isAuthenticated ? (
+      {accountDeleted ? (
+        <DeletedConfirmation bottomPad={insets.bottom} />
+      ) : isAuthenticated ? (
         <AuthenticatedView
           email={authUser?.email ?? ""}
           onDelete={deleteAccount}
+          onDeleted={() => setAccountDeleted(true)}
           bottomPad={insets.bottom}
         />
       ) : (
@@ -73,17 +80,40 @@ export default function DeleteAccountPage() {
   );
 }
 
+function DeletedConfirmation({ bottomPad }: { bottomPad: number }) {
+  const router = useRouter();
+  return (
+    <View style={[styles.centeredContent, { paddingBottom: bottomPad + 24 }]}>
+      <View style={[styles.iconBox, { backgroundColor: GREEN_50, borderColor: GREEN_600 + "33" }]}>
+        <Feather name="check-circle" size={32} color={GREEN_600} />
+      </View>
+      <Text style={[styles.confirmTitle, { color: FOREGROUND }]}>Account Deleted</Text>
+      <Text style={[styles.bodyText, { color: MUTED_FG, textAlign: "center" }]}>
+        Your account and all associated data have been permanently removed.
+      </Text>
+      <Pressable
+        onPress={() => router.replace("/")}
+        style={({ pressed }) => [styles.linkRow, pressed && { opacity: 0.7 }]}
+      >
+        <Feather name="external-link" size={14} color={SKY_BLUE} />
+        <Text style={[styles.linkText, { color: SKY_BLUE }]}>Return to WeName</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function AuthenticatedView({
   email,
   onDelete,
+  onDeleted,
   bottomPad,
 }: {
   email: string;
   onDelete: () => Promise<void>;
+  onDeleted: () => void;
   bottomPad: number;
 }) {
-  const router = useRouter();
-  const [step, setStep] = useState<AuthStep>("idle");
+  const [step, setStep] = useState<Exclude<AuthStep, "deleted">>("idle");
   const [deleteError, setDeleteError] = useState("");
 
   async function handleConfirmDelete() {
@@ -91,37 +121,14 @@ function AuthenticatedView({
     setDeleteError("");
     try {
       await onDelete();
-      setStep("deleted");
+      // Signal parent BEFORE auth state clears so success screen is shown
+      onDeleted();
     } catch (e) {
       setDeleteError(
         e instanceof Error ? e.message : "Deletion failed. Please try again.",
       );
       setStep("idle");
     }
-  }
-
-  if (step === "deleted") {
-    return (
-      <View style={[styles.centeredContent, { paddingBottom: bottomPad + 24 }]}>
-        <View style={[styles.iconBox, { backgroundColor: GREEN_50, borderColor: GREEN_600 + "33" }]}>
-          <Feather name="check-circle" size={32} color={GREEN_600} />
-        </View>
-        <Text style={[styles.confirmTitle, { color: FOREGROUND }]}>Account Deleted</Text>
-        <Text style={[styles.bodyText, { color: MUTED_FG, textAlign: "center" }]}>
-          Your account and all associated data have been permanently removed.
-        </Text>
-        <Pressable
-          onPress={() => router.replace("/")}
-          style={({ pressed }) => [
-            styles.linkRow,
-            pressed && { opacity: 0.7 },
-          ]}
-        >
-          <Feather name="external-link" size={14} color={SKY_BLUE} />
-          <Text style={[styles.linkText, { color: SKY_BLUE }]}>Return to WeName</Text>
-        </Pressable>
-      </View>
-    );
   }
 
   return (

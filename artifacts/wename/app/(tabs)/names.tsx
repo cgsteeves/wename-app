@@ -77,19 +77,22 @@ export default function NamesScreen() {
   const fetchNamesByIds = useCallback(async (ids: string[]) => {
     if (ids.length === 0)
       return new Map<string, Omit<NameItem, "recordId" | "id">>();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("names")
-      .select("uuid, name, gender, us_rank, origin, meaning, nickname, pronunciation")
+      .select("uuid, name, gender, us_rank, origin_raw, meaning, nicknames, pronunciation")
       .in("uuid", ids);
+    if (error) {
+      console.error("[NamesScreen] fetchNamesByIds error", error);
+    }
     return new Map(
       (data ?? []).map((n: {
         uuid: string;
         name: string;
         gender: string;
         us_rank: unknown;
-        origin: string | null;
+        origin_raw: string | null;
         meaning: string | null;
-        nickname: string | null;
+        nicknames: string | null;
         pronunciation: string | null;
       }) => [
         n.uuid,
@@ -100,9 +103,9 @@ export default function NamesScreen() {
             n.us_rank != null && /^\d+$/.test(String(n.us_rank))
               ? Number(n.us_rank)
               : null,
-          origin: n.origin,
+          origin: n.origin_raw,
           meaning: n.meaning,
-          nickname: n.nickname,
+          nickname: n.nicknames,
           pronunciation: n.pronunciation,
         },
       ]),

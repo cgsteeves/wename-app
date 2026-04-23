@@ -69,6 +69,17 @@ export default function PartnerScreen() {
   const { user, updateUser, removePartner } = useUser();
   const { isAuthenticated, openAuthModal } = useAuth();
 
+  // After returning from auth, auto-open the invite view if that was the intent
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    AsyncStorage.getItem("post_auth_redirect").then((redirect) => {
+      if (redirect === "partner") {
+        AsyncStorage.removeItem("post_auth_redirect");
+        setSubView("invite");
+      }
+    });
+  }, [isAuthenticated]);
+
   if (!user) return null;
 
   function handleInvitePress() {

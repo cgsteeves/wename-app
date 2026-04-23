@@ -23,29 +23,27 @@ export default function AuthCallback() {
       try {
         let session = null;
 
-        // For web: try PKCE code exchange first (query param ?code=...)
+        // For web: PKCE code exchange — pass the code string, NOT the full URL
         if (typeof window !== "undefined") {
           const searchParams = new URLSearchParams(window.location.search);
           const code = searchParams.get("code");
           if (code) {
-            const { data, error } = await supabase.auth.exchangeCodeForSession(
-              window.location.href,
-            );
+            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
             if (!error && data.session) {
               session = data.session;
             }
           }
         }
 
-        // Fallback: get session already stored by Supabase client
+        // Fallback: Supabase client may have already persisted the session
         if (!session) {
           const { data } = await supabase.auth.getSession();
           session = data.session;
         }
 
-        // Retry once after 800 ms (magic link may take a moment)
+        // Retry once — magic-link sessions can take a moment to propagate
         if (!session) {
-          await new Promise((r) => setTimeout(r, 800));
+          await new Promise<void>((r) => setTimeout(r, 800));
           const { data } = await supabase.auth.getSession();
           session = data.session;
         }
@@ -60,11 +58,15 @@ export default function AuthCallback() {
           setStatus("success");
           setTimeout(async () => {
             if (cancelled) return;
+
+            // Check for a pending post-auth redirect
             const redirect = await AsyncStorage.getItem("post_auth_redirect");
-            if (redirect) {
-              await AsyncStorage.removeItem("post_auth_redirect");
-              router.replace(`/?redirect=${redirect}` as any);
+
+            if (redirect === "partner") {
+              // Leave the key intact so partner.tsx can consume it on mount
+              router.replace("/(tabs)/settings/partner");
             } else {
+              if (redirect) await AsyncStorage.removeItem("post_auth_redirect");
               router.replace("/");
             }
           }, 1000);
@@ -80,7 +82,9 @@ export default function AuthCallback() {
     }
 
     handleCallback();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -112,17 +116,19 @@ export default function AuthCallback() {
 
       {status === "error" && (
         <View style={{ alignItems: "center", gap: 20 }}>
-          <View style={[styles.iconBox, { backgroundColor: "#fef2f2", borderColor: "#fecaca" }]}>
+          <View
+            style={[
+              styles.iconBox,
+              { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
+            ]}
+          >
             <Text style={{ fontSize: 28, color: "#dc2626" }}>✕</Text>
           </View>
           <Text style={[styles.heading, { color: "#1a1a1a" }]}>Sign-in failed</Text>
           <Text style={styles.subtext}>
             {errorMsg || "Your link may have expired. Please try again."}
           </Text>
-          <Pressable
-            onPress={() => router.replace("/")}
-            style={styles.backBtn}
-          >
+          <Pressable onPress={() => router.replace("/")} style={styles.backBtn}>
             <Text style={styles.backBtnText}>Back to app</Text>
           </Pressable>
         </View>

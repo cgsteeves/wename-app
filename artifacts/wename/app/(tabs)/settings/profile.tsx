@@ -1,4 +1,6 @@
-import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -8,181 +10,453 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Feather } from "@expo/vector-icons";
 
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
-import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS } from "@/hooks/useDailyLimits";
+import { supabase } from "@/lib/supabase";
+
+// ─── Design tokens ───────────────────────────────────────────────────────────
+const PARCHMENT      = "#ede0c8";
+const CARD_BG        = "#ede5d4";
+const INPUT_BG       = "#f2ece1";
+const FOREGROUND     = "#3d2e20";
+const MUTED_FG       = "#857d74";
+const MUTED_BG       = "#dfd6c8";
+const BORDER         = "#cec5b9";
+const BORDER_60      = "rgba(206,197,185,0.6)";
+const BORDER_50      = "rgba(206,197,185,0.5)";
+const GRASS          = "#316b46";
+const BOY_BLUE       = "#3a71b5";
+const GIRL_PINK      = "#c04070";
+const EITHER_ORANGE  = "#f07e29";
+const DESTRUCTIVE    = "#d63030";
+const DESTRUCTIVE_30 = "rgba(214,48,48,0.30)";
+const DESTRUCTIVE_05 = "rgba(214,48,48,0.05)";
 
 type Gender = "boy" | "girl" | "either";
 
 export default function ProfileScreen() {
-  const colors = useColors();
-  const { user, updateUser } = useUser();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [lastName, setLastName] = useState(user?.baby_last_name ?? "");
+  const { user, updateUser } = useUser();
 
+  const [displayName, setDisplayName]   = useState(user?.display_name    ?? "");
+  const [babyLastName, setBabyLastName] = useState(user?.baby_last_name  ?? "");
+  const [babyGender, setBabyGender]     = useState<Gender>((user?.baby_gender as Gender) ?? "either");
+  const [saving, setSaving]             = useState(false);
+  const [saved,  setSaved]              = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep local state in sync if user object refreshes (e.g. partner updates)
   useEffect(() => {
-    setLastName(user?.baby_last_name ?? "");
-  }, [user?.baby_last_name]);
+    setDisplayName(user?.display_name   ?? "");
+    setBabyLastName(user?.baby_last_name ?? "");
+    setBabyGender((user?.baby_gender as Gender) ?? "either");
+  }, [user?.display_name, user?.baby_last_name, user?.baby_gender]);
 
   if (!user) return null;
+
+  const hasChanges =
+    displayName   !== (user.display_name    ?? "")  ||
+    babyLastName  !== (user.baby_last_name  ?? "")  ||
+    babyGender    !==  user.baby_gender;
+
   const isPremium = user.plan_tier === "premium";
 
-  async function setGender(g: Gender) {
-    await updateUser({ baby_gender: g });
+  // ─── Save ─────────────────────────────────────────────────────────────────
+  async function handleSave() {
+    if (!hasChanges || saving) return;
+    setSaving(true);
+    try {
+      await updateUser({
+        display_name:    displayName    || null,
+        baby_last_name:  babyLastName   || null,
+        baby_gender:     babyGender,
+      });
+      setSaved(true);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      console.error("[Profile] save error", e);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  async function saveLastName() {
-    await updateUser({ baby_last_name: lastName.trim() || null });
-    Alert.alert("Saved", "Last name updated");
+  // ─── Reset swipes ─────────────────────────────────────────────────────────
+  async function handleResetSwipes() {
+    Alert.alert(
+      "Reset All Swipes",
+      "Are you sure you want to reset all your swipes? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "OK",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from("swipes")
+                .delete()
+                .eq("user_id", user.id)
+                .eq("liked", false);
+              if (error) throw error;
+              // Clear local swipe session cache
+              await AsyncStorage.removeItem(`swipe_session_v2_${user.id}`);
+              Alert.alert("Done", "Swipes reset successfully!", [
+                {
+                  text: "OK",
+                  onPress: () => router.replace("/(tabs)/"),
+                },
+              ]);
+            } catch (e) {
+              console.error("[Profile] reset swipes error", e);
+              Alert.alert("Error", "Failed to reset swipes");
+            }
+          },
+        },
+      ],
+    );
   }
+
+  // ─── Derived button label ──────────────────────────────────────────────────
+  const saveLabel = saved ? "Saved!" : saving ? "Saving…" : "Save Changes";
+  const saveDisabled = !hasChanges || saving || saved;
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.parchment }}>
-      <SubPageHeader title="Profile" subtitle="About you and baby" />
+    <View style={[styles.root, { backgroundColor: PARCHMENT }]}>
+      <SubPageHeader title="Profile" />
+
       <ScrollView
-        contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90, gap: 18 }}
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          paddingHorizontal: 16,
+          paddingTop: 8,
+          paddingBottom: insets.bottom + 100,
+          gap: 20,
+        }}
+        showsVerticalScrollIndicator={false}
       >
-        <Card colors={colors} title="DAILY USAGE">
+        {/* ── Daily Usage ─────────────────────────────────────────────────── */}
+        <SectionLabel text="DAILY USAGE" />
+        <View style={styles.formCard}>
           <View style={styles.usageRow}>
-            <Stat label="Swipes" value={user.daily_swipe_count ?? 0} max={FREE_LIMITS.swipes} pro={isPremium} c={colors.primary} />
-            <Stat label="Likes" value={user.daily_like_count ?? 0} max={FREE_LIMITS.likes} pro={isPremium} c={colors.heart} />
-            <Stat label="Matches" value={user.daily_match_count ?? 0} max={FREE_LIMITS.matches} pro={isPremium} c={colors.accent} />
+            <Stat label="Swipes"  value={user.daily_swipe_count  ?? 0} max={FREE_LIMITS.swipes}  pro={isPremium} color={BOY_BLUE}    />
+            <Stat label="Likes"   value={user.daily_like_count   ?? 0} max={FREE_LIMITS.likes}   pro={isPremium} color="#f43f5e"    />
+            <Stat label="Matches" value={user.daily_match_count  ?? 0} max={FREE_LIMITS.matches} pro={isPremium} color={GRASS}      />
           </View>
-        </Card>
+        </View>
 
-        <Card colors={colors} title="BABY GENDER PREFERENCE">
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {(["boy", "girl", "either"] as const).map((g) => {
-              const active = user.baby_gender === g;
-              const c = g === "boy" ? colors.boy : g === "girl" ? colors.girlPink : colors.either;
-              const emoji = g === "boy" ? "👦" : g === "girl" ? "👧" : "✨";
-              return (
-                <Pressable
-                  key={g}
-                  onPress={() => setGender(g)}
-                  style={[
-                    styles.genderBtn,
-                    {
-                      backgroundColor: active ? c : "rgba(255,255,255,0.6)",
-                      borderColor: active ? c : colors.border,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={{
-                      color: active ? "#fff" : colors.mutedForeground,
-                      fontFamily: fonts.displaySemibold,
-                      fontSize: 14,
-                    }}
-                  >
-                    {emoji} {g[0].toUpperCase() + g.slice(1)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </Card>
-
-        <Card colors={colors} title="BABY'S LAST NAME (OPTIONAL)">
-          <View style={{ flexDirection: "row", gap: 8 }}>
+        {/* ── Form card ───────────────────────────────────────────────────── */}
+        <View style={styles.formCard}>
+          {/* Your Name */}
+          <View style={styles.fieldWrap}>
+            <FieldLabel text="Your Name" />
             <TextInput
-              value={lastName}
-              onChangeText={setLastName}
-              placeholder="Enter or skip for now"
-              placeholderTextColor={colors.mutedForeground}
-              style={[
-                styles.input,
-                { borderColor: colors.border, color: colors.foreground, flex: 1 },
-              ]}
+              value={displayName}
+              onChangeText={setDisplayName}
+              placeholder="Enter your name"
+              placeholderTextColor={MUTED_FG}
+              style={[styles.input, { color: FOREGROUND }]}
+              autoCapitalize="words"
+              returnKeyType="done"
             />
-            <Pressable
-              onPress={saveLastName}
-              style={[styles.btn, { backgroundColor: colors.primary }]}
-            >
-              <Text style={styles.btnText}>Save</Text>
-            </Pressable>
           </View>
-        </Card>
+
+          {/* Baby's Last Name */}
+          <View style={styles.fieldWrap}>
+            <FieldLabel text="Baby's Last Name" />
+            <TextInput
+              value={babyLastName}
+              onChangeText={setBabyLastName}
+              placeholder="Optional"
+              placeholderTextColor={MUTED_FG}
+              style={[styles.input, { color: FOREGROUND }]}
+              autoCapitalize="words"
+              returnKeyType="done"
+            />
+            <Text style={styles.inputHint}>Shown alongside names as you swipe</Text>
+          </View>
+
+          {/* Baby Gender */}
+          <View style={styles.fieldWrap}>
+            <FieldLabel text="Baby Gender" />
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              {(["boy", "girl", "either"] as const).map((g) => {
+                const active = babyGender === g;
+                return (
+                  <GenderButton
+                    key={g}
+                    label={g[0].toUpperCase() + g.slice(1)}
+                    gender={g}
+                    active={active}
+                    onPress={() => setBabyGender(g)}
+                  />
+                );
+              })}
+            </View>
+          </View>
+        </View>
+
+        {/* ── Save button ──────────────────────────────────────────────────── */}
+        <Pressable
+          onPress={handleSave}
+          disabled={saveDisabled}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            {
+              backgroundColor: saveDisabled ? MUTED_BG : BOY_BLUE,
+              opacity: pressed && !saveDisabled ? 0.9 : 1,
+              transform: [{ scale: pressed && !saveDisabled ? 0.97 : 1 }],
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.saveBtnText,
+              { color: saveDisabled ? MUTED_FG : "#fff" },
+            ]}
+          >
+            {saveLabel}
+          </Text>
+        </Pressable>
+
+        {/* ── Danger Zone ─────────────────────────────────────────────────── */}
+        <View style={styles.dangerZone}>
+          <SectionLabel text="Danger Zone" />
+          <Pressable
+            onPress={handleResetSwipes}
+            style={({ pressed }) => [
+              styles.dangerBtn,
+              { transform: [{ scale: pressed ? 0.97 : 1 }] },
+            ]}
+          >
+            <Feather name="rotate-ccw" size={15} color={DESTRUCTIVE} />
+            <Text style={styles.dangerBtnText}>Reset All Swipes</Text>
+          </Pressable>
+          <Text style={styles.dangerHint}>
+            This will clear all your previous swipe choices
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
 }
 
-function Card({
-  title,
-  colors,
-  children,
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SectionLabel({ text }: { text: string }) {
+  return (
+    <Text style={styles.sectionLabel}>{text}</Text>
+  );
+}
+
+function FieldLabel({ text }: { text: string }) {
+  return <Text style={styles.fieldLabel}>{text}</Text>;
+}
+
+function GenderButton({
+  label,
+  gender,
+  active,
+  onPress,
 }: {
-  title: string;
-  colors: ReturnType<typeof useColors>;
-  children: React.ReactNode;
+  label: string;
+  gender: Gender;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const inactiveStyle = {
+    backgroundColor: INPUT_BG,
+    borderColor: BORDER,
+    borderWidth: 1,
+  };
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.genderBtn,
+        active ? {} : inactiveStyle,
+        { transform: [{ scale: pressed ? 0.96 : 1 }] },
+      ]}
+    >
+      {active && gender === "either" ? (
+        <LinearGradient
+          colors={[BOY_BLUE, GIRL_PINK, EITHER_ORANGE]}
+          start={{ x: 0, y: 0.5 }}
+          end={{ x: 1, y: 0.5 }}
+          style={[StyleSheet.absoluteFill, { borderRadius: 12 }]}
+        />
+      ) : active ? (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: gender === "boy" ? BOY_BLUE : GIRL_PINK,
+              borderRadius: 12,
+            },
+          ]}
+        />
+      ) : null}
+      <Text
+        style={[
+          styles.genderBtnText,
+          { color: active ? "#fff" : MUTED_FG },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function Stat({
+  label, value, max, pro, color,
+}: {
+  label: string; value: number; max: number; pro: boolean; color: string;
 }) {
   return (
-    <View style={{ gap: 8 }}>
-      <Text
-        style={{
-          fontFamily: fonts.displaySemibold,
-          fontSize: 11,
-          letterSpacing: 1.4,
-          color: colors.mutedForeground,
-          marginLeft: 4,
-        }}
-      >
-        {title}
-      </Text>
-      <View
-        style={{
-          backgroundColor: colors.card,
-          borderColor: colors.border + "99",
-          borderWidth: 1,
-          borderRadius: 16,
-          padding: 14,
-        }}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function Stat({ label, value, max, pro, c }: { label: string; value: number; max: number; pro: boolean; c: string }) {
-  return (
     <View style={{ flex: 1, alignItems: "center" }}>
-      <Text style={{ color: c, fontSize: 22, fontFamily: fonts.displayBold }}>
+      <Text style={{ color, fontSize: 22, fontFamily: fonts.displayBold }}>
         {pro ? "∞" : `${value}/${max}`}
       </Text>
-      <Text style={{ color: "#7a6a52", fontSize: 12, fontFamily: fonts.display }}>{label}</Text>
+      <Text style={{ color: MUTED_FG, fontSize: 12, fontFamily: fonts.display }}>
+        {label}
+      </Text>
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  usageRow: { flexDirection: "row", justifyContent: "space-around" },
+  root: { flex: 1 },
+
+  formCard: {
+    backgroundColor: CARD_BG,
+    borderColor: BORDER_60,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  sectionLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    color: MUTED_FG,
+    letterSpacing: 1.4,
+    textTransform: "uppercase",
+    marginLeft: 4,
+  },
+
+  fieldWrap: { gap: 6 },
+
+  fieldLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    color: MUTED_FG,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+
+  input: {
+    backgroundColor: INPUT_BG,
+    borderColor: BORDER,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: fonts.display,
+    fontSize: 14,
+  },
+
+  inputHint: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: MUTED_FG,
+  },
+
   genderBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    fontFamily: fonts.display,
-  },
-  btn: {
-    paddingHorizontal: 18,
-    borderRadius: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 80,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
-  btnText: { color: "#fff", fontFamily: fonts.displayBold, fontSize: 14 },
+
+  genderBtnText: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 14,
+  },
+
+  saveBtn: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+
+  saveBtnText: {
+    fontFamily: fonts.displayBold,
+    fontSize: 14,
+  },
+
+  dangerZone: {
+    borderTopWidth: 1,
+    borderTopColor: BORDER_50,
+    paddingTop: 16,
+    gap: 8,
+  },
+
+  dangerBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: DESTRUCTIVE_30,
+    backgroundColor: DESTRUCTIVE_05,
+  },
+
+  dangerBtnText: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 14,
+    color: DESTRUCTIVE,
+  },
+
+  dangerHint: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: MUTED_FG,
+    textAlign: "center",
+  },
+
+  usageRow: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+  },
 });

@@ -25,12 +25,13 @@ export default function SettingsHub() {
   const { user } = useUser();
   const isPremium = user?.plan_tier === "premium";
   const partnerHint = user?.partner_id ? "Connected" : "Not linked";
+  const profileHint = user?.display_name ? user.display_name : "Set up your profile";
 
   const rows: Row[] = [
     {
       key: "profile",
       label: "Profile",
-      hint: "Baby preferences and last name",
+      hint: profileHint,
       icon: "user",
       iconBg: "#dbeafe",
       iconColor: "#2563eb",

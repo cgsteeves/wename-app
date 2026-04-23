@@ -1,0 +1,476 @@
+================================================================================
+WENAME — PROFILE PAGE: COMPLETE DESIGN, UX & FUNCTIONALITY SPECIFICATION
+================================================================================
+
+This document is the single source of truth for the Profile page inside the
+Settings section of WeName. It covers every field, state, interaction, database
+operation, and pixel of layout.
+
+================================================================================
+SECTION 1 — WHERE PROFILE LIVES IN THE APP
+================================================================================
+
+The Profile page is a sub-page of Settings, not a standalone route.
+
+Navigation path:
+  Bottom Nav "Settings" tab
+    → SettingsPage renders SettingsHub
+    → User taps the "Profile" row in the "Your Account" section
+    → activePage becomes 'profile'
+    → SettingsPage renders ProfilePage
+
+Back navigation:
+  Tapping the back button in SubPageHeader calls onBack()
+  → activePage becomes null → SettingsHub re-renders
+
+There is NO slide or fade animation between settings pages. The swap is instant.
+
+The Profile row in the Hub shows a summary beneath the title:
+  If user.display_name is set:  shows user.display_name
+  If user.display_name is null or empty:  shows "Set up your profile"
+  This summary updates immediately after a successful save.
+
+================================================================================
+SECTION 2 — PAGE STRUCTURE & SCROLL BEHAVIOR
+================================================================================
+
+The page is a full-height flex column:
+  display: flex, flex-direction: column
+  flex: 1, min-height: 0
+  background: parchment  hsl(38, 45%, 93%)
+  overflow-y: auto
+
+Three vertical sections stacked in order:
+  1. SubPageHeader (non-scrolling, flex-shrink: 0)
+  2. Form card + Save button + Danger Zone (scrolls as one unit)
+
+Inner content container:
+  flex: 1, padding: 16 horizontal, 40 bottom, 8 top  (px-4 pb-10 pt-2)
+  space-y: 20  (space-y-5)
+
+================================================================================
+SECTION 3 — SUB-PAGE HEADER
+================================================================================
+
+The SubPageHeader is a shared component used by all Settings sub-pages.
+It is always rendered at the very top of the page, above the scroll area.
+
+Layout: flex row, items: center, justify: space-between
+padding: 20 top, 16 horizontal, 12 bottom  (px-4 pt-5 pb-3)
+flex-shrink: 0 (does NOT scroll with content)
+
+Left — Back button:
+  display: flex, flex-direction: row, items: center, gap: 4  (gap-1)
+  ChevronLeft icon (lucide, size 18)
+  Text: "Settings"
+  color: grass  hsl(145, 45%, 35%)   Hex approx: #316b46
+  font: Fredoka semibold (font-semibold font-display), size 14 (text-sm)
+  active state: opacity 0.70
+  transition: opacity
+
+Center — Page title:
+  Text: "Profile"
+  font: Fredoka bold (font-bold font-display), size 16 (text-base)
+  color: foreground  hsl(25, 30%, 20%)
+
+Right — Reserved area:
+  width: 64 (w-16), display: flex, justify: flex-end
+  Empty on the Profile page (no right action needed)
+
+================================================================================
+SECTION 4 — FORM CARD (THE MAIN EDITING SURFACE)
+================================================================================
+
+A single rounded card containing all three editable fields.
+
+Card container:
+  background: card  hsl(40, 40%, 93%)
+  border: 1px solid hsl(35, 22%, 80%) at 60% opacity  (border-border/60)
+  border-radius: 16  (rounded-2xl)
+  shadow-sm
+  padding: 16 horizontal, 16 vertical  (px-4 py-4)
+  space-y: 16  (space-y-4)
+
+All three fields share this exact label style:
+  font: Fredoka semibold (font-semibold font-display), size 10 (text-xs)
+  color: muted-foreground  hsl(25, 12%, 48%)
+  text-transform: uppercase
+  letter-spacing: wider (tracking-wider)
+
+All text inputs share this exact style:
+  width: 100%
+  padding: 10 horizontal, 10 vertical  (px-3.5 py-2.5)
+  border-radius: 12  (rounded-xl)
+  border: 1px solid hsl(35, 22%, 80%)  (border-border)
+  background: background  hsl(40, 30%, 95%)
+  font: Fredoka regular (font-display), size 14 (text-sm)
+  color: foreground on typed text
+  placeholder color: muted-foreground
+  focus: outline none, ring 2px solid ring color  hsl(214, 60%, 45%)
+  transition: ring and border color changes
+
+================================================================================
+SECTION 5 — FIELD 1: YOUR NAME
+================================================================================
+
+Label: "Your Name"
+Input:
+  type: text
+  value: controlled — initialized from user.display_name (empty string if null)
+  placeholder: "Enter your name"
+  onChange: updates local displayName state (does NOT auto-save)
+
+Purpose: This is how the user identifies themselves in the app.
+It is shown to their partner on the Partner page:
+  "{display_name}" is shown in the partner info card as the connected partner's name.
+  If this is empty/null, the partner sees "Partner" as the fallback.
+
+This field is purely informational — no character limit enforced in code,
+no special validation (any non-empty string is valid).
+
+================================================================================
+SECTION 6 — FIELD 2: BABY'S LAST NAME
+================================================================================
+
+Label: "Baby's Last Name"
+Input:
+  type: text
+  value: controlled — initialized from user.baby_last_name (empty string if null)
+  placeholder: "Optional"
+  onChange: updates local babyLastName state (does NOT auto-save)
+
+Helper text below the input:
+  "Shown alongside names as you swipe"
+  font: Fredoka regular, size 10 (text-xs), muted-foreground
+  (no padding — sits directly in the space-y-1.5 gap)
+
+Purpose: This last name appears on the swipe card below each baby name.
+  If user's last name is "Smith" and the name being swiped is "Oliver",
+  the card shows "Oliver Smith" helping parents visualize the full name.
+  If this field is empty, only the first name is shown on swipe cards.
+
+This field is explicitly optional. Empty is a valid state.
+
+================================================================================
+SECTION 7 — FIELD 3: BABY GENDER
+================================================================================
+
+Label: "Baby Gender"
+
+Three equal-width toggle buttons in a flex row (gap: 8 / gap-2):
+
+Each button:
+  flex: 1
+  padding: 10 vertical  (py-2.5)
+  border-radius: 12  (rounded-xl)
+  font: Fredoka semibold, size 14 (text-sm)
+  transition-all
+  active: scale 0.95
+
+ACTIVE (selected) states:
+  Boy:    background: bg-boy  hsl(214, 55%, 42%)  Hex: #3a71b5 approx
+          color: white
+          shadow-md
+
+  Girl:   background: bg-girl  hsl(345, 55%, 50%)  Hex: #c04070 approx
+          color: white
+          shadow-md
+
+  Either: background: bg-either
+          This is a CSS custom property / gradient that blends boy blue into girl pink:
+          linear-gradient(90deg, hsl(214,55%,42%) 0%, hsl(345,55%,50%) 50%, hsl(28,85%,55%) 100%)
+          color: white
+          shadow-md
+
+INACTIVE (unselected) states (all three):
+  background: background  hsl(40, 30%, 95%)
+  border: 1px solid hsl(35, 22%, 80%)  (border-border)
+  color: muted-foreground  hsl(25, 12%, 48%)
+  No shadow
+
+Purpose: Controls which names appear in the swipe deck.
+  'boy'   → only boy names are shown when swiping
+  'girl'  → only girl names are shown when swiping
+  'either' → both boy and girl names appear in the swipe deck
+             The swipe card color scheme adapts: blue for boy names, pink for girl names.
+             The app-wide accent color (boyBlue vs girlPink) is derived from this setting:
+               isBoy = user.baby_gender !== 'girl'
+               (so 'boy' and 'either' both result in the blue boyBlue theme)
+
+Initial value:
+  user.baby_gender if set.
+  Falls back to 'either' if user.baby_gender is null.
+
+================================================================================
+SECTION 8 — CHANGE DETECTION
+================================================================================
+
+The Save Changes button is ONLY enabled when at least one field has changed
+from its persisted value. This is computed as:
+
+  hasChanges =
+    displayName !== (user.display_name || '')
+    OR babyLastName !== (user.baby_last_name || '')
+    OR babyGender !== user.baby_gender
+
+This comparison is evaluated on every render (not debounced).
+The button enables/disables instantly as the user types or toggles gender.
+
+Note: the gender comparison is strict equality. If user.baby_gender is 'boy'
+and the user taps 'boy' again (no actual change), hasChanges remains false.
+
+================================================================================
+SECTION 9 — SAVE CHANGES BUTTON
+================================================================================
+
+Positioned below the form card. Full-width, standalone (outside the card).
+
+Common properties:
+  width: 100%
+  padding: 14 vertical  (py-3.5)
+  border-radius: 16  (rounded-2xl)
+  font: Fredoka bold, size 14 (text-sm)
+  shadow-md
+  transition-all
+  active: scale 0.95
+
+--- STATE 1: DISABLED (no changes, or saving in progress) ---
+  background: muted  hsl(38, 25%, 87%)
+  color: muted-foreground  hsl(25, 12%, 48%)
+  cursor: not-allowed
+  disabled attribute: true
+  Text: "Save Changes"
+
+--- STATE 2: ENABLED (hasChanges=true, not saving) ---
+  background: bg-boy  hsl(214, 55%, 42%)
+  color: white
+  hover: opacity 0.90
+  disabled attribute: false
+  Text: "Save Changes"
+
+--- STATE 3: SAVING (saving=true) ---
+  Same background as ENABLED state
+  disabled attribute: true
+  Text: "Saving..."
+
+--- STATE 4: SAVED (saved=true, lasts 2 seconds) ---
+  Same background as ENABLED state
+  disabled attribute: true
+  Text: "Saved!"
+  After 2000ms: saved resets to false, button returns to DISABLED state
+    (because the save just committed, so displayName/babyLastName/babyGender
+    now match the persisted user values → hasChanges becomes false)
+
+================================================================================
+SECTION 10 — SAVE ACTION AND DATABASE PERSISTENCE
+================================================================================
+
+Triggered by tapping the Save Changes button when it is ENABLED.
+
+LOCAL STATE TRANSITIONS:
+  saving = true   (button shows "Saving...", disabled)
+
+DATABASE WRITE:
+  UPDATE users
+  SET
+    display_name = displayName,
+    baby_last_name = babyLastName,
+    baby_gender = babyGender
+  WHERE id = user.id
+  RETURNING *
+
+The update is done via updateUser({ display_name, baby_last_name, baby_gender }):
+  1. supabase.from('users').update(updates).eq('id', user.id).select().single()
+  2. If successful: setUser(data) — the global user state is updated with
+     the full returned row. This updates the app-wide user object used by
+     ALL components (swipe deck gender filter, partner page name display, etc.).
+  3. If error: logs to console. The local form state is NOT reverted — the
+     user's typed values remain in the inputs so they can try again.
+
+AFTER SAVE:
+  saving = false
+  saved = true    (button shows "Saved!" for 2 seconds)
+  After 2 seconds: saved = false
+
+IMMEDIATE SIDE EFFECTS of saving:
+  1. Baby gender change affects the swipe deck: the get_swipeable_names RPC
+     uses the user's baby_gender to filter names. The swipe queue will
+     re-initialize on next load with the new gender filter.
+  2. Baby last name change affects swipe cards: the last name appears on every
+     swipe card, so it updates immediately on the next swipe session.
+  3. Display name change affects the Partner page: the partner sees the updated
+     name the next time they load their Partner page (fetched fresh from DB).
+  4. The Settings Hub summary for the Profile row updates immediately because
+     the hub re-renders with the new user object.
+
+================================================================================
+SECTION 11 — DANGER ZONE
+================================================================================
+
+Below the Save button, separated by a top border.
+
+Separator:
+  border-top: 1px solid hsl(35, 22%, 80%) at 50% opacity  (border-t border-border/50)
+  padding-top: 16  (pt-4)
+
+Section label: "Danger Zone"
+  font: Fredoka semibold, size 10 (text-xs)
+  color: muted-foreground
+  text-transform: uppercase
+  letter-spacing: wider
+  margin-bottom: 12  (mb-3)
+  padding-left: 4  (px-1)
+
+--- RESET ALL SWIPES BUTTON ---
+
+  width: 100%
+  padding: 12 vertical  (py-3)
+  border-radius: 16  (rounded-2xl)
+  border: 1px solid  hsl(0, 72%, 50%) at 30% opacity  (border-destructive/30)
+  background: hsl(0, 72%, 50%) at 5% opacity  (bg-destructive/5)
+  color: hsl(0, 72%, 50%)  — destructive red    Hex: #d63030 approx
+  font: Fredoka semibold, size 14 (text-sm)
+  active: scale 0.95
+  transition-all
+  Text: "Reset All Swipes"
+
+Helper text below button:
+  "This will clear all your previous swipe choices"
+  font: Fredoka regular, size 10 (text-xs)
+  color: muted-foreground
+  text-align: center
+  margin-top: 6  (mt-1.5)
+
+--- RESET SWIPES BEHAVIOR ---
+
+On press:
+  1. Show native browser confirm dialog:
+     Message: "Are you sure you want to reset all your swipes? This cannot be undone."
+     Two buttons: "Cancel" and "OK"
+
+  2. If user taps CANCEL:
+     Nothing happens. Page state unchanged.
+
+  3. If user taps OK (confirms):
+
+     DATABASE OPERATION:
+       DELETE FROM swipes
+       WHERE user_id = me AND liked = false
+     
+     This deletes ONLY passes (liked=false).
+     Liked names (liked=true) are NOT deleted — "Your Picks" is preserved.
+     This means the user will see previously-passed names again in the swipe deck,
+     but their favorited names remain in the Names section.
+
+     LOCAL STORAGE CLEAR:
+       localStorage.removeItem('swipe_session_v2_{user.id}')
+     
+     This key stores the current swipe deck position (currentIndex) and
+     swipe history for the undo feature. Clearing it resets the deck
+     back to position 0 on the next swipe session.
+
+     FEEDBACK:
+       Show native browser alert: "Swipes reset successfully!"
+       window.location.reload()  — hard page reload to re-initialize everything
+
+     ON ERROR:
+       Log to console.
+       Show native browser alert: "Failed to reset swipes"
+       Page is NOT reloaded.
+
+================================================================================
+SECTION 12 — DESIGN TOKENS
+================================================================================
+
+All specific color values used on this page:
+
+  parchment (page bg):    hsl(38, 45%, 93%)   #ede0c8 approx
+  card (form bg):         hsl(40, 40%, 93%)   #ede5d4 approx
+  background (inputs):    hsl(40, 30%, 95%)   #f2ece1 approx
+  foreground (text):      hsl(25, 30%, 20%)   #3d2e20 approx
+  muted-foreground:       hsl(25, 12%, 48%)   #857d74 approx
+  muted (disabled btn):   hsl(38, 25%, 87%)   #dfd6c8 approx
+  border:                 hsl(35, 22%, 80%)   #cec5b9 approx
+  ring (focus ring):      hsl(214, 60%, 45%)  #3a72c4 approx
+  grass (back button):    hsl(145, 45%, 35%)  #316b46 approx
+  boyBlue (save btn):     hsl(214, 55%, 42%)  #3a71b5 approx
+  girlPink (girl btn):    hsl(345, 55%, 50%)  #c04070 approx
+  destructive (danger):   hsl(0, 72%, 50%)    #d63030 approx
+
+  bg-either gradient:
+    linear-gradient(90deg,
+      hsl(214, 55%, 42%) 0%,
+      hsl(345, 55%, 50%) 50%,
+      hsl(28, 85%, 55%) 100%
+    )
+
+================================================================================
+SECTION 13 — FONTS
+================================================================================
+
+FREDOKA (font-display):
+  Used for all text on this page.
+  Weights: 400, 500, 600, 700.
+
+PATRICK HAND (font-hand):
+  NOT used on the Profile page.
+  (Only used in the Settings Hub header title "Settings".)
+
+================================================================================
+SECTION 14 — COMPLETE DATA MODEL (RELEVANT COLUMNS)
+================================================================================
+
+The three editable fields map directly to these columns on the public.users table:
+
+  display_name     text    nullable     User's chosen name, shown to partner
+  baby_last_name   text    nullable     Optional last name appended on swipe cards
+  baby_gender      text    nullable     'boy' | 'girl' | 'either'
+                           CHECK constraint on DB: ('boy', 'girl', 'unknown', 'either')
+
+The reset swipes operation touches:
+  swipes.liked     boolean              DELETE rows WHERE liked=false (passes only)
+
+LocalStorage keys touched:
+  'swipe_session_v2_{userId}'           Cleared on reset to reset swipe deck position
+  'baby_picker_user_id'                 NOT touched — user identity preserved
+
+================================================================================
+SECTION 15 — COMPLETE STATE VARIABLES
+================================================================================
+
+Local React state (persisted only in component memory, reset on back navigation):
+
+  displayName:  string  — controlled value for "Your Name" input
+  babyLastName: string  — controlled value for "Baby's Last Name" input
+  babyGender:   'boy' | 'girl' | 'either'  — selected gender option
+
+  saving:  boolean  — true while the DB update is in flight
+  saved:   boolean  — true for 2 seconds after a successful save
+
+Derived values (computed, not stored):
+
+  hasChanges:  boolean
+    = displayName !== (user.display_name || '')
+      || babyLastName !== (user.baby_last_name || '')
+      || babyGender !== user.baby_gender
+
+================================================================================
+SECTION 16 — BEHAVIOR SUMMARY TABLE
+================================================================================
+
+ACTION                              RESULT
+─────────────────────────────────── ──────────────────────────────────────────────
+User types in "Your Name"           displayName state updates, hasChanges recalculates
+User types in "Baby's Last Name"    babyLastName state updates, hasChanges recalculates
+User taps a gender button           babyGender state updates, button styles change
+User taps Save (enabled)            saving=true, UPDATE users, saving=false, saved=true
+                                    After 2s: saved=false
+User taps Save (disabled)           Nothing (button is disabled, no event fires)
+User taps Back                      activePage=null, SettingsHub re-renders
+                                    Unsaved changes are DISCARDED
+User taps Reset All Swipes          Confirm dialog appears
+User confirms reset                 DELETE swipes WHERE liked=false
+                                    Clear localStorage swipe session key
+                                    Alert "Swipes reset successfully!"
+                                    window.location.reload()
+User cancels reset                  Nothing happens

@@ -7,19 +7,25 @@ export function getInviteUrl(token: string): string {
   return `/join/${token}`;
 }
 
-// ─── Generate a cryptographically random hex token (48 chars) ────────────────
-function randomHex(bytes: number): string {
-  const arr = new Uint8Array(bytes);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, (b) => b.toString(16).padStart(2, "0")).join("");
+// ─── Random hex token (48 chars) ─────────────────────────────────────────────
+// Uses Math.random() — expo-crypto not guaranteed; invite tokens don't need
+// cryptographic-grade randomness (length provides collision resistance).
+function randomHex(chars: number): string {
+  let result = "";
+  for (let i = 0; i < chars; i++) {
+    result += Math.floor(Math.random() * 16).toString(16);
+  }
+  return result;
 }
 
-// ─── Generate a human-readable short code (8 chars, no O/0/I/1) ─────────────
+// ─── Human-readable short code (8 chars, no O/0/I/1) ─────────────────────────
 const CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 function randomShortCode(length = 8): string {
-  const arr = new Uint8Array(length);
-  crypto.getRandomValues(arr);
-  return Array.from(arr, (b) => CHARSET[b % CHARSET.length]).join("");
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += CHARSET[Math.floor(Math.random() * CHARSET.length)];
+  }
+  return result;
 }
 
 // ─── Create a new invite (expires all previous pending first) ─────────────────
@@ -31,7 +37,7 @@ export async function createInvite(userId: string): Promise<PartnerInvite> {
     .eq("inviter_id", userId)
     .eq("status", "pending");
 
-  const token = randomHex(24);       // 48 hex chars
+  const token = randomHex(48);
   const short_code = randomShortCode();
 
   const { data, error } = await supabase

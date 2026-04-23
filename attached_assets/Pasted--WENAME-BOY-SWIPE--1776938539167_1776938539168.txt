@@ -1,0 +1,560 @@
+================================================================================
+WENAME — BOY SWIPE CARD: VISUAL DESIGN SPECIFICATION
+A complete prompt for recreating the boy card's layered appearance exactly
+================================================================================
+
+You are building a single React Native (or React web) component that renders
+the visual design of the "boy" swipe card from the WeName baby name app.
+This document gives you every layer, every color value, every spacing number,
+every font setting, and every asset filename needed to produce a pixel-exact
+replica.
+
+Do not guess or approximate any value — every measurement is sourced directly
+from the production code.
+
+================================================================================
+SECTION 1 — CARD OUTER SHELL
+================================================================================
+
+The card is a rounded rectangle that fills its parent container.
+It clips all child layers (overflow: hidden).
+
+Shape:
+  borderRadius:  16  (Tailwind: rounded-2xl)
+  width:         100% of parent
+  height:        100% of parent
+  overflow:      hidden
+
+Borders and shadows:
+  border:        2px solid  hsl(35, 22%, 80%) at 40% opacity
+                 Tailwind class: border-2 border-border/40
+                 Computed border color: rgba(192, 183, 170, 0.40) approx
+  boxShadow:     shadow-2xl
+                 Web: 0 25px 50px -12px rgba(0,0,0,0.25)
+                 RN:  elevation: 24, shadowColor: '#000',
+                      shadowOpacity: 0.25, shadowRadius: 25,
+                      shadowOffset: { width: 0, height: 12 }
+
+Fallback background (visible for ~100ms before the image loads):
+  backgroundColor: hsl(38, 45%, 93%)   — the app's "parchment" color
+                   Hex approx: #EDE0C8
+
+All child elements are absolutely positioned inside this shell.
+
+================================================================================
+SECTION 2 — BACKGROUND IMAGE (LAYER 1 — BOTTOM)
+================================================================================
+
+The photo covers the entire card behind everything else.
+
+File:     src/assets/boy-card-rolling-hills.jpg
+          (imported directly in the component via ES module import,
+           NOT served from public/)
+
+Import:   import boyCardBg from "../assets/boy-card-rolling-hills.jpg";
+Usage:    <img src={boyCardBg} ...>   or   <Image source={require('../assets/boy-card-rolling-hills.jpg')}>
+
+Position: absolute, inset: 0  (covers entire card)
+Size:     width: 100%, height: 100%
+Fit:      object-fit: cover  /  resizeMode: 'cover'
+Interaction: draggable={false}, pointer-events: none
+z-index:  base (0) — everything else stacks on top
+
+What the photo looks like:
+  A soft landscape photograph. Rolling green hills, light blue sky with
+  diffuse clouds. Natural, pastoral, slightly desaturated — warm but airy.
+  The photo has enough visual interest to feel like a real background but
+  is not so busy that it competes with the name text.
+
+================================================================================
+SECTION 3 — VIGNETTE OVERLAY (LAYER 2)
+================================================================================
+
+A dark edge vignette sits directly on top of the photo.
+This darkens the card corners/edges slightly to improve legibility of
+any text or UI that appears near the edges.
+
+Position: absolute, inset: 0
+pointer-events: none
+z-index:  above background image
+
+CSS:
+  background: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    transparent 60%,
+    rgba(0, 0, 0, 0.15) 100%
+  );
+
+This means:
+  - Center 60% of the card: fully transparent (photo shows through cleanly)
+  - From 60% to edges: darkens gradually to 15% black at the very corners
+  - The gradient is elliptical and centered
+
+================================================================================
+SECTION 4 — PARCHMENT WARMTH TINT (LAYER 3)
+================================================================================
+
+A very subtle warm tint layer sits on top of the vignette.
+It slightly warms the photo to match the app's warm parchment palette.
+
+Position: absolute, inset: 0
+pointer-events: none
+z-index:  above vignette
+
+backgroundColor: hsl(38, 45%, 93%) at 5% opacity
+  Tailwind: bg-parchment/5
+  Computed:  rgba(237, 224, 200, 0.05)  approx
+
+blendMode: overlay  (CSS: mix-blend-mode: overlay)
+  In React Native: this blend mode is not available — omit this layer
+  or approximate with rgba(237,224,200,0.03) at normal blend mode.
+
+================================================================================
+SECTION 5 — CONTENT LAYER (LAYER 4 — TOP)
+================================================================================
+
+This is the foreground UI layer. It is a flex column that fills the full
+card height. It sits above all image layers.
+
+Position: relative (establishes stacking context)
+z-index:  20
+Display:  flex column, height: 100%
+pointer-events: none  (only specific children re-enable pointer events)
+
+--- 5A. TOP SECTION ---
+
+The top section of the card (inside the content layer).
+
+Padding:
+  paddingTop:        20   (pt-5)
+  paddingBottom:     8    (pb-2)
+  paddingHorizontal: 24   (px-6)
+z-index: 20 (relative)
+pointer-events: none
+
+Contents top-to-bottom:
+
+  1. GENDER LABEL — "Boy Name"
+     Font family:  Patrick Hand (the "hand" font)
+     Font style:   italic
+     Font size:    30px  (Tailwind: text-3xl)
+     Font weight:  400 (Patrick Hand has only one weight)
+     Color:        hsl(214, 55%, 42%)   — the boy-blue color
+                   Hex approx: #3a71b5
+     Text align:   center
+
+  2. ACCENT DIVIDER LINE
+     Sits directly below the "Boy Name" label.
+     marginTop:    2   (mt-0.5)
+     height:       1.5px
+     width:        112  (w-28)
+     borderRadius: 999  (fully rounded pill)
+     background:   hsl(214, 55%, 42%)  — boy-blue, same as label
+     opacity:      0.50
+     marginLeft/Right: auto  (centered)
+
+  3. REMAINING COUNT TEXT
+     Text: "{N} names remaining"  (e.g. "47 names remaining")
+     Font family:  Fredoka (the "display" font)
+     Font size:    14px  (Tailwind: text-sm)
+     Font weight:  400
+     Color:        hsl(25, 12%, 48%)   — muted-foreground
+                   Hex approx: #857d74
+     Text align:   center
+     marginTop:    4   (mt-1)
+
+  4. "MORE INFO" BUTTON
+     Centered pill-shaped button below the count text.
+     marginTop:    8   (mt-2)
+     pointer-events: auto  (overrides parent none)
+
+     Layout: flex row, items: center, gap: 6  (gap-1.5)
+     Contents: Info icon (size 12) + text "More info"
+
+     Padding:      4px top/bottom, 12px left/right  (px-3 py-1)
+     borderRadius: 999  (rounded-full)
+     border:       1px solid hsl(214,55%,42%) at 30% opacity
+                   Tailwind: border-boy/30
+                   Computed: rgba(58, 113, 181, 0.30)
+
+     Color (text + icon): hsl(214,55%,42%) at 70% opacity
+                          Tailwind: text-boy/70
+     Background:   rgba(255, 255, 255, 0.35)
+
+     Font family:  Fredoka
+     Font size:    12px  (text-xs)
+
+     On press: scale to 0.95 (active:scale-95)
+
+--- 5B. CENTER SECTION (THE NAME) ---
+
+This block is vertically centered in the remaining flex space.
+It uses flex-1 with items-center and justify-center.
+An intentional negative margin pulls it slightly above true center:
+  marginTop: -112px  (Tailwind: -mt-28)
+  This offset accounts for the top section's height so the name appears
+  at visual center of the card rather than mathematical center.
+
+pointer-events: none
+
+Contents top-to-bottom:
+
+  1. MAIN NAME TEXT  (e.g. "Oliver")
+     Font family:  Fredoka
+     Font weight:  700 (bold)
+     Font size:    60px  (Tailwind: text-6xl)
+     letterSpacing: tight  (tracking-tight, approx -0.025em)
+     Color:        hsl(214, 55%, 42%)   — boy-blue
+                   Hex approx: #3a71b5
+                   Tailwind class: text-boy
+     Text align:   center
+
+  2. BABY LAST NAME  (only if lastName prop is provided)
+     Font family:  Fredoka
+     Font weight:  600 (semibold)
+     Font size:    30px  (Tailwind: text-3xl)
+     marginTop:    8   (mt-2)
+     Color:        hsl(214, 55%, 42%) at 80% opacity
+                   Tailwind: text-boy/80
+                   Computed: rgba(58,113,181,0.80)
+     Text align:   center
+
+  3. PRONUNCIATION  (only if pronunciation prop is not null)
+     Text: wrapped in square brackets — e.g. "[AH-lih-ver]"
+     Font family:  Fredoka
+     Font style:   italic
+     Font size:    16px  (Tailwind: text-base)
+     Font weight:  400
+     marginTop:    4   (mt-1)
+     letterSpacing: wide  (tracking-wide, approx 0.025em)
+     Color:        hsl(214, 55%, 42%) at 60% opacity
+                   Tailwind: text-boy/60
+                   Computed: rgba(58,113,181,0.60)
+     Text align:   center
+
+  4. "PARTNER ADDED" BADGE  (only if isPartnerPick=true)
+     Small pill badge below the name block.
+     marginTop:    12  (mt-3)
+     Layout: flex row, items: center, gap: 4  (gap-1)
+     Padding: 2px top/bottom, 10px left/right  (px-2.5 py-0.5)
+     borderRadius: 999  (rounded-full)
+     Background:   hsl(214,55%,42%) at 10% opacity  (bg-boy/10)
+     Border:       1px solid hsl(214,55%,42%) at 20% opacity  (border-boy/20)
+     Color:        hsl(214, 55%, 42%)  (text-boy)
+     Contents:
+       Heart icon: size 10, filled (fill="currentColor"), color inherited
+       Text: "Partner Added"
+       Font family: Fredoka, font-medium (500), size 12px (text-xs)
+
+--- 5C. BOTTOM ACTION ROW ---
+
+The three action buttons sit at the very bottom of the card.
+
+Layout: flex row, justify: center, align: center, gap: 24  (gap-6)
+marginBottom:     24  (mb-6)
+paddingHorizontal: 32  (px-8)
+pointer-events:   auto  (overrides parent none)
+
+IMPORTANT: On the "back" card (isNext=true), this entire row has
+visibility: hidden — the layout is preserved but nothing is visible.
+
+--- PASS BUTTON (left) ---
+  Size: 64x64  (w-16 h-16)
+  borderRadius: 32  (rounded-full)
+  border: 2px solid rgba(255,255,255,0.60)
+
+  Background gradient:
+    linear-gradient(145deg, hsl(38,50%,96%) 0%, hsl(38,45%,92%) 100%)
+    This is a warm off-white gradient. At 0% stop: hsl(38,50%,96%) ≈ #F7F0E3
+    At 100% stop: hsl(38,45%,92%) ≈ #EEE0CA
+    The 145deg angle creates a top-left highlight to bottom-right shadow.
+
+  Box shadow (ALL THREE applied together on web):
+    0 6px 20px rgba(0,0,0,0.25)            — main drop shadow, vertical lift
+    0 2px 6px rgba(0,0,0,0.15)             — close ambient shadow
+    inset 0 1px 2px rgba(255,255,255,0.80) — top inner edge highlight
+
+  RN equivalent:
+    elevation: 8
+    shadowColor: '#000'
+    shadowOpacity: 0.25
+    shadowRadius: 10
+    shadowOffset: { width: 0, height: 6 }
+    (inner highlight not possible in RN — omit or approximate with border)
+
+  Content: Text character "✕"
+    color:      hsl(0, 72%, 50%)  — destructive red   Hex: #d63030 approx
+    fontSize:   30  (text-3xl)
+    fontWeight: bold
+    filter:     drop-shadow(0 1px 2px rgba(0,0,0,0.20))
+    In RN: wrap in a View with subtle shadow instead of filter
+
+  On press: scale to 0.90  (active:scale-90)
+
+--- UNDO BUTTON (center) ---
+  Size: 56x56  (w-14 h-14)  — SMALLER than pass/like buttons
+  borderRadius: 28  (rounded-full)
+  border: 2px solid rgba(255,255,255,0.60)
+  Same background gradient as Pass button.
+
+  Shadow when ENABLED (canUndo=true):
+    Same three-layer shadow as Pass button.
+
+  Shadow when DISABLED (canUndo=false):
+    0 2px 8px rgba(0,0,0,0.15)  — flat, no lift
+    (no inset highlight)
+
+  Opacity when disabled:  0.40
+  Cursor when disabled:   not-allowed
+
+  Content: RotateCcw icon from lucide-react (or lucide-react-native)
+    size:   22
+    color:  hsl(25,12%,48%)  — muted-foreground  Hex approx: #857d74
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.20))
+
+  On press when enabled: scale to 0.90
+
+--- LIKE BUTTON (right) ---
+  Size: 64x64  (w-16 h-16)  — same as Pass button
+  borderRadius: 32  (rounded-full)
+  EXACT same gradient, border, and shadow as the Pass button.
+
+  Content: Heart icon from lucide-react
+    size:   26
+    color:  #f43f5e  (rose-500)
+    fill:   #f43f5e  (rose-500, filled solid)
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.20))
+
+  On press: scale to 0.90  (active:scale-90)
+
+================================================================================
+SECTION 6 — LIKE / PASS INDICATOR OVERLAYS
+================================================================================
+
+These sun-stamp overlays appear at the top corners of the card when the user
+drags the card sideways. They are animated by the drag position.
+
+Both overlays:
+  position: absolute
+  z-index:  20
+  pointer-events: none
+  ONLY rendered on the FRONT (active) card — not on the "next" (back) card.
+
+--- LIKE INDICATOR (top-right corner) ---
+
+Container position:
+  top:   20  (top-5)
+  right: 16  (right-4)
+
+transform-origin: top right
+  (it scales from the top-right corner outward)
+
+Image element:
+  Source: /like_sun2.png   (served from public/ folder, NOT imported)
+  Width:  160  (w-40)
+  Height: 160  (h-40)
+  draggable: false
+  Description: An illustrated sun with warm yellow/orange rays radiating
+    outward. Has a circular center. Gives a "stamp" or badge feel.
+
+"LIKE" text element (absolutely positioned ON TOP of the image):
+  Position: absolute, top: 28, right: 28  (top-7 right-7)
+  Text: "LIKE"
+  Font family:  Fredoka  (font-display)
+  Font weight:  900 / black  (font-black — heaviest available)
+  Font size:    18px  (text-lg)
+  Letter spacing: 0.18em
+  Text transform: uppercase
+  Color:  white
+  textShadow: 0 1px 4px rgba(0,0,0,0.35)
+  transform: rotate(22deg)   — tilted clockwise
+  The text is centered within its absolute positioned container.
+
+Animation (driven by card's horizontal drag position x):
+  opacity:
+    x=0:               0      (fully invisible at rest)
+    x=THRESHOLD*0.5:   0.7    (50% to threshold = 70% visible)
+    x=THRESHOLD:       1.0    (at threshold = fully visible)
+  scale:
+    x=0:               0.7    (small at rest)
+    x=THRESHOLD:       1.15   (slightly overshoots at threshold)
+  (THRESHOLD = screen_width * 0.27, e.g. 105px on a 390px screen)
+
+--- PASS INDICATOR (top-left corner) ---
+
+Container position:
+  top:  20  (top-5)
+  left: 16  (left-4)
+
+transform-origin: top left
+  (scales from the top-left corner outward)
+
+Image element:
+  Source: /dislike_sun.png   (served from public/ folder)
+  Width:  160  (w-40)
+  Height: 160  (h-40)
+  draggable: false
+  Description: A similar sun illustration in cooler/neutral tones compared
+    to the LIKE sun. Same composition but different color palette.
+
+"PASS" text element (absolutely positioned ON TOP of the image):
+  Position: absolute, top: 28, left: 28  (top-7 left-7)
+  Text: "PASS"
+  Font family:  Fredoka
+  Font weight:  900 / black
+  Font size:    18px  (text-lg)
+  Letter spacing: 0.18em
+  Text transform: uppercase
+  Color:  white
+  textShadow: 0 1px 4px rgba(0,0,0,0.35)
+  transform: rotate(-22deg)   — tilted COUNTER-clockwise (mirror of LIKE)
+  The text is centered within its absolute positioned container.
+
+Animation (driven by leftward drag, x goes negative):
+  opacity:
+    x=-THRESHOLD:       1.0   (fully visible when past threshold leftward)
+    x=-THRESHOLD*0.5:   0.7
+    x=0:                0     (invisible at rest)
+  scale:
+    x=-THRESHOLD:       1.15  (slightly overshoots)
+    x=0:                0.7   (small at rest)
+
+================================================================================
+SECTION 7 — LAYER STACKING ORDER (FRONT TO BACK)
+================================================================================
+
+Reading from BACK (bottom of screen) to FRONT (closest to user):
+
+  z=0  : Background image (boy-card-rolling-hills.jpg)
+  z=1  : Radial vignette overlay (darkens edges)
+  z=2  : Parchment warmth tint (mix-blend-mode: overlay, 5% opacity)
+  z=10 : Invisible drag gesture layer (top 80% of card, no visual)
+  z=20 : Like indicator (top-right sun stamp, animated)
+  z=20 : Pass indicator (top-left sun stamp, animated)
+  z=20 : Content layer (flex column with all visible text and buttons)
+    z=20 : Top section (gender label, divider, count, info button)
+    z=20 : Center section (name, last name, pronunciation, partner badge)
+    z=20 : Bottom action row (pass button, undo button, like button)
+  z=30 : Info overlay (slides up from bottom, covers entire card)
+
+================================================================================
+SECTION 8 — EXACT COLOR VALUES
+================================================================================
+
+All colors used in the boy card visual:
+
+  boyBlue:            hsl(214, 55%, 42%)    Hex: #3a6fb0 approx
+                      Used for: name text, label text, divider line,
+                      info button border/text, last name, pronunciation,
+                      partner badge background/border/text
+                      Tailwind aliases: text-boy, bg-boy, border-boy
+
+  mutedForeground:    hsl(25, 12%, 48%)     Hex: #857d74 approx
+                      Used for: "N names remaining" count text,
+                      undo button icon color
+                      Tailwind: text-muted-foreground
+
+  destructive:        hsl(0, 72%, 50%)      Hex: #d63030 approx
+                      Used for: ✕ text in Pass button
+                      Tailwind: text-destructive
+
+  rose500:            #f43f5e
+                      Used for: Heart icon in Like button (fill and stroke)
+                      Tailwind: text-rose-500, fill-rose-500
+
+  white:              #ffffff
+                      Used for: "LIKE" and "PASS" stamp text
+
+  parchment:          hsl(38, 45%, 93%)     Hex: #EDE0C8 approx
+                      Used for: card fallback background, warmth tint overlay
+                      Tailwind: bg-parchment
+
+  border:             hsl(35, 22%, 80%)     Hex: #CEC5B9 approx
+                      Used for: card outer border (at 40% opacity)
+                      Tailwind: border-border/40
+
+  buttonGradientTop:  hsl(38, 50%, 96%)     Hex: #F7F0E3 approx
+  buttonGradientBtm:  hsl(38, 45%, 92%)     Hex: #EEE0CA approx
+                      Used for: Pass, Undo, Like button backgrounds
+
+  vignetteDark:       rgba(0, 0, 0, 0.15)
+                      Used for: card edge darkening
+
+  stampTextShadow:    rgba(0, 0, 0, 0.35)
+                      Used for: "LIKE" and "PASS" text shadow
+
+================================================================================
+SECTION 9 — FONT SETUP
+================================================================================
+
+Two fonts are used in the entire boy card:
+
+  FREDOKA ("display" font):
+    Source:  Google Fonts — "Fredoka" family
+    Weights: 400 (Regular), 500 (Medium), 600 (SemiBold), 700 (Bold)
+    Used for: remaining count text, "More info" button text, main name (700),
+              last name (600), pronunciation (400 italic), partner badge (500)
+    CSS variable: --font-display: 'Fredoka', sans-serif
+    Tailwind utility: .font-display { font-family: var(--font-display) }
+
+  PATRICK HAND ("hand" font):
+    Source:  Google Fonts — "Patrick Hand" family
+    Weights: 400 only (single weight)
+    Used for: "Boy Name" label text (italic)
+    CSS variable: --font-hand: 'Patrick Hand', cursive
+    Tailwind utility: .font-hand { font-family: var(--font-hand) }
+
+Web import (CSS):
+  @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Patrick+Hand&display=swap');
+
+React Native import:
+  @expo-google-fonts/fredoka
+  @expo-google-fonts/patrick-hand
+  Use useFonts() hook from expo-font, show splash until loaded.
+
+================================================================================
+SECTION 10 — COMPLETE SPACING SUMMARY (BOY CARD ONLY)
+================================================================================
+
+Card:
+  borderRadius:          16
+  border:                2
+  padding (none — children use their own)
+
+Top section (inside card):
+  paddingTop:            20
+  paddingBottom:         8
+  paddingHorizontal:     24
+  Label to divider gap:  2  (mt-0.5)
+  Divider to count gap:  4  (mt-1)
+  Count to button gap:   8  (mt-2)
+  Divider width:         112
+  Divider height:        1.5
+  Button padding H:      12
+  Button padding V:      4
+  Button border-radius:  999
+
+Center section:
+  Vertical offset:       -112  (negative marginTop -mt-28)
+  Name to lastName:      8   (mt-2)
+  lastName to pronun.:   4   (mt-1)
+  pronun. to badge:      12  (mt-3)
+  Badge padding H:       10  (px-2.5)
+  Badge padding V:       2   (py-0.5)
+
+Bottom action row:
+  marginBottom:          24  (mb-6)
+  paddingHorizontal:     32  (px-8)
+  Gap between buttons:   24  (gap-6)
+  Pass button size:      64 x 64
+  Undo button size:      56 x 56
+  Like button size:      64 x 64
+  Button border-radius:  32  (all buttons, rounded-full)
+  Button border:         2
+
+Overlay indicators:
+  LIKE container:  top: 20, right: 16
+  PASS container:  top: 20, left: 16
+  Image size:      160 x 160
+  Text offset:     top: 28, right/left: 28  (absolute inside image)

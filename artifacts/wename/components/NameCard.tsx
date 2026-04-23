@@ -732,7 +732,7 @@ const styles = StyleSheet.create({
   nameText: {
     fontSize: 60,
     textAlign: "center",
-    letterSpacing: -0.5,
+    letterSpacing: -1.5,
   },
   lastNameText: {
     fontSize: 30,
@@ -744,7 +744,7 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     textAlign: "center",
     marginTop: 4,
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
   },
   partnerPill: {
     flexDirection: "row",

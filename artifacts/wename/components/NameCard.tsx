@@ -33,7 +33,7 @@ const CARD_H = Math.min(SCREEN_H * 0.78, 720);
 const SWIPE_THRESHOLD = SCREEN_W * 0.27;
 const VELOCITY_THRESHOLD = 600;
 
-const boyBg = require("../assets/images/boy-card-bg.png");
+const boyBg = require("../assets/images/boy-card-bg.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
 const paperTexture = require("../assets/images/paper-texture.jpg");
 const likeSun = require("../assets/images/like_sun.png");

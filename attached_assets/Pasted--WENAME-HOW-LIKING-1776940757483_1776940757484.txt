@@ -1,0 +1,480 @@
+================================================================================
+WENAME — HOW LIKING, YOUR PICKS, SHARED MATCHES & MANUAL NAME ADDING WORKS
+A complete data-flow and persistence specification for name management
+================================================================================
+
+This document explains exactly how names move from a swipe into the database,
+how they appear in lists, how partner matches are created, and how manually
+added names are persisted. Every table column, SQL operation, optimistic update
+pattern, and edge case is described in full.
+
+================================================================================
+SECTION 1 — DATABASE TABLES (THE FULL SCHEMA)
+================================================================================
+
+Four tables are involved. All use Supabase Postgres with Row Level Security.
+
+--- TABLE: names ---
+
+Stores every name — both catalog names and user-created ones.
+
+Column           Type        Notes
+──────────────── ─────────── ──────────────────────────────────────────────────
+uuid             uuid        Primary key (PK). Used everywhere as the name's ID.
+                             NOTE: the column is named "uuid", not "id".
+name             text        The name string, e.g. "Oliver"
+gender           text        "boy" or "girl" — CHECK constraint enforces this
+pronunciation    text        IPA-style pronunciation, e.g. "AH-lih-ver". Nullable.
+origin_raw       text        Origin of the name, e.g. "Latin". Nullable.
+meaning          text        Meaning of the name. Nullable.
+nicknames        text        Possible nickname(s). Nullable.
+us_rank          text        US popularity rank (stored as text, cast to int in app).
+                             Nullable. Only numeric strings are used; others treated as null.
+user_created     boolean     DEFAULT false. True if a user typed this name manually
+                             (not from the catalog). user_created=true names do NOT
+                             appear in the swipe deck — they are excluded from the
+                             get_swipeable_names RPC and the swipe queue.
+created_by_user_id uuid      The user.id who manually created this name. Nullable.
+created_at       timestamptz Auto-set on insert.
+
+Unique constraint: (name, gender) — prevents duplicate (name+gender) combinations.
+
+RLS policies:
+  SELECT: anyone authenticated (or anon — corrected in a later migration)
+  INSERT: authenticated users OR anon users (two separate policies)
+          Policy for user-created names checks:
+            NEW.user_created = true AND NEW.created_by_user_id IS NOT NULL
+  UPDATE/DELETE: not granted to regular users (catalog is read-only)
+
+--- TABLE: swipes ---
+
+One row per (user, name) pair. Records every swipe decision.
+A "like" is a swipe with liked=true.
+
+Column     Type        Notes
+────────── ─────────── ────────────────────────────────────────────────────────
+id         uuid        PK, gen_random_uuid()
+user_id    uuid        FK → users.id, ON DELETE CASCADE
+name_id    uuid        FK → names.uuid, ON DELETE CASCADE
+liked      boolean     DEFAULT false. true = liked, false = passed
+ranking    integer     Nullable. User-controlled sort order for "Your Picks" list.
+                       1 = top priority. null = unranked (sorted after ranked items).
+created_at timestamptz Auto-set on insert.
+
+Unique constraint: (user_id, name_id) — one decision per user per name.
+  INSERT with ON CONFLICT (user_id, name_id) DO UPDATE is used for upserts.
+
+Indexes:
+  idx_swipes_user_id  ON swipes(user_id)
+  idx_swipes_name_id  ON swipes(name_id)
+  idx_swipes_ranking  ON swipes(user_id, ranking)
+
+RLS policies:
+  SELECT: authenticated — all rows readable (needed so partner can check if user liked a name)
+  INSERT: authenticated — any row
+  UPDATE: authenticated — any row (used to flip liked=true→false on delete, or update ranking)
+  DELETE: authenticated — any row
+
+--- TABLE: matches ---
+
+One row per mutual like between two partners on the same name.
+Created automatically when both users like a name.
+
+Column      Type        Notes
+─────────── ─────────── ────────────────────────────────────────────────────────
+id          uuid        PK, gen_random_uuid()
+name_id     uuid        FK → names.uuid, ON DELETE CASCADE
+user_a_id   uuid        FK → users.id, ON DELETE CASCADE. Always the lexicographically
+                        SMALLER of the two user UUIDs. Enforced in app code.
+user_b_id   uuid        FK → users.id, ON DELETE CASCADE. Always the lexicographically
+                        LARGER of the two user UUIDs.
+gender      text        "boy" or "girl" — copied from the name at insert time
+ranking     integer     Nullable. User-controlled sort order for Shared Matches list.
+created_at  timestamptz Auto-set on insert.
+
+Unique constraint: (name_id, user_a_id, user_b_id) — one match per name per couple.
+
+Indexes:
+  idx_matches_user_a  ON matches(user_a_id)
+  idx_matches_user_b  ON matches(user_b_id)
+  idx_matches_ranking ON matches(ranking)
+
+RLS policies:
+  SELECT: authenticated — all rows (user queries with OR: user_a_id=me OR user_b_id=me)
+  INSERT: authenticated — any row
+  DELETE: authenticated — any row (used when a user removes a match from their view)
+  UPDATE: not explicitly granted — ranking updates use a general update pattern
+          (covered by the initial "Users can read own matches" catch-all in early migrations)
+
+--- TABLE: finalists ---
+
+A personal shortlist. A user can "star" names from either Your Picks or
+Shared Matches to promote them to finalists. This is personal — each user
+has their own finalists list independent of their partner.
+
+Column     Type        Notes
+────────── ─────────── ────────────────────────────────────────────────────────
+id         uuid        PK, gen_random_uuid()
+user_id    uuid        FK → auth.users(id), ON DELETE CASCADE
+name_id    uuid        References the name's uuid (not a hard FK in this migration)
+ranking    integer     Nullable. Sort order.
+created_at timestamptz Auto-set on insert.
+
+Unique constraint: (user_id, name_id) — one finalist entry per name per user.
+
+RLS: auth.uid() = user_id for all operations (strict owner-only).
+
+================================================================================
+SECTION 2 — HOW LIKING A NAME CREATES A "YOUR PICKS" ENTRY
+================================================================================
+
+This is the primary flow. The user swipes right (or taps the heart button)
+on the swipe card.
+
+--- STEP 1: LIMIT CHECK (before any DB write) ---
+
+Before any database operation, the daily usage limits are checked:
+
+  checkCanSwipe(liked=true) is called.
+
+  For FREE users:
+    a. Check if the calendar date has changed since usage_last_reset_at.
+       If yes: reset daily_swipe_count, daily_like_count, daily_match_count to 0
+               in DB (UPDATE users SET ... WHERE id=user.id) and in local state.
+    b. If daily_swipe_count >= 30: BLOCK. Return { allowed: false, limitType: 'swipe' }.
+    c. If daily_like_count >= 8:   BLOCK. Return { allowed: false, limitType: 'like' }.
+    d. If allowed: increment daily_swipe_count + daily_like_count in DB and local state.
+       UPDATE users SET daily_swipe_count = N+1, daily_like_count = M+1 WHERE id = user.id
+
+  For PREMIUM users:
+    Skip all checks. Return { allowed: true } immediately.
+
+  If blocked: show PremiumUpgradeModal. The swipe is NOT recorded. Nothing is written to DB.
+
+--- STEP 2: OPTIMISTIC LOCAL STATE UPDATE ---
+
+If allowed, before any DB write:
+  - Add the name to swipeHistory (local React state) for undo support.
+  - Advance currentIndex so the next card appears immediately.
+  - dragProgress is reset to 0 so the back card snaps to its peeking position.
+
+The card animation is already underway at this point (triggered by the gesture
+or button press), so the UX feels instant.
+
+--- STEP 3: WRITE THE SWIPE TO SUPABASE ---
+
+  supabase.from('swipes').upsert(
+    { user_id: user.id, name_id: name.id, liked: true },
+    { onConflict: 'user_id,name_id' }
+  )
+
+  The upsert pattern handles the case where the user previously PASSED this name
+  (liked=false) and now likes it — the existing row is updated to liked=true.
+
+  The swipe row is now persisted. The name will appear in "Your Picks" on the next
+  load because the query filters: WHERE user_id=me AND liked=true.
+
+--- STEP 4: CHECK FOR A MATCH (if user has a partner) ---
+
+  If the user has a partner (user.partner_id is not null):
+    Query: SELECT * FROM swipes
+           WHERE user_id = partner_id AND name_id = name.id AND liked = true
+
+    If the partner has also liked this name:
+      → A mutual match exists.
+      → See Section 4 for the full match creation flow.
+
+--- STEP 5: FIRST-LIKE PARTNER PROMPT ---
+
+  After the first ever like in a session, check localStorage:
+    Key: "first_like_partner_shown_{userId}"
+
+  If this key has NOT been set yet:
+    Set it to "1" in localStorage.
+    Show the FirstLikePartnerModal (a one-time prompt encouraging the user to
+    invite their partner if they haven't already).
+
+  This only fires once per user, ever, regardless of session.
+
+================================================================================
+SECTION 3 — HOW "YOUR PICKS" IS LOADED AND DISPLAYED
+================================================================================
+
+When the Names tab opens (or the user navigates to "Your Picks"):
+
+--- QUERY SEQUENCE ---
+
+Step 1: Fetch all liked swipes for this user, ordered by ranking then recency:
+
+  SELECT id, ranking, name_id
+  FROM swipes
+  WHERE user_id = me AND liked = true
+  ORDER BY ranking ASC NULLS LAST,
+           created_at DESC
+
+  Result: list of swipe rows (id, ranking, name_id).
+  Ranked items (ranking IS NOT NULL) appear first in ascending order.
+  Unranked items (ranking IS NULL) appear after, newest first.
+
+Step 2: Extract all name_id values from the result.
+
+Step 3: Fetch full name details for those IDs:
+
+  SELECT uuid, name, gender, pronunciation, origin_raw, meaning, nicknames, us_rank
+  FROM names
+  WHERE uuid IN (name_id_list)
+
+Step 4: Build a Map<uuid, NameObject> from the name results.
+
+Step 5: Join the swipe rows with the name data to produce the final list:
+  Swipes that reference a name not found in the names table are silently filtered out.
+
+Step 6: Apply optimistic entries:
+  Any locally-added names (local=true) that have not yet been confirmed by the DB
+  are merged in at the END of the list (appended after DB results).
+  Once the DB write completes, the optimistic entry is replaced with the real row.
+
+--- DISPLAY ---
+
+  Each row in "Your Picks" shows:
+    - Rank indicator: "#1" "#2" "#3" for top 3, then "4" "5"... for the rest
+    - Drag handle (GripHorizontal icon)
+    - Name text
+    - Info button (opens NameInfoOverlay bottom sheet)
+    - Delete button (removes from list)
+
+--- WHAT "DELETE" DOES ---
+
+  Tapping the delete (trash) icon on a "Your Picks" row does NOT delete the swipe row.
+  Instead it flips liked to false:
+
+    UPDATE swipes SET liked = false WHERE id = swipe.id
+
+  This preserves the swipe history (the name won't appear in the swipe deck again
+  since it's already swiped), but removes it from "Your Picks".
+
+  The row is removed from local state immediately (optimistic removal).
+
+================================================================================
+SECTION 4 — HOW A SHARED MATCH IS CREATED
+================================================================================
+
+A match is created automatically — the user never manually triggers it.
+It happens as a side effect of a like.
+
+--- MATCH CREATION FLOW ---
+
+After a like is saved to the swipes table (Step 3 of Section 2):
+
+1. Query the partner's swipes:
+   SELECT * FROM swipes
+   WHERE user_id = partner_id
+     AND name_id = name.id
+     AND liked = true
+   (LIMIT 1 via .maybeSingle())
+
+2. If NO partner swipe found: no match. Done.
+
+3. If partner HAS liked this name:
+   a. Determine user_a and user_b:
+      Sort [user.id, partner.id] lexicographically.
+      user_a = the smaller UUID string
+      user_b = the larger UUID string
+      This ensures the (user_a, user_b, name_id) unique constraint
+      is always approached from the same direction regardless of which
+      partner swipes second.
+
+   b. Insert the match:
+      INSERT INTO matches
+        (name_id, user_a_id, user_b_id, gender)
+      VALUES
+        (name.id, user_a, user_b, name.gender)
+
+      Note: This can fail silently if the match already exists (unique constraint).
+      The app does not retry or report this error — it's a safe no-op.
+
+   c. Check the match reveal limit (for free users):
+      checkCanRevealMatch():
+        - If match_count >= 3: return false (block). Show PremiumUpgradeModal
+          with limitType='match'. The match IS saved to DB but NOT shown to user yet.
+        - If allowed: increment daily_match_count in DB and local state. Return true.
+
+   d. If allowed: set matchedName in local state → shows the match celebration modal
+      (the animated "It's a Match!" screen). Auto-dismisses after 4 seconds.
+
+--- REAL-TIME MATCH UPDATES ---
+
+When the user is on the Shared Matches tab, a Supabase Realtime channel is active:
+
+  Channel: "namesview-matches:{user.id}"
+  Table:   matches
+  Events:  INSERT, UPDATE, DELETE
+  Filters: user_a_id = me  OR  user_b_id = me
+
+  On any change event: re-run the full loadMatches() query.
+
+  This means if the PARTNER swipes and creates a match while the user is on this tab,
+  the match appears automatically without a page refresh.
+
+  The channel is removed (unsubscribed) when:
+    - The user switches away from the Shared Matches tab
+    - The component unmounts
+
+================================================================================
+SECTION 5 — HOW "SHARED MATCHES" IS LOADED AND DISPLAYED
+================================================================================
+
+Loaded when the user navigates to the "Shared Matches" tab.
+
+--- QUERY SEQUENCE ---
+
+Step 1: Fetch all matches involving this user, ordered by ranking then recency:
+
+  SELECT *
+  FROM matches
+  WHERE user_a_id = me OR user_b_id = me
+  ORDER BY ranking ASC NULLS LAST,
+           created_at DESC
+
+Step 2–5: Same join pattern as Your Picks — extract name_ids, fetch name details,
+  build a Map, join and filter.
+
+--- DISPLAY ---
+
+  Same row structure as Your Picks BUT:
+  - Rank number shown WITHOUT # prefix for all positions
+  - Below the name text: "You both liked this" (smaller, 70% opacity)
+  - No star/finalist button visible on the row itself
+
+--- FINALISTS (shown above the matches list) ---
+
+  Loaded separately on initial mount:
+    SELECT id, name_id, ranking FROM finalists WHERE user_id = me
+    ORDER BY ranking ASC NULLS LAST, created_at DESC
+  Then name details fetched with the same join pattern.
+
+  Finalist rows appear ABOVE the draggable matches list.
+  They show a filled Star icon instead of a drag handle.
+  They have an X button to remove (DELETE FROM finalists WHERE id=finalist.id).
+
+--- WHAT "DELETE" DOES ON A MATCH ROW ---
+
+  Tapping trash on a match row:
+    DELETE FROM matches WHERE id = match.id
+
+  The match is gone for BOTH partners — it's a shared record.
+  The partner will also stop seeing this match in their Shared Matches list.
+  (There is no per-user visibility flag on the matches table.)
+
+================================================================================
+SECTION 6 — ADDING A NAME MANUALLY TO YOUR PICKS
+================================================================================
+
+Users can type a name directly into "Your Picks" without swiping.
+This is done via the inline form (the "Add name" dashed-border button).
+
+--- USER FLOW ---
+
+1. User taps "Add name" → inline form opens.
+2. User types a name and selects Boy or Girl.
+3. User taps "Add Name" (or presses Enter).
+
+--- DUPLICATE CHECK (client-side, before any write) ---
+
+  Check if any existing swipe in local state matches:
+    swipe.names.text.toLowerCase() === typed.toLowerCase()
+    AND swipe.names.gender === selectedGender
+
+  If match found:
+    Show inline error: '"Oliver" is already in your picks as a boy name.'
+    Do NOT submit. Form stays open.
+
+--- OPTIMISTIC INSERT ---
+
+  If no duplicate:
+  a. Create a temporary optimistic entry with id = "local-{timestamp}-{random}":
+       { id: optimisticId, ranking: null, names: { id: optimisticId, text, gender }, local: true }
+  b. Append it to the swipes list immediately.
+  c. Close the form (addingName=false, clear text field).
+
+--- DATABASE WRITE SEQUENCE ---
+
+Step 1 — Find or create the name in the names table:
+
+  Query:
+    SELECT uuid, name, gender FROM names
+    WHERE name = typed AND gender = selectedGender
+    LIMIT 1 (maybeSingle)
+
+  If found: use the existing name row's uuid.
+
+  If NOT found:
+    INSERT INTO names (name, gender, user_created, created_by_user_id)
+    VALUES (typed, selectedGender, true, user.id)
+    RETURNING uuid, name, gender
+
+    user_created = true means this name will NOT appear in the swipe deck
+    for other users (excluded by get_swipeable_names RPC).
+    It WILL appear as a swipeable name for the partner of the user who created it
+    (returned by get_partner_created_names RPC).
+
+Step 2 — Insert the swipe:
+
+  INSERT INTO swipes (user_id, name_id, liked)
+  VALUES (me, name.uuid, true)
+  RETURNING id, ranking
+
+Step 3 — Replace the optimistic entry with the real DB row:
+
+  Update local swipes state: find entry with id=optimisticId, replace with:
+  { id: swipeData.id, ranking: swipeData.ranking, names: realNameData, local: false }
+
+  Show toast: "{name} added"
+
+--- ON DB ERROR ---
+
+  Remove the optimistic entry from local state.
+  Re-open the form with the typed name pre-filled.
+  Show an inline error message.
+
+  Special case: if the error message contains "duplicate", "unique", or
+  "already exists", show a friendly duplicate message instead of a generic error.
+
+================================================================================
+SECTION 7 — ADDING A NAME MANUALLY TO SHARED MATCHES
+================================================================================
+
+Same inline form, same flow as Your Picks, with these differences:
+
+--- DUPLICATE CHECK ---
+
+  Checks against matches list (not swipes):
+    match.name.text.toLowerCase() === typed.toLowerCase()
+    AND match.name.gender === selectedGender
+
+--- DATABASE WRITE SEQUENCE ---
+
+Step 1 — Same as Your Picks: find or create the name in names table.
+
+Step 2 — Insert the match row:
+
+  Compute user_a, user_b (lexicographic sort of [user.id, partner.id]):
+    user_a = user.id < partner.id ? user.id : partner.id
+    user_b = user.id < partner.id ? partner.id : user.id
+
+  INSERT INTO matches (name_id, user_a_id, user_b_id, gender)
+  VALUES (name.uuid, user_a, user_b, selectedGender)
+  RETURNING id, ranking
+
+Step 3 — Replace optimistic match entry with real DB row.
+  Show toast: "{name} added"
+
+IMPORTANT: Manually adding to Shared Matches does NOT create a swipe record
+for either user. The name appears in the shared matches list ONLY — it is NOT
+added to Your Picks and is NOT added to the partner's swipe history.
+
+================================================================================
+SECTION 8 — HOW DRAG-TO-REORDER PERSISTS ORDER
+================================================================================
+
+Both Your Picks and Shared Matches

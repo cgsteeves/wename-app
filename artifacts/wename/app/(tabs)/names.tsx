@@ -223,85 +223,120 @@ export default function NamesScreen() {
     const lower = trimmed.toLowerCase();
     const existingList = tab === "liked" ? liked : matches;
     if (existingList.some((n) => n.text.toLowerCase() === lower && n.gender === newGender)) {
-      setAddError(`${trimmed} is already in your list.`);
+      setAddError(
+        `"${trimmed}" is already in your ${tab === "liked" ? "picks" : "matches"} as a ${newGender} name.`,
+      );
       return;
     }
-    let { data: nameRow } = await supabase
-      .from("names")
-      .select("uuid, name, gender")
-      .eq("name", trimmed)
-      .eq("gender", newGender)
-      .maybeSingle();
-    if (!nameRow) {
-      const { data: inserted, error } = await supabase
-        .from("names")
-        .insert({
-          name: trimmed,
-          gender: newGender,
-          user_created: true,
-          created_by_user_id: user.id,
-        })
-        .select("uuid, name, gender")
-        .single();
-      if (error || !inserted) {
-        setAddError(error?.message ?? "Could not add name");
-        return;
-      }
-      nameRow = inserted;
-    }
-    if (tab === "liked") {
-      const { data: swipe, error: swErr } = await supabase
-        .from("swipes")
-        .insert({
-          user_id: user.id,
-          name_id: (nameRow as { uuid: string }).uuid,
-          liked: true,
-        })
-        .select("id")
-        .single();
-      if (swErr || !swipe) {
-        setAddError(swErr?.message ?? "Could not save");
-        return;
-      }
-      setLiked((p) => [
-        ...p,
-        {
-          recordId: (swipe as { id: string }).id,
-          id: (nameRow as { uuid: string }).uuid,
-          text: trimmed,
-          gender: newGender,
-          rank: null,
-        },
-      ]);
-    } else if (tab === "matches" && user.partner_id) {
-      const [a, b] = [user.id, user.partner_id].sort();
-      const { data: m, error } = await supabase
-        .from("matches")
-        .insert({
-          name_id: (nameRow as { uuid: string }).uuid,
-          user_a_id: a,
-          user_b_id: b,
-          gender: newGender,
-        })
-        .select("id")
-        .single();
-      if (error || !m) {
-        setAddError(error?.message ?? "Could not save");
-        return;
-      }
-      setMatches((p) => [
-        ...p,
-        {
-          recordId: (m as { id: string }).id,
-          id: (nameRow as { uuid: string }).uuid,
-          text: trimmed,
-          gender: newGender,
-          rank: null,
-        },
-      ]);
-    }
+
+    // Optimistic insert: append a temporary row so the UI updates immediately.
+    const optimisticId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const optimisticItem: NameItem = {
+      recordId: optimisticId,
+      id: optimisticId,
+      text: trimmed,
+      gender: newGender,
+      rank: null,
+    };
+    if (tab === "liked") setLiked((p) => [...p, optimisticItem]);
+    else if (tab === "matches") setMatches((p) => [...p, optimisticItem]);
+    const typedName = trimmed;
+    const typedGender = newGender;
     setNewName("");
     setAdding(false);
+
+    const friendlyError = (msg: string | undefined): string => {
+      const m = (msg ?? "").toLowerCase();
+      if (m.includes("duplicate") || m.includes("unique") || m.includes("already exists")) {
+        return `"${typedName}" is already saved as a ${typedGender} name.`;
+      }
+      return msg ?? "Could not save";
+    };
+
+    const rollback = (errMsg: string) => {
+      if (tab === "liked")
+        setLiked((p) => p.filter((i) => i.recordId !== optimisticId));
+      else if (tab === "matches")
+        setMatches((p) => p.filter((i) => i.recordId !== optimisticId));
+      setNewName(typedName);
+      setNewGender(typedGender);
+      setAdding(true);
+      setAddError(errMsg);
+    };
+
+    try {
+      let { data: nameRow } = await supabase
+        .from("names")
+        .select("uuid, name, gender")
+        .eq("name", typedName)
+        .eq("gender", typedGender)
+        .maybeSingle();
+      if (!nameRow) {
+        const { data: inserted, error } = await supabase
+          .from("names")
+          .insert({
+            name: typedName,
+            gender: typedGender,
+            user_created: true,
+            created_by_user_id: user.id,
+          })
+          .select("uuid, name, gender")
+          .single();
+        if (error || !inserted) {
+          rollback(friendlyError(error?.message));
+          return;
+        }
+        nameRow = inserted;
+      }
+      const nameUuid = (nameRow as { uuid: string }).uuid;
+
+      if (tab === "liked") {
+        const { data: swipe, error: swErr } = await supabase
+          .from("swipes")
+          .upsert(
+            { user_id: user.id, name_id: nameUuid, liked: true },
+            { onConflict: "user_id,name_id" },
+          )
+          .select("id")
+          .single();
+        if (swErr || !swipe) {
+          rollback(friendlyError(swErr?.message));
+          return;
+        }
+        setLiked((p) =>
+          p.map((i) =>
+            i.recordId === optimisticId
+              ? { ...optimisticItem, recordId: (swipe as { id: string }).id, id: nameUuid }
+              : i,
+          ),
+        );
+      } else if (tab === "matches" && user.partner_id) {
+        const [a, b] = [user.id, user.partner_id].sort();
+        const { data: m, error } = await supabase
+          .from("matches")
+          .insert({
+            name_id: nameUuid,
+            user_a_id: a,
+            user_b_id: b,
+            gender: typedGender,
+          })
+          .select("id")
+          .single();
+        if (error || !m) {
+          rollback(friendlyError(error?.message));
+          return;
+        }
+        setMatches((p) =>
+          p.map((i) =>
+            i.recordId === optimisticId
+              ? { ...optimisticItem, recordId: (m as { id: string }).id, id: nameUuid }
+              : i,
+          ),
+        );
+      }
+    } catch (e) {
+      rollback(friendlyError(e instanceof Error ? e.message : undefined));
+    }
   }
 
   async function shareList() {

@@ -115,9 +115,15 @@ export default function SwipeScreen() {
       .maybeSingle();
     if (!partnerSwipe) return false;
     const [a, b] = [user.id, user.partner_id].sort();
-    await supabase
+    const { error: matchErr } = await supabase
       .from("matches")
-      .insert({ name_id: name.id, user_a_id: a, user_b_id: b, gender: name.gender });
+      .upsert(
+        { name_id: name.id, user_a_id: a, user_b_id: b, gender: name.gender },
+        { onConflict: "name_id,user_a_id,user_b_id", ignoreDuplicates: true },
+      );
+    if (matchErr) {
+      console.warn("[SwipeScreen] match insert ignored:", matchErr.message);
+    }
     const canReveal = await limits.checkCanRevealMatch();
     if (canReveal) setMatchedName(name);
     else {

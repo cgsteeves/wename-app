@@ -1,12 +1,14 @@
-import { Feather } from "@expo/vector-icons";
+import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { Image, ImageBackground } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
+  Modal,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -17,21 +19,43 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const listBg = require("../../assets/images/list-bg.png");
 const grassBorder = require("../../assets/images/grass-flower-border.png");
+const boyRowBg = require("../../assets/images/boy-card-bg.jpg");
+const paperTexture = require("../../assets/images/paper-texture.jpg");
 
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { supabase } from "@/lib/supabase";
 
-type SubTab = "liked" | "matches" | "finalists";
+type SubTab = "liked" | "matches" | "suggestions";
 
 interface NameItem {
   id: string;
   text: string;
   gender: string;
   rank?: number | null;
-  recordId: string; // swipe id, match id, or finalist id
+  origin?: string | null;
+  meaning?: string | null;
+  nickname?: string | null;
+  pronunciation?: string | null;
+  recordId: string;
 }
+
+const BOY = "hsl(214,55%,42%)";
+const GIRL = "hsl(345,55%,50%)";
+const GRASS = "hsl(145,45%,35%)";
+const GRASS_DASH = "hsl(145,45%,55%)";
+const FOREGROUND = "hsl(25,30%,20%)";
+const MUTED = "hsl(25,12%,48%)";
+const BORDER = "hsl(35,22%,80%)";
+
+// React Native does not support hex-alpha suffix on hsl(...) strings.
+// These helpers return hsla(...) with the requested alpha (0-1).
+const BOY_A = (a: number) => `hsla(214,55%,42%,${a})`;
+const GIRL_A = (a: number) => `hsla(345,55%,50%,${a})`;
+const BORDER_A = (a: number) => `hsla(35,22%,80%,${a})`;
+const accentA = (accent: string, a: number) =>
+  accent === GIRL ? GIRL_A(a) : BOY_A(a);
 
 export default function NamesScreen() {
   const colors = useColors();
@@ -44,18 +68,30 @@ export default function NamesScreen() {
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
   const [newGender, setNewGender] = useState<"boy" | "girl">(
     user?.baby_gender === "girl" ? "girl" : "boy",
   );
+  const [infoItem, setInfoItem] = useState<NameItem | null>(null);
 
   const fetchNamesByIds = useCallback(async (ids: string[]) => {
-    if (ids.length === 0) return new Map<string, { text: string; gender: string; rank: number | null }>();
+    if (ids.length === 0)
+      return new Map<string, Omit<NameItem, "recordId" | "id">>();
     const { data } = await supabase
       .from("names")
-      .select("uuid, name, gender, us_rank")
+      .select("uuid, name, gender, us_rank, origin, meaning, nickname, pronunciation")
       .in("uuid", ids);
     return new Map(
-      (data ?? []).map((n: { uuid: string; name: string; gender: string; us_rank: unknown }) => [
+      (data ?? []).map((n: {
+        uuid: string;
+        name: string;
+        gender: string;
+        us_rank: unknown;
+        origin: string | null;
+        meaning: string | null;
+        nickname: string | null;
+        pronunciation: string | null;
+      }) => [
         n.uuid,
         {
           text: n.name,
@@ -64,6 +100,10 @@ export default function NamesScreen() {
             n.us_rank != null && /^\d+$/.test(String(n.us_rank))
               ? Number(n.us_rank)
               : null,
+          origin: n.origin,
+          meaning: n.meaning,
+          nickname: n.nickname,
+          pronunciation: n.pronunciation,
         },
       ]),
     );
@@ -73,7 +113,6 @@ export default function NamesScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      // Liked
       const { data: swipeData } = await supabase
         .from("swipes")
         .select("id, name_id, ranking, created_at")
@@ -93,7 +132,6 @@ export default function NamesScreen() {
           })),
       );
 
-      // Matches
       if (user.partner_id) {
         const { data: matchData } = await supabase
           .from("matches")
@@ -116,7 +154,6 @@ export default function NamesScreen() {
         setMatches([]);
       }
 
-      // Finalists
       const { data: finData } = await supabase
         .from("finalists")
         .select("id, name_id, ranking, created_at")
@@ -147,45 +184,48 @@ export default function NamesScreen() {
     }, [loadAll]),
   );
 
-  async function deleteItem(item: NameItem) {
+  async function deleteItem(item: NameItem, isFinalistRow: boolean) {
     if (!user) return;
-    if (tab === "liked") {
-      await supabase.from("swipes").update({ liked: false }).eq("id", item.recordId);
-      setLiked((p) => p.filter((i) => i.recordId !== item.recordId));
-    } else if (tab === "matches") {
-      await supabase.from("matches").delete().eq("id", item.recordId);
-      setMatches((p) => p.filter((i) => i.recordId !== item.recordId));
-    } else {
-      await supabase.from("finalists").delete().eq("id", item.recordId);
+    if (isFinalistRow) {
+      const prev = finalists;
       setFinalists((p) => p.filter((i) => i.recordId !== item.recordId));
+      const { error } = await supabase.from("finalists").delete().eq("id", item.recordId);
+      if (error) {
+        setFinalists(prev);
+        Alert.alert("Could not remove", error.message);
+      }
+    } else if (tab === "liked") {
+      const prev = liked;
+      setLiked((p) => p.filter((i) => i.recordId !== item.recordId));
+      const { error } = await supabase.from("swipes").update({ liked: false }).eq("id", item.recordId);
+      if (error) {
+        setLiked(prev);
+        Alert.alert("Could not remove", error.message);
+      }
+    } else if (tab === "matches") {
+      const prev = matches;
+      setMatches((p) => p.filter((i) => i.recordId !== item.recordId));
+      const { error } = await supabase.from("matches").delete().eq("id", item.recordId);
+      if (error) {
+        setMatches(prev);
+        Alert.alert("Could not remove", error.message);
+      }
     }
-  }
-
-  async function addToFinalists(item: NameItem) {
-    if (!user) return;
-    if (finalists.some((f) => f.id === item.id)) {
-      Alert.alert("Already a finalist", `${item.text} is already in your finalists.`);
-      return;
-    }
-    const { data, error } = await supabase
-      .from("finalists")
-      .insert({ user_id: user.id, name_id: item.id })
-      .select("id")
-      .single();
-    if (error || !data) {
-      Alert.alert("Error", error?.message ?? "Could not add to finalists");
-      return;
-    }
-    setFinalists((p) => [
-      ...p,
-      { ...item, recordId: (data as { id: string }).id },
-    ]);
-    Alert.alert("Added", `${item.text} added to Finalists`);
   }
 
   async function handleAddManual() {
-    if (!user || !newName.trim()) return;
+    if (!user || !newName.trim()) {
+      setAddError("Please enter a name.");
+      return;
+    }
+    setAddError(null);
     const trimmed = newName.trim();
+    const lower = trimmed.toLowerCase();
+    const existingList = tab === "liked" ? liked : matches;
+    if (existingList.some((n) => n.text.toLowerCase() === lower && n.gender === newGender)) {
+      setAddError(`${trimmed} is already in your list.`);
+      return;
+    }
     let { data: nameRow } = await supabase
       .from("names")
       .select("uuid, name, gender")
@@ -204,7 +244,7 @@ export default function NamesScreen() {
         .select("uuid, name, gender")
         .single();
       if (error || !inserted) {
-        Alert.alert("Error", error?.message ?? "Could not add name");
+        setAddError(error?.message ?? "Could not add name");
         return;
       }
       nameRow = inserted;
@@ -220,7 +260,7 @@ export default function NamesScreen() {
         .select("id")
         .single();
       if (swErr || !swipe) {
-        Alert.alert("Error", swErr?.message ?? "Could not save");
+        setAddError(swErr?.message ?? "Could not save");
         return;
       }
       setLiked((p) => [
@@ -246,7 +286,7 @@ export default function NamesScreen() {
         .select("id")
         .single();
       if (error || !m) {
-        Alert.alert("Error", error?.message ?? "Could not save");
+        setAddError(error?.message ?? "Could not save");
         return;
       }
       setMatches((p) => [
@@ -265,402 +305,968 @@ export default function NamesScreen() {
   }
 
   async function shareList() {
-    const list = tab === "liked" ? liked : tab === "matches" ? matches : finalists;
+    const list = tab === "liked" ? liked : matches;
     if (list.length === 0) return;
     const title =
+      tab === "liked" ? "My Favorite Baby Names" : "Our Matched Baby Names";
+    const intro =
       tab === "liked"
-        ? "My Favorite Baby Names"
-        : tab === "matches"
-          ? "Our Matched Baby Names"
-          : "Our Finalists";
-    const body = list.map((n) => `• ${n.text}`).join("\n");
-    await Share.share({ message: `${title}\n\n${body}` });
+        ? "Check out my favorite baby names: "
+        : "Check out the baby names we both love: ";
+    const body = list.map((n) => n.text).join(", ");
+    await Share.share({ message: `${title}\n\n${intro}${body}` });
   }
 
-  const items =
-    tab === "liked" ? liked : tab === "matches" ? matches : finalists;
+  const items = tab === "liked" ? liked : tab === "matches" ? matches : [];
+  const accentColor =
+    user?.baby_gender === "girl" ? GIRL : BOY;
+  const noPartner = tab === "matches" && !user?.partner_id;
 
   return (
-    <ImageBackground
-      source={listBg}
-      style={[
-        styles.root,
-        {
-          paddingTop: insets.top + 12,
-          paddingBottom: insets.bottom + 70,
-        },
-      ]}
-      imageStyle={{ opacity: 0.95 }}
-      contentFit="cover"
-    >
-      <Image
-        source={grassBorder}
-        style={[styles.grassFooter, { bottom: insets.bottom + 60 }]}
+    <View style={styles.root}>
+      <ImageBackground
+        source={listBg}
+        style={StyleSheet.absoluteFill}
         contentFit="cover"
         pointerEvents="none"
       />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(255,255,255,0.30)" }]} />
+
+      <View style={[styles.tabBar, { paddingTop: insets.top + 8 }]}>
+        <TabButton
+          label="Your Picks"
+          icon={<Feather name="heart" size={13} color={tab === "liked" ? accentColor : MUTED} />}
+          active={tab === "liked"}
+          accent={accentColor}
+          onPress={() => setTab("liked")}
+        />
+        <TabButton
+          label="Shared Matches"
+          icon={
+            <FontAwesome5
+              name="handshake"
+              size={13}
+              color={tab === "matches" ? accentColor : MUTED}
+            />
+          }
+          active={tab === "matches"}
+          accent={accentColor}
+          onPress={() => setTab("matches")}
+        />
+        <TabButton
+          label="AI Suggestions"
+          icon={
+            <FontAwesome5
+              name="magic"
+              size={13}
+              color={tab === "suggestions" ? accentColor : MUTED}
+            />
+          }
+          active={tab === "suggestions"}
+          accent={accentColor}
+          onPress={() => setTab("suggestions")}
+        />
+      </View>
+
       <View style={styles.headerWrap}>
-        <Text style={[styles.title, { color: colors.grass }]}>📖 Our Names ✨</Text>
-        <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
-          Your shared baby name journey
-        </Text>
-      </View>
-
-      <View style={styles.tabCards}>
-        {(
-          [
-            { key: "liked", label: "Your\nPicks", icon: "heart" as const, color: colors.heart },
-            { key: "matches", label: "Shared\nMatches", icon: "users" as const, color: colors.boy },
-            { key: "finalists", label: "AI\nSuggest", icon: "star" as const, color: colors.accent },
-          ] as const
-        ).map((t) => {
-          const active = tab === t.key;
-          return (
-            <Pressable
-              key={t.key}
-              onPress={() => setTab(t.key as SubTab)}
-              style={[
-                styles.tabCard,
-                {
-                  backgroundColor: active ? t.color : colors.card,
-                  borderColor: active ? t.color : colors.border,
-                },
-              ]}
-            >
-              <Feather name={t.icon} size={20} color={active ? "#fff" : t.color} />
-              <Text
-                style={[
-                  styles.tabCardLabel,
-                  { color: active ? "#fff" : colors.foreground },
-                ]}
-              >
-                {t.label}
+        {tab !== "suggestions" ? (
+          <>
+            <View style={styles.headerTitleRow}>
+              <Text style={[styles.pageTitle, { color: FOREGROUND }]}>
+                {tab === "liked" ? "Your Picks" : "Shared Matches"}
               </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View style={styles.subHeaderRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.subHeaderTitle, { color: colors.foreground }]}>
-            {tab === "liked" ? "Your Picks" : tab === "matches" ? "Shared Matches" : "AI Suggestions"}
-          </Text>
-          <Text style={[styles.subHeaderMeta, { color: colors.mutedForeground }]}>
-            {items.length} {items.length === 1 ? "name" : "names"}
-          </Text>
-        </View>
-        <Pressable onPress={shareList} hitSlop={12} style={styles.shareBtn}>
-          <Feather name="share-2" size={18} color={colors.primary} />
-          <Text style={{ color: colors.primary, fontFamily: fonts.displaySemibold, fontSize: 13 }}>
-            Share
-          </Text>
-        </Pressable>
-      </View>
-
-      {tab === "matches" && !user?.partner_id ? (
-        <View style={styles.empty}>
-          <Feather name="users" size={32} color={colors.mutedForeground} />
-          <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-            No partner linked
-          </Text>
-          <Text style={[styles.emptyBody, { color: colors.mutedForeground }]}>
-            Connect with your partner from Settings to see matches.
-          </Text>
-        </View>
-      ) : loading ? (
-        <View style={styles.empty}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : (
-        <FlatList
-          data={items}
-          keyExtractor={(item) => item.recordId}
-          contentContainerStyle={{ paddingBottom: 24, paddingTop: 8 }}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Feather
-                name={tab === "finalists" ? "star" : "heart"}
-                size={28}
-                color={colors.mutedForeground}
-              />
-              <Text style={[styles.emptyTitle, { color: colors.foreground }]}>
-                {tab === "liked"
-                  ? "No liked names yet"
-                  : tab === "matches"
-                    ? "No matches yet"
-                    : "No finalists yet"}
-              </Text>
-              <Text
-                style={[styles.emptyBody, { color: colors.mutedForeground }]}
-              >
-                {tab === "liked"
-                  ? "Swipe right on names you love."
-                  : tab === "matches"
-                    ? "When you and your partner both like a name, it appears here."
-                    : "Tap the star on a name to add it to your shortlist."}
+              <Text style={[styles.headerCount, { color: MUTED }]}>
+                {items.length} {items.length === 1 ? "name" : "names"}
               </Text>
             </View>
-          }
-          renderItem={({ item, index }) => (
-            <NameRow
-              item={item}
-              index={index}
-              tab={tab}
-              isFinalist={finalists.some((f) => f.id === item.id)}
-              onDelete={() => deleteItem(item)}
-              onStar={() => addToFinalists(item)}
-            />
-          )}
-        />
-      )}
+            <Text style={[styles.headerHint, { color: MUTED }]}>
+              Drag to reorder. See more information by tapping{" "}
+              <Feather name="info" size={13} color={MUTED} />
+            </Text>
 
-      {tab !== "finalists" && !adding && (
-        <Pressable
-          onPress={() => setAdding(true)}
-          style={[styles.fab, { backgroundColor: colors.primary }]}
-        >
-          <Feather name="plus" size={22} color="#fff" />
-        </Pressable>
-      )}
-
-      {adding && (
-        <View style={[styles.addBar, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <TextInput
-            value={newName}
-            onChangeText={setNewName}
-            placeholder="New name"
-            placeholderTextColor={colors.mutedForeground}
-            style={[styles.input, { borderColor: colors.border, color: colors.foreground }]}
-            autoFocus
-          />
-          <View style={{ flexDirection: "row", gap: 6 }}>
-            {(["boy", "girl"] as const).map((g) => {
-              const active = newGender === g;
-              const c = g === "boy" ? colors.boy : colors.girl;
-              return (
+            {!adding ? (
+              <View style={styles.headerActions}>
+                {!noPartner && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.addNameBtn,
+                      { borderColor: GRASS_DASH, opacity: pressed ? 0.85 : 1 },
+                    ]}
+                    onPress={() => {
+                      setAddError(null);
+                      setAdding(true);
+                    }}
+                  >
+                    <Text style={[styles.addNamePlus, { color: GRASS }]}>+</Text>
+                    <Text style={[styles.addNameText, { color: GRASS }]}>Add name</Text>
+                  </Pressable>
+                )}
                 <Pressable
-                  key={g}
-                  onPress={() => setNewGender(g)}
-                  style={[
-                    styles.genderPill,
+                  disabled={items.length === 0}
+                  style={({ pressed }) => [
+                    styles.shareBtn,
                     {
-                      backgroundColor: active ? c : "transparent",
-                      borderColor: c,
+                      opacity: items.length === 0 ? 0.4 : pressed ? 0.85 : 1,
+                    },
+                  ]}
+                  onPress={shareList}
+                >
+                  <Feather name="share-2" size={15} color={FOREGROUND} />
+                  <Text style={[styles.shareBtnText, { color: FOREGROUND }]}>Share</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.addCard}>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <TextInput
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder="Enter a name"
+                    placeholderTextColor="rgba(120,108,90,0.5)"
+                    style={[
+                      styles.addInput,
+                      { borderColor: accentA(accentColor, 0.3), color: FOREGROUND },
+                    ]}
+                    autoFocus
+                    returnKeyType="done"
+                    onSubmitEditing={handleAddManual}
+                  />
+                  <Pressable
+                    onPress={() => {
+                      setAdding(false);
+                      setNewName("");
+                      setAddError(null);
+                    }}
+                    hitSlop={6}
+                    style={{ padding: 6 }}
+                  >
+                    <Feather name="x" size={16} color={MUTED} />
+                  </Pressable>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <GenderPill
+                    label="Boy"
+                    accent={BOY}
+                    active={newGender === "boy"}
+                    onPress={() => setNewGender("boy")}
+                  />
+                  <GenderPill
+                    label="Girl"
+                    accent={GIRL}
+                    active={newGender === "girl"}
+                    onPress={() => setNewGender("girl")}
+                  />
+                </View>
+                {addError && (
+                  <View style={styles.addError}>
+                    <Text style={{ color: "#f87171", fontSize: 14, fontFamily: fonts.display }}>!</Text>
+                    <Text style={{ color: "#ef4444", fontSize: 12, fontFamily: fonts.display, flex: 1 }}>
+                      {addError}
+                    </Text>
+                  </View>
+                )}
+                <Text style={styles.addHint}>
+                  Manually added names in Your Picks will appear as swipable names for your partner
+                </Text>
+                <Pressable
+                  onPress={handleAddManual}
+                  style={[
+                    styles.addSubmit,
+                    {
+                      backgroundColor: accentA(accentColor, 0.1),
+                      borderColor: accentA(accentColor, 0.2),
                     },
                   ]}
                 >
-                  <Text style={{ color: active ? "#fff" : c, fontWeight: "600" }}>
-                    {g}
+                  <Text style={{ color: accentColor, fontFamily: fonts.displayMedium, fontSize: 12 }}>
+                    Add Name
                   </Text>
                 </Pressable>
-              );
-            })}
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.headerTitleRow}>
+            <Text style={[styles.pageTitle, { color: FOREGROUND }]}>AI Suggestions</Text>
+            <FontAwesome5 name="magic" size={20} color={accentColor} />
           </View>
-          <View style={{ flexDirection: "row", gap: 8 }}>
+        )}
+      </View>
+
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: insets.bottom + 80 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {noPartner ? (
+          <View style={styles.bigEmpty}>
+            <Feather name="users" size={64} color={colors.muted} />
+            <Text style={[styles.bigEmptyTitle, { color: GRASS }]}>No Partner Yet</Text>
+            <Text style={[styles.bigEmptyBody, { color: MUTED }]}>
+              Invite your partner to start finding shared matches together!
+            </Text>
             <Pressable
-              style={[styles.addAction, { borderColor: colors.border }]}
-              onPress={() => {
-                setAdding(false);
-                setNewName("");
-              }}
+              style={({ pressed }) => [
+                styles.connectBtn,
+                { backgroundColor: GRASS, opacity: pressed ? 0.9 : 1 },
+              ]}
+              onPress={() => Alert.alert("Connect", "Open Settings to connect with your partner.")}
             >
-              <Text style={{ color: colors.mutedForeground }}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.addAction, { backgroundColor: colors.primary }]}
-              onPress={handleAddManual}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700" }}>Add</Text>
+              <Feather name="users" size={16} color="#fff" />
+              <Text style={styles.connectBtnText}>Connect with Partner</Text>
             </Pressable>
           </View>
-        </View>
-      )}
-    </ImageBackground>
+        ) : tab === "suggestions" ? (
+          <View style={styles.bigEmpty}>
+            <FontAwesome5 name="magic" size={56} color={accentColor} style={{ opacity: 0.6 }} />
+            <Text style={[styles.bigEmptyTitle, { color: FOREGROUND }]}>Coming soon</Text>
+            <Text style={[styles.bigEmptyBody, { color: MUTED }]}>
+              Personalized AI name suggestions based on your picks will appear here.
+            </Text>
+          </View>
+        ) : loading ? (
+          <View style={styles.empty}>
+            <ActivityIndicator color={accentColor} />
+          </View>
+        ) : (
+          <>
+            {tab === "matches" && finalists.length > 0 && (
+              <View style={{ marginBottom: 16, paddingTop: 8, gap: 6 }}>
+                {finalists.map((f) => (
+                  <FinalistRow
+                    key={f.recordId}
+                    item={f}
+                    onRemove={() => deleteItem(f, true)}
+                  />
+                ))}
+              </View>
+            )}
+
+            {items.length === 0 ? (
+              tab === "matches" ? (
+                <View style={{ alignItems: "center", paddingHorizontal: 24, paddingVertical: 40, gap: 12 }}>
+                  <FontAwesome5 name="handshake" size={48} color={colors.muted} />
+                  <Text
+                    style={{
+                      fontFamily: fonts.display,
+                      fontSize: 14,
+                      color: MUTED,
+                      textAlign: "center",
+                      lineHeight: 22,
+                    }}
+                  >
+                    When you and your partner like the same name, it will appear here
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[styles.simpleEmpty, { color: MUTED }]}>
+                  No names yet! Start swiping to add some.
+                </Text>
+              )
+            ) : (
+              <View style={{ paddingTop: 8, gap: 6 }}>
+                {items.map((item, index) => (
+                  <NameRow
+                    key={item.recordId}
+                    item={item}
+                    index={index}
+                    showHash={tab === "liked"}
+                    showMatchSubtitle={tab === "matches"}
+                    onInfo={() => setInfoItem(item)}
+                    onDelete={() => deleteItem(item, false)}
+                  />
+                ))}
+              </View>
+            )}
+          </>
+        )}
+      </ScrollView>
+
+      <Image
+        source={grassBorder}
+        style={[styles.grassFooter, { bottom: insets.bottom + 50 }]}
+        contentFit="cover"
+        pointerEvents="none"
+      />
+
+      <NameInfoSheet
+        item={infoItem}
+        onClose={() => setInfoItem(null)}
+      />
+    </View>
+  );
+}
+
+function TabButton({
+  label,
+  icon,
+  active,
+  accent,
+  onPress,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  active: boolean;
+  accent: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.tab,
+        {
+          backgroundColor: active ? accentA(accent, 0.1) : "rgba(255,255,255,0.5)",
+          borderColor: active ? accentA(accent, 0.2) : BORDER_A(0.3),
+          opacity: pressed ? 0.9 : 1,
+        },
+      ]}
+    >
+      {icon}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.tabLabel,
+          { color: active ? accent : MUTED },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function GenderPill({
+  label,
+  accent,
+  active,
+  onPress,
+}: {
+  label: string;
+  accent: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.genderPill,
+        {
+          backgroundColor: active ? accentA(accent, 0.1) : "rgba(255,255,255,0.4)",
+          borderColor: active ? accentA(accent, 0.2) : BORDER_A(0.3),
+        },
+      ]}
+    >
+      <Text
+        style={{
+          color: active ? accent : MUTED,
+          fontFamily: fonts.displayMedium,
+          fontSize: 12,
+        }}
+      >
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
 function NameRow({
   item,
   index,
-  tab,
-  isFinalist,
+  showHash,
+  showMatchSubtitle,
+  onInfo,
   onDelete,
-  onStar,
 }: {
   item: NameItem;
   index: number;
-  tab: SubTab;
-  isFinalist: boolean;
+  showHash: boolean;
+  showMatchSubtitle?: boolean;
+  onInfo: () => void;
   onDelete: () => void;
-  onStar: () => void;
 }) {
-  const colors = useColors();
   const isBoy = item.gender !== "girl";
-  const accent = isBoy ? colors.boy : colors.girlRed;
+  const accent = isBoy ? BOY : GIRL;
+  const borderColor = isBoy ? "hsl(214,50%,62%)" : "hsl(345,50%,68%)";
+  const rankLabel = showHash && index < 3 ? `#${index + 1}` : `${index + 1}`;
+  const offsetPct = (index * 17) % 60;
+
   return (
     <View
       style={[
         styles.row,
-        { borderColor: accent + "55", backgroundColor: isBoy ? colors.boyLight : "#ffe4e8" },
+        { borderColor },
       ]}
     >
-      <View style={styles.dragDots}>
-        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
-        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
-        <View style={[styles.dot, { backgroundColor: accent + "66" }]} />
+      {isBoy ? (
+        <>
+          <Image
+            source={boyRowBg}
+            style={[StyleSheet.absoluteFillObject]}
+            contentFit="cover"
+            contentPosition={{ left: "50%", top: `${offsetPct}%` }}
+          />
+          <LinearGradient
+            colors={["hsla(214,72%,88%,0.82)", "hsla(210,65%,86%,0.72)"]}
+            start={{ x: 0, y: 0.5 }}
+            end={{ x: 1, y: 0.5 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </>
+      ) : (
+        <LinearGradient
+          colors={[
+            "rgba(255,228,225,0.90)",
+            "rgba(255,210,215,0.85)",
+            "rgba(255,240,242,0.95)",
+          ]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
+
+      <View style={styles.rowGrip}>
+        <Feather name="menu" size={16} color={accent} style={{ opacity: 0.55 }} />
       </View>
-      <Text style={[styles.rank, { color: accent }]}>#{index + 1}</Text>
-      <View style={{ flex: 1 }}>
-        <Text style={[styles.rowName, { color: accent }]}>{item.text}</Text>
-        {item.rank != null && (
-          <Text style={styles.rowMeta}>#{item.rank} most popular</Text>
+      <Text style={[styles.rowRank, { color: accent }]}>{rankLabel}</Text>
+      <View style={{ flex: 1, paddingLeft: 8 }}>
+        <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
+          {item.text}
+        </Text>
+        {showMatchSubtitle && (
+          <Text
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 10,
+              color: accent,
+              opacity: 0.7,
+              marginTop: 1,
+            }}
+          >
+            You both liked this
+          </Text>
         )}
       </View>
-      {tab !== "finalists" && (
-        <Pressable onPress={onStar} hitSlop={10} style={styles.rowAction}>
-          <Feather
-            name="star"
-            size={18}
-            color={isFinalist ? colors.accent : accent}
-            style={{ opacity: isFinalist ? 1 : 0.7 }}
-          />
+      <View style={styles.rowActions}>
+        <Pressable onPress={onInfo} hitSlop={8} style={styles.iconBtn}>
+          <Feather name="info" size={16} color={MUTED} />
         </Pressable>
+        <Pressable onPress={onDelete} hitSlop={8} style={styles.iconBtn}>
+          <Feather name="trash-2" size={16} color={MUTED} />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function FinalistRow({
+  item,
+  onRemove,
+}: {
+  item: NameItem;
+  onRemove: () => void;
+}) {
+  const isBoy = item.gender !== "girl";
+  const accent = isBoy ? "hsl(214,55%,40%)" : "hsl(345,55%,34%)";
+  const borderColor = isBoy ? "hsl(214,55%,52%)" : "hsl(345,55%,58%)";
+  return (
+    <View style={[styles.finalistRow, { borderColor }]}>
+      {isBoy ? (
+        <LinearGradient
+          colors={["hsla(214,72%,84%,0.98)", "hsla(210,65%,82%,0.92)"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : (
+        <LinearGradient
+          colors={["rgba(255,210,200,0.98)", "rgba(255,190,185,0.92)"]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
       )}
-      <Pressable onPress={onDelete} hitSlop={10} style={styles.rowAction}>
-        <Feather name="trash-2" size={18} color={accent} style={{ opacity: 0.7 }} />
+      <FontAwesome5 name="star" size={13} color={accent} solid />
+      <Text style={[styles.finalistName, { color: accent }]} numberOfLines={1}>
+        {item.text}
+      </Text>
+      <Pressable onPress={onRemove} hitSlop={8} style={{ padding: 4 }}>
+        <Feather name="x" size={14} color={MUTED} />
       </Pressable>
     </View>
   );
 }
 
+function NameInfoSheet({
+  item,
+  onClose,
+}: {
+  item: NameItem | null;
+  onClose: () => void;
+}) {
+  const open = !!item;
+  const isBoy = !item || item.gender !== "girl";
+  const accent = isBoy ? "hsl(214,55%,40%)" : "hsl(345,55%,48%)";
+  const insets = useSafeAreaInsets();
+
+  return (
+    <Modal
+      visible={open}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.sheetBackdrop} onPress={onClose} />
+      <View style={[styles.sheetPanel, { paddingBottom: insets.bottom + 24 }]}>
+        <LinearGradient
+          colors={
+            isBoy
+              ? ["rgba(219,234,254,0.99)", "rgba(191,219,254,0.97)", "rgba(255,251,235,0.99)"]
+              : ["rgba(254,228,232,0.99)", "rgba(251,207,215,0.97)", "rgba(255,251,235,0.99)"]
+          }
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0.4, y: 1 }}
+          style={StyleSheet.absoluteFill}
+        />
+        <ImageBackground
+          source={paperTexture}
+          style={StyleSheet.absoluteFill}
+          imageStyle={{ opacity: 0.2 }}
+          contentFit="cover"
+          pointerEvents="none"
+        />
+        <View style={styles.sheetHandleBar} />
+        <Pressable style={styles.sheetClose} onPress={onClose} hitSlop={8}>
+          <Feather name="x" size={14} color={MUTED} />
+        </Pressable>
+        {item && (
+          <ScrollView
+            contentContainerStyle={{ padding: 24, paddingTop: 32 }}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text
+              style={{
+                fontFamily: fonts.hand,
+                fontSize: 20,
+                color: accent,
+                opacity: 0.8,
+                fontStyle: "italic",
+                textAlign: "center",
+              }}
+            >
+              About this name
+            </Text>
+            <View
+              style={{
+                width: 96,
+                height: 1.5,
+                borderRadius: 999,
+                backgroundColor: accent,
+                opacity: 0.4,
+                alignSelf: "center",
+                marginTop: 6,
+                marginBottom: 14,
+              }}
+            />
+            <Text
+              style={{
+                fontFamily: fonts.displayBold,
+                fontSize: 44,
+                color: accent,
+                textAlign: "center",
+                letterSpacing: -1,
+              }}
+            >
+              {item.text}
+            </Text>
+            {!!item.pronunciation && (
+              <Text
+                style={{
+                  fontFamily: fonts.display,
+                  fontSize: 14,
+                  fontStyle: "italic",
+                  color: accent,
+                  opacity: 0.6,
+                  textAlign: "center",
+                  marginTop: 6,
+                  letterSpacing: 0.4,
+                }}
+              >
+                [{item.pronunciation}]
+              </Text>
+            )}
+            <View style={{ marginTop: 20, gap: 10 }}>
+              <SheetInfoRow icon="map-pin" label="Origin" value={item.origin} accent={accent} isBoy={isBoy} />
+              <SheetInfoRow icon="award" label="Meaning" value={item.meaning} accent={accent} isBoy={isBoy} />
+              <SheetInfoRow icon="tag" label="Possible Nickname" value={item.nickname} accent={accent} isBoy={isBoy} />
+              <SheetInfoRow
+                icon="trending-up"
+                label="Popularity"
+                value={item.rank != null ? `#${item.rank} most popular` : null}
+                accent={accent}
+                isBoy={isBoy}
+              />
+            </View>
+            <Text
+              style={{
+                fontFamily: fonts.display,
+                fontSize: 12,
+                color: accent,
+                opacity: 0.4,
+                textAlign: "center",
+                marginTop: 20,
+              }}
+            >
+              tap outside to close
+            </Text>
+          </ScrollView>
+        )}
+      </View>
+    </Modal>
+  );
+}
+
+function SheetInfoRow({
+  icon,
+  label,
+  value,
+  accent,
+  isBoy,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  value: string | null | undefined;
+  accent: string;
+  isBoy: boolean;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "flex-start",
+        gap: 12,
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        borderRadius: 12,
+        backgroundColor: isBoy ? "rgba(100,140,200,0.08)" : "rgba(255,160,170,0.08)",
+        borderWidth: 1,
+        borderColor: isBoy ? "hsl(214,50%,80%)" : "hsl(345,50%,82%)",
+      }}
+    >
+      <Feather name={icon} size={15} color={accent} style={{ opacity: 0.65, marginTop: 2 }} />
+      <View style={{ flex: 1 }}>
+        <Text
+          style={{
+            fontFamily: fonts.displaySemibold,
+            fontSize: 10,
+            letterSpacing: 1.5,
+            color: accent,
+            opacity: 0.6,
+            marginBottom: 2,
+          }}
+        >
+          {label.toUpperCase()}
+        </Text>
+        <Text
+          style={{
+            fontFamily: fonts.display,
+            fontSize: 14,
+            color: FOREGROUND,
+            opacity: 0.85,
+            lineHeight: 20,
+          }}
+        >
+          {value || "—"}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  root: { flex: 1, paddingHorizontal: 16 },
+  root: { flex: 1 },
   grassFooter: {
     position: "absolute",
     left: 0,
     right: 0,
     height: 80,
     opacity: 0.85,
+    zIndex: 1,
   },
-  headerRow: {
+
+  tabBar: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 8,
-  },
-  headerWrap: { alignItems: "center", paddingTop: 4, paddingBottom: 8 },
-  title: { fontSize: 28, fontFamily: fonts.hand, lineHeight: 36 },
-  subtitle: { fontSize: 13, fontFamily: fonts.hand, marginTop: 2 },
-  tabCards: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  tabCard: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 16,
-    borderWidth: 1.5,
-    alignItems: "center",
-    gap: 6,
-  },
-  tabCardLabel: {
-    fontFamily: fonts.displaySemibold,
-    fontSize: 13,
-    textAlign: "center",
-    lineHeight: 16,
-  },
-  subHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 4,
-    marginBottom: 4,
-  },
-  subHeaderTitle: { fontSize: 18, fontFamily: fonts.displayBold },
-  subHeaderMeta: { fontSize: 12, marginTop: 1 },
-  shareBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
+    gap: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#d9c89c",
-  },
-  dragDots: { gap: 3, marginRight: 4 },
-  dot: { width: 4, height: 4, borderRadius: 2 },
-  tabs: {
-    flexDirection: "row",
-    borderRadius: 12,
-    padding: 4,
-    marginVertical: 8,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER_A(0.2),
+    backgroundColor: "rgba(255,255,255,0.2)",
+    zIndex: 10,
   },
   tab: {
     flex: 1,
-    paddingVertical: 8,
-    alignItems: "center",
-    borderRadius: 8,
-  },
-  empty: { alignItems: "center", justifyContent: "center", padding: 32, gap: 6 },
-  emptyTitle: { fontSize: 18, fontWeight: "700", marginTop: 8 },
-  emptyBody: { fontSize: 14, textAlign: "center", paddingHorizontal: 16 },
-  row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 14,
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 12,
     borderWidth: 1,
-    marginBottom: 8,
   },
-  rank: { fontSize: 14, fontWeight: "700", width: 22 },
-  rowName: { fontSize: 18, fontWeight: "700" },
-  rowMeta: { fontSize: 12, color: "#7a6a52" },
-  rowAction: { padding: 6 },
-  fab: {
-    position: "absolute",
-    right: 20,
-    bottom: 90,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  tabLabel: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 12,
+  },
+
+  headerWrap: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    zIndex: 10,
+  },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  pageTitle: { fontSize: 24, fontFamily: fonts.displayBold },
+  headerCount: { fontSize: 14, fontFamily: fonts.display },
+  headerHint: { fontSize: 14, fontFamily: fonts.display, marginBottom: 12 },
+  headerActions: { flexDirection: "row", gap: 8 },
+  addNameBtn: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderStyle: "dashed",
+    backgroundColor: "transparent",
   },
-  addBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 90,
-    padding: 12,
+  addNamePlus: { fontSize: 18, fontFamily: fonts.displaySemibold, lineHeight: 18 },
+  addNameText: { fontSize: 14, fontFamily: fonts.displaySemibold },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
     borderRadius: 16,
     borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: "rgba(255,255,255,0.6)",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
+  },
+  shareBtnText: { fontSize: 14, fontFamily: fonts.displaySemibold },
+
+  addCard: {
+    backgroundColor: "rgba(244,235,212,0.7)",
+    borderWidth: 1,
+    borderColor: BORDER_A(0.5),
+    borderRadius: 12,
+    padding: 12,
     gap: 8,
   },
-  input: {
+  addInput: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.6)",
     borderWidth: 1,
-    borderRadius: 10,
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
+    paddingVertical: 8,
+    fontFamily: fonts.display,
+    fontSize: 14,
   },
   genderPill: {
     flex: 1,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addError: {
+    flexDirection: "row",
+    gap: 6,
+    backgroundColor: "rgba(254,242,242,0.8)",
+    borderWidth: 1,
+    borderColor: "hsl(0,86%,85%)",
+    borderRadius: 8,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    borderRadius: 10,
+  },
+  addHint: {
+    fontFamily: fonts.display,
+    fontSize: 12,
+    color: "#94a3b8",
+    textAlign: "center",
+    lineHeight: 16,
+  },
+  addSubmit: {
+    width: "100%",
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
     alignItems: "center",
   },
-  addAction: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "transparent",
+
+  simpleEmpty: {
+    fontFamily: fonts.display,
+    fontSize: 14,
+    textAlign: "center",
+    marginTop: 48,
+  },
+  empty: { alignItems: "center", padding: 32 },
+  bigEmpty: {
     alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+    gap: 8,
+  },
+  bigEmptyTitle: {
+    fontFamily: fonts.hand,
+    fontSize: 20,
+    marginTop: 8,
+  },
+  bigEmptyBody: {
+    fontFamily: fonts.display,
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  connectBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  connectBtnText: { color: "#fff", fontFamily: fonts.displaySemibold, fontSize: 14 },
+
+  row: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    minHeight: 48,
+  },
+  rowGrip: {
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    minWidth: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rowRank: {
+    fontFamily: fonts.displayBold,
+    fontSize: 13,
+    minWidth: 22,
+  },
+  rowName: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 16,
+  },
+  rowActions: {
+    flexDirection: "row",
+    gap: 4,
+    paddingRight: 8,
+  },
+  iconBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  finalistRow: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  finalistName: {
+    flex: 1,
+    fontFamily: fonts.displaySemibold,
+    fontSize: 14,
+  },
+
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  sheetPanel: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: "85%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: "hidden",
+    backgroundColor: "hsl(45,55%,94%)",
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 12,
+  },
+  sheetHandleBar: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(0,0,0,0.2)",
+    alignSelf: "center",
+    marginTop: 12,
+  },
+  sheetClose: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 5,
   },
 });

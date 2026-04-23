@@ -56,22 +56,26 @@ export default function SwipeScreen() {
     setFirstLikeOpen(true);
   }, [user, firstLikeKey]);
 
+  const userId = user?.id;
+  const userGender = user?.baby_gender;
+  const partnerId = user?.partner_id;
+
   const loadNames = useCallback(
     async (includeAlready = false) => {
-      if (!user) return;
+      if (!userId) return;
       setLoading(true);
       setError(null);
       try {
         const { data: swipes } = await supabase
           .from("swipes")
           .select("name_id")
-          .eq("user_id", user.id);
+          .eq("user_id", userId);
         const swiped = new Set((swipes ?? []).map((s: { name_id: string }) => s.name_id));
-        const gender = user.baby_gender ?? "either";
+        const gender = userGender ?? "either";
         const [all, partner] = await Promise.all([
-          getSwipeableNames(user.id, gender),
-          user.partner_id
-            ? getPartnerCreatedNames(user.partner_id, gender)
+          getSwipeableNames(userId, gender),
+          partnerId
+            ? getPartnerCreatedNames(partnerId, gender)
             : Promise.resolve([] as Name[]),
         ]);
         if (all.length === 0 && partner.length === 0) {
@@ -92,12 +96,12 @@ export default function SwipeScreen() {
         setLoading(false);
       }
     },
-    [user],
+    [userId, userGender, partnerId],
   );
 
   useEffect(() => {
     loadNames();
-  }, [loadNames, user?.baby_gender, user?.partner_id]);
+  }, [loadNames]);
 
   useFocusEffect(
     useCallback(() => {

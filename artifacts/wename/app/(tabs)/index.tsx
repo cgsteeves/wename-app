@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -31,6 +31,15 @@ export default function SwipeScreen() {
   const router = useRouter();
   const { user, updateUser } = useUser();
   const insets = useSafeAreaInsets();
+  const { redirect } = useLocalSearchParams<{ redirect?: string }>();
+
+  // Consume post-auth redirect params (e.g. after signing in from partner invite gate)
+  useEffect(() => {
+    if (redirect === "partner" && user) {
+      router.replace("/(tabs)/settings/partner?autoInvite=1");
+    }
+  }, [redirect, user]);
+
   const [names, setNames] = useState<Name[]>([]);
   const [partnerPickIds, setPartnerPickIds] = useState<Set<string>>(new Set());
   const [currentIndex, setCurrentIndex] = useState(0);

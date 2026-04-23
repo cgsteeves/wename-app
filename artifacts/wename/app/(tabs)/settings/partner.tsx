@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Clipboard from "expo-clipboard";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -68,17 +69,14 @@ export default function PartnerScreen() {
   const insets = useSafeAreaInsets();
   const { user, updateUser, removePartner } = useUser();
   const { isAuthenticated, openAuthModal } = useAuth();
+  const { autoInvite } = useLocalSearchParams<{ autoInvite?: string }>();
 
-  // After returning from auth, auto-open the invite view if that was the intent
+  // Auto-open invite when returning from auth redirect (index passes ?autoInvite=1)
   useEffect(() => {
-    if (!isAuthenticated) return;
-    AsyncStorage.getItem("post_auth_redirect").then((redirect) => {
-      if (redirect === "partner") {
-        AsyncStorage.removeItem("post_auth_redirect");
-        setSubView("invite");
-      }
-    });
-  }, [isAuthenticated]);
+    if (autoInvite === "1" && isAuthenticated) {
+      setSubView("invite");
+    }
+  }, [autoInvite, isAuthenticated]);
 
   if (!user) return null;
 

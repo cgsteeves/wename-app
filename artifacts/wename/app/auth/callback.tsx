@@ -7,12 +7,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fonts } from "@/constants/fonts";
 import { supabase } from "@/lib/supabase";
 import { finalizeLogin } from "@/lib/authService";
+import { useUser } from "@/components/UserContext";
 
 type Status = "loading" | "success" | "error";
 
 export default function AuthCallback() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { reload: reloadUser } = useUser();
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -23,8 +25,8 @@ export default function AuthCallback() {
       try {
         let session = null;
 
-        // For web: PKCE code exchange — pass the code string, NOT the full URL
         if (typeof window !== "undefined") {
+          // 1. PKCE flow: ?code=... query param
           const searchParams = new URLSearchParams(window.location.search);
           const code = searchParams.get("code");
           if (code) {
@@ -33,15 +35,46 @@ export default function AuthCallback() {
               session = data.session;
             }
           }
+
+          // 2. OTP / magic-link via token_hash (Supabase email template)
+          if (!session) {
+            const tokenHash = searchParams.get("token_hash");
+            const type = searchParams.get("type");
+            if (tokenHash && type) {
+              const { data, error } = await supabase.auth.verifyOtp({
+                token_hash: tokenHash,
+                type: type as Parameters<typeof supabase.auth.verifyOtp>[0]["type"],
+              });
+              if (!error && data.session) {
+                session = data.session;
+              }
+            }
+          }
+
+          // 3. Implicit / hash-based tokens (#access_token=...&refresh_token=...)
+          if (!session && window.location.hash) {
+            const hashParams = new URLSearchParams(window.location.hash.substring(1));
+            const accessToken = hashParams.get("access_token");
+            const refreshToken = hashParams.get("refresh_token");
+            if (accessToken && refreshToken) {
+              const { data, error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (!error && data.session) {
+                session = data.session;
+              }
+            }
+          }
         }
 
-        // Fallback: Supabase client may have already persisted the session
+        // 4. Fallback: Supabase client may already have the session persisted
         if (!session) {
           const { data } = await supabase.auth.getSession();
           session = data.session;
         }
 
-        // Retry once — magic-link sessions can take a moment to propagate
+        // 5. Retry once — session propagation can take a moment
         if (!session) {
           await new Promise<void>((r) => setTimeout(r, 800));
           const { data } = await supabase.auth.getSession();
@@ -52,21 +85,24 @@ export default function AuthCallback() {
           throw new Error("No session found. Your sign-in link may have expired.");
         }
 
+        // Upsert the user row and migrate any guest data
         await finalizeLogin(session.user.id, session.user.email ?? "");
+
+        // Force UserContext to reload with the authenticated user's ID
+        await reloadUser();
 
         if (!cancelled) {
           setStatus("success");
           setTimeout(async () => {
             if (cancelled) return;
 
-            // Check for a pending post-auth redirect
+            // Consume any pending post-auth redirect stored before sign-in
             const redirect = await AsyncStorage.getItem("post_auth_redirect");
+            await AsyncStorage.removeItem("post_auth_redirect");
 
-            if (redirect === "partner") {
-              // Leave the key intact so partner.tsx can consume it on mount
-              router.replace("/(tabs)/settings/partner");
+            if (redirect) {
+              router.replace(`/?redirect=${encodeURIComponent(redirect)}`);
             } else {
-              if (redirect) await AsyncStorage.removeItem("post_auth_redirect");
               router.replace("/");
             }
           }, 1000);

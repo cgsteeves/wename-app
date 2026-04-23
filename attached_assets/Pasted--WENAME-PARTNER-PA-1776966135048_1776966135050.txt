@@ -1,0 +1,939 @@
+================================================================================
+WENAME — PARTNER PAGE: COMPLETE UX, DESIGN & PARTNER LINKING SPECIFICATION
+Covers: PartnerPage, InvitePartnerView, JoinView, inviteService, acceptInvite RPC,
+        removePartner, guest data merge, auth gating, and all edge cases
+================================================================================
+
+This document is the single source of truth for how the Partner section works
+end to end. Every UI state, database operation, RPC call, validation rule,
+error condition, and architectural consideration is described in full.
+
+================================================================================
+PART 1 — ARCHITECTURE OVERVIEW
+================================================================================
+
+The Partner page lives inside the Settings stack and has two conceptual layers:
+
+  LAYER 1: PartnerPage
+    The main Settings sub-page. Controlled by activePage='partner' in SettingsPage.
+    Has an internal sub-view state:  subView: 'main' | 'invite'
+
+    'main' renders the main partner UI (either connected state or unconnected state).
+    'invite' renders InvitePartnerView inline (same scroll area, same back header).
+
+  LAYER 2: JoinView (separate from PartnerPage)
+    A standalone full-screen page shown when the user opens a /join/{token} URL.
+    This is NOT inside the Settings stack.
+    It is rendered from App.tsx by detecting the /join/:token URL path pattern.
+
+These two layers share the same backend RPC (accept_partner_invite) but are
+entirely separate UI components with separate state.
+
+================================================================================
+PART 2 — SUB-PAGE HEADER
+================================================================================
+
+The SubPageHeader is the same shared component used by all Settings sub-pages.
+
+For PartnerPage (subView='main'):
+  title: "Partner"
+  onBack: calls onBack() → activePage = null → SettingsHub re-renders
+
+For InvitePartnerView (subView='invite'):
+  title: "Invite Partner"
+  onBack: calls setSubView('main') → returns to PartnerPage main view
+
+In both cases, the header label "Settings" on the left points back.
+
+Layout: flex row, items: center, justify: space-between
+padding: 20 top, 16 horizontal, 12 bottom  (px-4 pt-5 pb-3)
+flex-shrink: 0 (does NOT scroll)
+
+Left — Back button:
+  ChevronLeft icon (size 18) + "Settings" text
+  color: grass  hsl(145, 45%, 35%)
+  font: Fredoka semibold, size 14 (text-sm)
+  active: opacity 0.70
+
+Center — Page title:
+  Fredoka bold, size 16 (text-base), foreground
+
+================================================================================
+PART 3 — PAGE STATES (CONNECTED vs NOT CONNECTED)
+================================================================================
+
+The page renders COMPLETELY different content based on whether user.partner_id
+is set. There is no loading skeleton — partner data is loaded after render and
+slots in when available.
+
+Check: user.partner_id !== null AND user.partner_id !== undefined
+
+State A: user.partner_id IS set → show "Connected" UI (Part 4)
+State B: user.partner_id IS null/undefined → show "Invite/Join" UI (Part 5)
+
+The page always uses the parchment background:
+  background: hsl(38, 45%, 93%)
+  display: flex, flex-direction: column, flex: 1, min-height: 0
+  overflow-y: auto
+
+Inner content area:
+  flex: 1, padding: 16 horizontal, 40 bottom, 8 top  (px-4 pb-10 pt-2)
+  space-y: 16  (space-y-4)
+
+================================================================================
+PART 4 — STATE A: PARTNER CONNECTED
+================================================================================
+
+When user.partner_id is set, three elements are shown:
+
+--- ELEMENT 1: PARTNER INFO CARD ---
+
+Container:
+  background: card  hsl(40, 40%, 93%)
+  border: 1px solid border/60  hsl(35, 22%, 80%) at 60% opacity
+  border-radius: 16  (rounded-2xl)
+  shadow-sm
+  padding: 16 horizontal, 20 vertical  (px-4 py-5)
+
+Top row (flex, items: center, gap 12 / gap-3, margin-bottom 16 / mb-4):
+  Avatar circle:
+    Size: 48x48  (w-12 h-12)
+    border-radius: 24  (rounded-full)
+    background: rose-100  hsl(350, 100%, 95%)
+    Heart icon: size 22, color rose-500 #f43f5e, filled (fill-rose-500)
+
+  Text block (no min-width constraint):
+    Partner name:
+      font: Fredoka bold, foreground
+      If partnerInfo loaded: partnerInfo.display_name
+      If loading or null: "Partner" (fallback)
+    Status label: "Connected"
+      font: Fredoka semibold, size 10 (text-xs)
+      color: grass  hsl(145, 45%, 35%)
+
+Partner preference row (shown ONLY when partnerInfo is loaded and not null):
+  background: muted  hsl(38, 25%, 87%)
+  border-radius: 12  (rounded-xl)
+  padding: 10 horizontal, 10 vertical  (px-3 py-2.5)
+  flex row, items: center, justify: space-between
+
+  Left: "Partner's preference"
+    font: Fredoka regular, size 10 (text-xs), muted-foreground
+  Right: partner's baby_gender value, capitalized
+    font: Fredoka semibold, size 10 (text-xs), foreground
+    'either' → "Either"
+    'boy'    → "Boy"
+    'girl'   → "Girl"
+
+Partner data loading:
+  On mount (and whenever user.partner_id changes):
+    SELECT display_name, baby_gender FROM users WHERE id = partner_id LIMIT 1
+    If data: setPartnerInfo({ display_name: data.display_name || 'Partner', baby_gender: ... })
+    If no data: partnerInfo stays null, fallback text "Partner" shows
+
+--- ELEMENT 2: INFORMATIONAL TEXT ---
+
+"You and your partner will see matches when you both like the same name."
+font: Fredoka regular, size 10 (text-xs), muted-foreground
+text-align: center, padding 16 horizontal  (px-4)
+
+--- ELEMENT 3: UNLINK PARTNER (DANGER ZONE) ---
+
+border-top: 1px solid border/50, padding-top: 16 (pt-4)
+
+"Unlink Partner" button:
+  width: 100%
+  padding: 12 vertical  (py-3)
+  border-radius: 16  (rounded-2xl)
+  border: 1px solid destructive/30  hsl(0,72%,50%) at 30% opacity
+  background: destructive/5
+  color: destructive  hsl(0, 72%, 50%)
+  font: Fredoka semibold, size 14 (text-sm)
+  flex row, items: center, justify: center, gap 8 (gap-2)
+  UserMinus icon (lucide, size 16)
+  active: scale 0.95
+  transition-all
+
+  On press: calls onRemovePartner() callback (see Part 9 for full logic)
+
+================================================================================
+PART 5 — STATE B: NO PARTNER (UNCONNECTED)
+================================================================================
+
+Two UI blocks shown in order:
+
+--- BLOCK 1: HERO / INVITE CTA ---
+
+Container:
+  background: gradient from rose-50 to amber-50
+    (linear-gradient to bottom-right, hsl(350,100%,97%), hsl(48,100%,97%))
+  border: 1px solid rose-100  hsl(350, 100%, 90%)
+  border-radius: 16  (rounded-2xl)
+  padding: 20 horizontal, 24 vertical  (px-5 py-6)
+  flex column, items: center, text-center, gap 12  (gap-3)
+
+Icon circle:
+  Size: 56x56  (w-14 h-14), border-radius 28, bg-white, shadow-sm
+  Heart icon: size 26, color rose-400 #fb7185, filled
+
+Heading: "Find names together"
+  font: Fredoka bold, size 18 (text-lg), foreground
+  margin-bottom: 4  (mb-1)
+
+Body: "Invite your partner to swipe on names and discover the ones you both love."
+  font: Fredoka regular, size 14 (text-sm), muted-foreground, leading-relaxed
+
+Auth required notice (shown ONLY when isAuthenticated=false):
+  flex row, items: center, gap 8 (gap-2)
+  background: amber-50, border amber-200, border-radius 12 (rounded-xl)
+  padding: 14 horizontal, 10 vertical  (px-3.5 py-2.5)
+  Lock icon: size 13, amber-600, flex-shrink 0
+  Text: "A free account is required to invite your partner via link."
+    font: Fredoka regular, size 10 (text-xs), amber-700, leading-snug
+
+  Why this is shown: The InvitePartnerView creates a partner_invites row in the
+  DB, which requires a real user ID tied to an auth session. Guest-only users
+  can generate invites but can't guarantee the link ties back to their profile
+  persistently across devices. The notice educates without blocking.
+
+"Invite Partner" button:
+  margin-top: 4 (mt-1)
+  width: 100%, padding: 14 vertical  (py-3.5)
+  background: rose-500 #f43f5e
+  color: white
+  border-radius: 12  (rounded-xl)
+  font: Fredoka bold, size 14 (text-sm)
+  flex row, items: center, justify: center, gap 8 (gap-2)
+  Heart icon: size 16, fill-white
+  active: scale 0.95, shadow-md
+  hover: rose-600
+
+  On press (see Part 6 for full logic):
+    If isAuthenticated=true: setSubView('invite')
+    If isAuthenticated=false: trigger auth gate flow
+
+--- BLOCK 2: JOIN WITH CODE ---
+
+Container:
+  background: card  hsl(40, 40%, 93%)
+  border: border/60, border-radius 16, shadow-sm
+  padding: 16 horizontal, 20 vertical  (px-4 py-5)
+  space-y: 12  (space-y-3)
+
+Header:
+  "Join with code" — Fredoka semibold, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+  "Got a code from your partner? Enter it here." — Fredoka regular, size 10, muted-foreground
+
+Sub-state A (linkSuccess=false):
+  Input + Join button row (flex, gap 8 / gap-2):
+
+  Code input:
+    flex: 1
+    padding: 12 vertical, 14 horizontal  (px-3.5 py-3)
+    border-radius: 12  (rounded-xl)
+    border: 1px border
+    background: background  hsl(40, 30%, 95%)
+    font: font-mono, size 14 (text-sm), uppercase
+    placeholder: "Enter code"
+    maxLength: 8
+    focus: outline none, ring 2px ring
+    onChange: .toUpperCase() the value, clear linkError
+
+  "Join" button:
+    padding: 12 vertical, 16 horizontal  (px-4 py-3)
+    background: boyBlue  hsl(214, 55%, 42%)
+    color: white
+    border-radius: 12  (rounded-xl)
+    font: Fredoka semibold, size 14 (text-sm)
+    flex row, items: center, gap 6 (gap-1.5)
+    Link2 icon: size 14
+    disabled when: linking=true OR partnerCode.trim() is empty
+      disabled state: opacity 0.50, cursor-not-allowed, active:scale disabled
+    active: scale 0.95
+    Text: "Joining..." when linking=true, else "Join"
+
+  Error row (shown when linkError is set):
+    flex row, items: center, gap 6 (gap-1.5)
+    AlertCircle icon: size 12, text-destructive, flex-shrink 0
+    Error message: Fredoka regular, size 10 (text-xs), text-destructive
+
+Sub-state B (linkSuccess=true):
+  The input+button are replaced by a success card:
+  background: grass/10, border grass/20, border-radius 12 (rounded-xl)
+  padding: 12 vertical, 16 horizontal  (px-4 py-3)
+  flex row, items: center, gap 8 (gap-2)
+  Check icon: size 16, grass, flex-shrink 0
+  "You're connected!" — Fredoka semibold, size 14 (text-sm), grass
+
+  NOTE: After showing linkSuccess, user.partner_id is updated in global state.
+  The page will re-render the NEXT TIME it is visited showing the Connected state.
+  But linkSuccess=true persists for the current render (the page does NOT auto-switch
+  to connected state within the same render cycle since that depends on the parent
+  user object refreshing).
+
+Footer text:
+  "You'll see a match whenever you and your partner both swipe right on the same name."
+  font: Fredoka regular, size 10 (text-xs), muted-foreground, text-center, paddingHorizontal 16
+  padding-top: 4 (pt-1)
+
+================================================================================
+PART 6 — AUTH GATE FOR INVITE (PENDING INVITE REF PATTERN)
+================================================================================
+
+When the user taps "Invite Partner" and is NOT authenticated:
+
+  setPostAuthRedirect('partner')
+    Writes 'partner' to localStorage key: 'post_auth_redirect'
+
+  pendingInviteRef.current = true
+    An in-component ref (NOT state) — avoids stale closure issues
+
+  setShowAuthModal(true)
+    Opens the AuthModal inline (overlaid on the Partner page)
+
+  AuthModal receives:
+    preHeader: "You're one step away from matching together"
+    title: "Invite your partner & start matching"
+    body: "Create your account to share your link and instantly see your matches together."
+
+  When AuthModal is closed (user dismisses without signing in):
+    setShowAuthModal(false)
+    pendingInviteRef.current = false
+    (nothing else happens — user stays on Partner page)
+
+  When authentication COMPLETES (isAuthenticated changes to true):
+    A useEffect watches [isAuthenticated]:
+      if (isAuthenticated && pendingInviteRef.current) {
+        pendingInviteRef.current = false
+        setShowAuthModal(false)
+        setSubView('invite')   ← navigates to InvitePartnerView
+      }
+
+  The AuthModal is rendered OUTSIDE the main page div (sibling, not nested inside):
+    It conditionally renders at the TOP of the PartnerPage return, before the main div.
+    This means it overlays the entire settings stack visually.
+
+  The showAuthModal boolean lives in the PartnerPage component state and is separate
+  from the global AuthContext.showAuthModal. They are different modals.
+
+  IMPORTANT: Once the user is authenticated, visiting the Partner page again will
+  immediately show the InvitePartnerView without auth gating — the gate only fires
+  for guest users.
+
+================================================================================
+PART 7 — INVITE PARTNER VIEW (INVITE LINK + SHORT CODE)
+================================================================================
+
+Rendered when subView='invite'.
+Has its own SubPageHeader with title "Invite Partner" and onBack → setSubView('main').
+
+--- ON MOUNT ---
+
+generate() is called immediately via useEffect([userId]).
+
+generate() steps:
+  setLoading(true), setError('')
+  Call createInvite(userId):
+    1. Expire all existing pending invites for this user:
+       UPDATE partner_invites SET status='expired'
+       WHERE inviter_id=userId AND status='pending'
+    2. Generate a cryptographically random token (48 hex chars):
+       crypto.getRandomValues(24 bytes) → hex string
+    3. Generate a human-readable short code (8 chars, uppercase alphanumeric):
+       Character set: ABCDEFGHJKLMNPQRSTUVWXYZ23456789
+       (Note: no O/0, no I/1 to avoid visual confusion)
+       crypto.getRandomValues(8 bytes) → each byte maps to a char
+    4. INSERT INTO partner_invites (token, short_code, inviter_id, status='pending')
+       expires_at defaults to now() + 7 days
+    5. Returns the full PartnerInvite row
+  On success: setInvite(data)
+  On error: setError('Failed to create invite. Please try again.')
+  setLoading(false)
+
+--- LOADING STATE ---
+
+Centered vertically:
+  Loader icon (lucide): size 28, text-rose-400, animate-spin
+
+--- ERROR STATE ---
+
+Container: bg-destructive/10, border destructive/20, border-radius 16
+  padding: 16 (px-4 py-4), flex row, gap 12, items: flex-start
+  AlertCircle icon: size 16, text-destructive, margin-top 2, flex-shrink 0
+  Error text: Fredoka regular, size 14 (text-sm), text-destructive
+
+  "Try again" link below the message:
+    Fredoka semibold, size 10 (text-xs), text-destructive, underline
+    On press: calls generate() again
+
+--- HERO CARD ---
+
+Background: gradient rose-50 → amber-50 (to bottom right)
+Border: rose-100, border-radius 16, padding: 24 vertical, 20 horizontal  (px-5 py-6)
+text-center, space-y: 8 (space-y-2)
+
+Heading: "Invite your partner"
+  Fredoka bold, size 18 (text-lg), foreground
+
+Body: "Share this link so your partner can join your baby name list instantly."
+  Fredoka regular, size 14 (text-sm), muted-foreground, leading-relaxed
+
+--- INVITE LINK CARD (shown when invite loaded) ---
+
+Card: bg-card, border-border/60, shadow-sm, border-radius 16
+padding: 16 horizontal, 20 vertical (px-4 py-5), space-y 12 (space-y-3)
+
+Label: "Invite link" — Fredoka semibold, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+
+URL display row:
+  background: background, border-radius 12 (rounded-xl), border-border
+  padding: 12 horizontal, 12 vertical  (px-3.5 py-3)
+  flex row, items: center, gap 8 (gap-2)
+  Link2 icon: size 14, muted-foreground, flex-shrink 0
+  URL text (flex-1): Fredoka regular, size 10 (text-xs), muted-foreground, truncate
+    Value: getInviteUrl(invite.token)
+    = {window.location.origin}/join/{invite.token}
+  Copy icon button (flex-shrink 0, margin-left 4):
+    If copiedLink=false: Copy icon (size 16), muted-foreground, hover: foreground
+    If copiedLink=true:  Check icon (size 16), grass
+    active: scale 0.90
+    On press: copyLink() → clipboard.writeText(inviteUrl())
+              setCopiedLink(true), setTimeout 2500ms → false
+
+"Share Invite Link" primary button:
+  width: 100%, padding 14 vertical (py-3.5)
+  bg-rose-500, hover: rose-600, color: white, border-radius 12 (rounded-xl)
+  font: Fredoka bold, size 14 (text-sm)
+  flex row, items: center, justify: center, gap 8 (gap-2)
+  Share2 icon: size 16
+  active: scale 0.95, shadow-md
+
+  On press (handleShareLink):
+    Build url = getInviteUrl(invite.token)
+    Build text = "Join me on OurBabyName to find names we both love! Tap the link to connect instantly:"
+    If navigator.share is available (native share sheet, typically mobile):
+      navigator.share({
+        title: 'OurBabyName — Baby Name Picker',
+        text,
+        url
+      })
+      If share resolves without error: done (native share sheet handled it)
+      If share fails or is cancelled: fall through to clipboard copy
+    If navigator.share is NOT available (desktop):
+      copyLink() — writes URL to clipboard, triggers copiedLink=true animation
+
+--- SHORT CODE CARD (shown when invite loaded) ---
+
+Card: same as link card — bg-card, border-border/60, shadow-sm, border-radius 16
+padding: 16 horizontal, 20 vertical (px-4 py-5), space-y 12 (space-y-3)
+
+Header:
+  "Or use this code instead" — Fredoka semibold, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+  "Your partner can enter this code manually in the app." — Fredoka regular, size 10, muted-foreground
+
+Code display row:
+  flex row, items: center, gap 12 (gap-3)
+  bg-background, border-radius 12 (rounded-xl), border-border
+  padding: 14 vertical, 16 horizontal  (px-4 py-3.5)
+
+  Code text (flex-1):
+    font-mono, bold, foreground
+    letter-spacing: 0.3em  (tracking-[0.3em])
+    font-size: 24 (text-xl)
+    text-align: center
+
+  Copy button (flex-shrink 0):
+    If copiedCode=false: Copy icon (size 18), muted-foreground, hover: foreground
+    If copiedCode=true:  Check icon (size 18), grass
+    active: scale 0.90
+    On press: copyCode() → clipboard.writeText(invite.short_code)
+              setCopiedCode(true), setTimeout 2500ms → false
+
+"Copy Code" secondary button:
+  width: 100%, padding 12 vertical (py-3)
+  bg-background, border border-border/70, border-radius 12 (rounded-xl)
+  font: Fredoka semibold, size 14 (text-sm), foreground
+  flex row, items: center, justify: center, gap 8 (gap-2)
+  If copiedCode=false: Copy icon (size 15) + "Copy Code"
+  If copiedCode=true:  Check icon (size 15, grass) + "Code copied!"
+  active: scale 0.95
+
+Expiry notice (bottom of page):
+  "This link and code expire in 7 days. Generate a new one anytime."
+  Fredoka regular, size 10 (text-xs), muted-foreground, text-center, paddingHorizontal 16
+
+================================================================================
+PART 8 — JOINING WITH A CODE (INSIDE PARTNER PAGE)
+================================================================================
+
+When the user enters a code and taps "Join":
+
+handleJoinWithCode() runs. The code is uppercased and trimmed first.
+
+--- STEP 1: LOOK UP A MODERN INVITE TOKEN ---
+
+  getInviteByShortCode(code):
+    SELECT * FROM partner_invites
+    WHERE short_code = code (uppercase)
+      AND status = 'pending'
+    LIMIT 1 (maybeSingle)
+
+  Returns: PartnerInvite or null
+
+--- BRANCH A: NO MODERN INVITE FOUND (legacy invite_code fallback) ---
+
+  Fall back to looking up the users table directly (legacy path):
+    SELECT * FROM users WHERE invite_code = code
+
+  Validation checks (each returns early with setLinkError if fails):
+    a. No user found:
+         setLinkError('Invalid code. Please check and try again.')
+    b. Partner is the user themselves (partner.id === user.id):
+         setLinkError('You cannot link to yourself.')
+    c. Partner already has a partner (partner.partner_id is not null):
+         setLinkError('This user is already connected with someone else.')
+
+  If all checks pass:
+    UPDATE users SET partner_id = partner.id WHERE id = user.id
+    UPDATE users SET partner_id = user.id   WHERE id = partner.id
+    await onUpdate({ partner_id: partner.id })
+      (updates global user state via useUser.updateUser)
+    setPartnerCode('')
+    setLinkSuccess(true)
+
+--- BRANCH B: MODERN INVITE FOUND ---
+
+  Call acceptInvite(invite, user.id):
+    supabase.rpc('accept_partner_invite', {
+      p_token: invite.token,
+      p_joiner_id: user.id
+    })
+    Returns: { success: boolean, error?: string, inviter_id?: string }
+
+  The RPC runs in SECURITY DEFINER mode and performs all of the following atomically:
+    1. Validates invite is pending and not expired
+    2. Validates inviter.id !== joiner.id (no self-join)
+    3. Validates inviter has no existing partner
+    4. Validates joiner has no existing partner
+    5. Marks invite as accepted: UPDATE partner_invites SET status='accepted', invitee_id=joiner
+    6. Links both users bidirectionally:
+         UPDATE users SET partner_id=joiner.id WHERE id=inviter.id
+         UPDATE users SET partner_id=inviter.id WHERE id=joiner.id
+    7. Returns { success: true, inviter_id: inviter.id }
+
+  If result.success=false:
+    setLinkError(result.error)
+    Return (do nothing further)
+
+  If result.success=true:
+    await onUpdate({ partner_id: invite.inviter_id })
+    setPartnerCode('')
+    setLinkSuccess(true)
+
+--- ON ANY THROWN EXCEPTION ---
+
+  setLinkError('Failed to link partner. Please try again.')
+
+--- ALWAYS (finally block) ---
+
+  setLinking(false)
+
+================================================================================
+PART 9 — UNLINKING A PARTNER
+================================================================================
+
+When the user taps "Unlink Partner":
+  onRemovePartner() callback is called.
+  This runs removePartner() from useUser hook.
+
+removePartner() does ALL of the following in sequence:
+
+  1. Remove partner link from partner's row:
+     UPDATE users SET partner_id = null WHERE id = user.partner_id
+
+  2. Remove partner link from user's own row:
+     UPDATE users SET partner_id = null WHERE id = user.id
+
+  3. Delete ALL matches for this couple:
+     DELETE FROM matches
+     WHERE user_a_id = user.id OR user_b_id = user.id
+     (Removes matches for BOTH parties — they share the matches table)
+
+  4. Update local React state:
+     setUser({ ...user, partner_id: null })
+     (Immediate UI update — page re-renders to the "unconnected" state)
+
+IMPORTANT: There is NO confirmation dialog before unlinking.
+The button tap directly triggers the unlink.
+This means users can accidentally unlink their partner.
+All shared matches are permanently deleted when this happens.
+The partner will also see their partner_id cleared the next time they reload.
+
+================================================================================
+PART 10 — JOIN VIEW (EXTERNAL LINK FLOW — /join/:token)
+================================================================================
+
+When a user opens the invite link  https://ourbabyname.app/join/{token}:
+
+App.tsx detects the path pattern /join/:token and renders JoinView instead
+of the normal app shell. JoinView is a full-screen centered layout (not inside Settings).
+
+The JoinView has five distinct phases:
+
+--- PHASE 1: LOADING ---
+
+On mount: validateToken(token) runs immediately.
+  getInviteByToken(token):
+    SELECT * FROM partner_invites
+    WHERE token = token AND status = 'pending'
+    LIMIT 1 (maybeSingle)
+  If no invite: → PHASE 2 (invalid)
+  If invite found:
+    Also fetch inviter's display_name:
+      SELECT display_name FROM users WHERE id = invite.inviter_id LIMIT 1
+    → PHASE 3 (confirm)
+
+Visual:
+  Centered content (min-h-screen, flex, items: center, justify: center)
+  Loader icon: size 36, rose-400, animate-spin
+  "Checking your invite..." — Fredoka, size 14, muted-foreground, below spinner
+
+--- PHASE 2: INVALID ---
+
+Card: bg-card, border-radius 24 (rounded-3xl), border-border/60, shadow-sm
+padding: 32 vertical, 24 horizontal  (px-6 py-8), text-center, space-y 16 (space-y-4)
+
+Icon block: 64x64, border-radius 16 (rounded-2xl)
+  bg-destructive/10, border destructive/20
+  AlertCircle icon: size 28, text-destructive
+
+Heading: "Link not valid"
+  font-hand bold, size 24 (text-2xl), foreground
+
+Body: state.message (the specific error from validation)
+  Fredoka, size 14 (text-sm), muted-foreground, leading-relaxed
+
+"Go to app" button:
+  full-width, padding 14 vertical (py-3.5)
+  bg-boy, white, border-radius 12 (rounded-xl)
+  Fredoka bold, size 14 (text-sm), active: scale 0.95, shadow-md
+  On press: window.location.href = '/'
+
+--- PHASE 3: CONFIRM ---
+
+Card: same shell as invalid card
+
+Icon circle: 64x64, rounded-full, bg-rose-100
+  Heart icon: size 28, rose-500 fill-rose-500
+
+Heading: "You're invited!"
+  font-hand bold, size 24, grass  hsl(145, 45%, 35%)
+
+Body: "{inviterName} wants to find baby names together with you."
+  Fredoka, size 14, muted-foreground
+  inviterName is bolded (font-semibold, foreground) within the sentence
+
+"Join and connect" button:
+  bg-rose-500, hover: rose-600, white, border-radius 12
+  Fredoka bold, size 14 (text-sm)
+  flex row, items: center, justify: center, gap 8 (gap-2)
+  Heart icon: size 15, fill-white
+  active: scale 0.95, shadow-md
+  On press: handleJoin()
+
+"Maybe later" button (below join button):
+  width: 100%, padding 12 vertical (py-3)
+  text: muted-foreground, Fredoka, size 14 (text-sm)
+  active: opacity 0.70
+  On press: goHome() → window.location.href = '/'
+
+--- PHASE 4: JOINING (in-flight state) ---
+
+Same spinner as loading:
+  Loader: size 36, rose-400, animate-spin
+  "Connecting you..." — Fredoka, size 14, muted-foreground
+
+handleJoin() logic:
+  1. Get userId from localStorage ('baby_picker_user_id')
+  2. If NO userId (brand new visitor):
+     INSERT INTO users (invite_code: generateInviteCode())
+     RETURNING *
+     Save new user.id to localStorage
+     If error: → PHASE 5 (error)
+  3. Call acceptInvite(invite, userId):
+     Same RPC call as the manual code flow (Part 8, Branch B)
+  4. If result.success=false: → PHASE 5 (error)
+  5. If result.success=true: → PHASE 5 (success)
+
+--- PHASE 5A: SUCCESS ---
+
+Card: same shell
+
+Icon circle: 64x64, rounded-full, bg-green-100
+  CheckCircle2 icon: size 28, grass
+
+Heading: "You're connected!"
+  font-hand bold, size 24, grass
+
+Body: "You and {inviterName} are now linked. Start swiping to find names you both love."
+  Fredoka, size 14, muted-foreground
+  inviterName bolded within sentence
+
+"Start swiping" button:
+  bg-grass, white, border-radius 12 (rounded-xl)
+  Fredoka bold, size 14 (text-sm), active: scale 0.95, shadow-md
+  On press: goHome() → window.location.href = '/'
+
+--- PHASE 5B: ERROR ---
+
+Card: same shell as invalid
+
+Icon block: 64x64, rounded-2xl, bg-destructive/10
+  AlertCircle: size 28, text-destructive
+
+Heading: "Something went wrong"
+  font-hand bold, size 24, foreground
+
+Body: state.message (RPC error or account creation error)
+  Fredoka, size 14, muted-foreground
+
+Two buttons (space-y 8 / space-y-2):
+  "Try again" — bg-rose-500, white, border-radius 12, Fredoka bold, active: scale 0.95, shadow-md
+    On press: validateToken() (re-runs the whole flow from validation)
+  "Go to app" — muted-foreground text only, Fredoka, size 14
+    On press: goHome()
+
+================================================================================
+PART 11 — THE ACCEPT_PARTNER_INVITE RPC (FULL SPEC)
+================================================================================
+
+Function name: accept_partner_invite
+Language: plpgsql
+Security: SECURITY DEFINER (bypasses RLS to update both user rows)
+Search path: public (explicit, for security)
+Callable by: anon, authenticated
+
+Parameters:
+  p_token   text  — the full URL token from partner_invites.token
+  p_joiner_id uuid — the user ID of the person accepting the invite
+
+Returns: JSONB
+
+Validation sequence (each failure returns { success: false, error: "..." }):
+  1. Fetch invite WHERE token=p_token AND status='pending' AND expires_at > now()
+     If not found: 'This invite link is invalid or has already been used.'
+  2. If invite.inviter_id = p_joiner_id: 'You cannot join your own invite.'
+  3. Select inviter's partner_id. If not null: 'This invite is no longer available.'
+  4. Select joiner's partner_id. If not null: 'You are already connected with a partner.'
+
+On all checks passing:
+  UPDATE partner_invites SET status='accepted', invitee_id=p_joiner_id WHERE id=invite.id
+  UPDATE users SET partner_id=p_joiner_id WHERE id=invite.inviter_id
+  UPDATE users SET partner_id=invite.inviter_id WHERE id=p_joiner_id
+  RETURN { success: true, inviter_id: invite.inviter_id }
+
+Critical property: ALL three UPDATE statements run in the same transaction.
+If any of them fails, all are rolled back (standard plpgsql block behavior).
+
+================================================================================
+PART 12 — THE PARTNER_INVITES TABLE
+================================================================================
+
+Full schema:
+
+  id          uuid         PK, gen_random_uuid()
+  token       text         UNIQUE NOT NULL — 48 hex chars, URL-safe, hard to guess
+  short_code  text         UNIQUE NOT NULL — 8 uppercase alphanumeric chars
+  inviter_id  uuid         NOT NULL, FK → users.id ON DELETE CASCADE
+  invitee_id  uuid         NULLABLE, FK → users.id ON DELETE SET NULL
+  status      text         NOT NULL DEFAULT 'pending'
+                           CHECK ('pending', 'accepted', 'expired')
+  created_at  timestamptz  DEFAULT now()
+  expires_at  timestamptz  DEFAULT now() + interval '7 days'
+
+Indexes:
+  partner_invites_token_idx      ON token
+  partner_invites_short_code_idx ON short_code
+  partner_invites_inviter_id_idx ON inviter_id
+
+RLS Policies:
+  SELECT — "Inviter can view own invites":
+    TO authenticated, anon
+    USING inviter_id = (SELECT id FROM users WHERE id = auth.uid() LIMIT 1)
+
+  SELECT — "Anyone can read pending invites":
+    TO authenticated, anon
+    USING status='pending' AND expires_at > now()
+    (Needed so anyone can look up a token or short_code without being authenticated)
+
+  INSERT — "Inviter can create invites":
+    TO authenticated, anon
+    WITH CHECK inviter_id IN (SELECT id FROM users WHERE id = inviter_id)
+
+  DELETE — "Inviter can delete own pending invites":
+    TO authenticated, anon
+    USING inviter_id = (SELECT id FROM users WHERE id = inviter_id LIMIT 1)
+
+  UPDATE — "Allow updating invite status":
+    TO authenticated, anon
+    USING status='pending' AND expires_at > now()
+    WITH CHECK status IN ('accepted', 'expired')
+
+One-invite-at-a-time rule: createInvite() expires all previous pending invites
+before creating a new one. This means a user always has at most one active invite.
+
+================================================================================
+PART 13 — RELEVANT USERS TABLE COLUMNS
+================================================================================
+
+public.users relevant columns for partner linking:
+
+  partner_id   uuid  nullable   FK → users.id  — points to the linked partner
+  invite_code  text  unique     Legacy 8-char random code. Still used as fallback.
+                                Format: Math.random().toString(36).substring(2,10).toUpperCase()
+                                Example: "K4X9QMZR"
+
+The partner relationship is BIDIRECTIONAL:
+  If user A has partner_id = B.id, then B must have partner_id = A.id.
+  This invariant is maintained by always updating both rows in the same operation.
+
+If either user's row is deleted, the other's partner_id is automatically
+set to NULL via ON DELETE SET NULL (foreign key behavior).
+
+================================================================================
+PART 14 — GUEST DATA MERGE (POST-AUTH)
+================================================================================
+
+When a guest user signs in via Google or magic link, their guest data is merged
+into their authenticated account:
+
+mergeGuestData(guestUserId, authUserId) is called from finalizeLogin() in authService.ts.
+It is called only when localStorage('baby_picker_user_id') differs from the auth user ID.
+
+Three sub-operations run in sequence:
+
+  mergeSwipes(guestUserId, authUserId):
+    SELECT name_id, liked FROM swipes WHERE user_id=guestUserId
+    SELECT name_id FROM swipes WHERE user_id=authUserId
+    Filter: only insert guest swipes whose name_id is not already swiped by auth user
+    INSERT INTO swipes (user_id=authUserId, name_id, liked) for each filtered row
+
+  mergeMatches(guestUserId, authUserId):
+    UPDATE matches SET user_a_id=authUserId WHERE user_a_id=guestUserId
+    UPDATE matches SET user_b_id=authUserId WHERE user_b_id=guestUserId
+    (Reassigns all matches from guest ID to auth ID)
+
+  mergeProfileSettings(guestUserId, authUserId):
+    Reads both profiles.
+    Only writes to authUserId row if the auth profile is missing data:
+      display_name:        copy if auth has none but guest has one
+      baby_last_name:      copy if auth has none but guest has one
+      baby_gender:         copy if guest has a non-'either' preference
+      partner_id:          copy if auth has no partner but guest does
+      invite_code:         copy if auth has no invite_code
+      onboarding_complete: copy if auth hasn't completed
+      plan_tier:           copy if auth has no plan tier
+
+After merge: localStorage('baby_picker_user_id') is set to authUserId.
+The guest user row in public.users is NOT deleted — it just becomes orphaned.
+
+PARTNER LINK DURING MERGE:
+If the guest user had linked with a partner before signing in, that partner_id
+is carried over to the auth account. This means the guest's partner connection
+is preserved through authentication. This is the intended behavior — a user who
+linked via a code while in guest mode retains that link after creating an account.
+
+================================================================================
+PART 15 — CONSIDERATIONS & EDGE CASES
+================================================================================
+
+1. INVITE LINK ON DESKTOP
+   The invite link works on desktop browsers. When the invited person opens
+   it on desktop, JoinView renders correctly. If they have no existing
+   baby_picker_user_id in localStorage, a new user row is created automatically
+   before the invite is accepted.
+
+2. INVITE LINK WHEN ALREADY CONNECTED
+   The RPC check #4 (joiner's partner_id IS NOT NULL) returns an error.
+   The JoinView shows the error phase with the RPC error message.
+
+3. EXPIRED INVITE LINK
+   The query in getInviteByToken filters: AND expires_at > now()
+   If the link is older than 7 days, getInviteByToken returns null.
+   JoinView shows the invalid phase: "This invite link is invalid or has already been used."
+
+4. INVITE CODE VS INVITE TOKEN
+   The app has TWO separate linking mechanisms:
+   a. Legacy invite_code on the users table (8-char random string).
+      Still works as fallback if no modern invite token is found.
+   b. Modern partner_invites table with a secure token (48 hex chars) and
+      a short code (8 uppercase alphanum, no ambiguous chars).
+   When a user enters a code, the app tries the modern system first.
+   If not found, it falls back to the legacy users.invite_code lookup.
+
+5. AFTER LINKING, MATCH DETECTION BEGINS IMMEDIATELY
+   Once both users have partner_id set, every new like they make checks
+   if the partner has also liked that name and creates a match row if so.
+   There is NO retroactive match check — names liked BEFORE linking are
+   not compared. Only future swipes create matches.
+   IMPORTANT CONSIDERATION: If both users have already been swiping before
+   linking, their pre-link likes will never become matches. A retroactive
+   match-checking step after partner linking would improve the experience
+   but does not currently exist.
+
+6. UNLINK CLEARS ALL MATCHES
+   removePartner() deletes ALL matches where user_a_id=me OR user_b_id=me.
+   This affects the partner's view too — they will also see their matches
+   disappear on next load. There is no soft-delete or per-user visibility.
+   IMPORTANT CONSIDERATION: The lack of a confirmation dialog on Unlink Partner
+   means this is destructive with no warning. A confirmation dialog is recommended.
+
+7. THE SHARED MATCHES REALTIME CHANNEL
+   When the user is viewing the Shared Matches tab, a Supabase Realtime
+   subscription watches the matches table for this couple. This means:
+   - When user A swipes and creates a match, user B sees it appear in real-time.
+   - When user A unlinks (deletes matches), user B's list clears in real-time.
+   The channel filter covers both user_a_id=me and user_b_id=me.
+
+8. MULTIPLE PENDING INVITES
+   createInvite() expires all previous pending invites before creating a new one.
+   So if a user regenerates an invite (taps "Invite Partner" again), the old link
+   and code immediately become invalid. The partner should use the newest link/code.
+
+9. NO EMAIL NOTIFICATION TO PARTNER AFTER LINKING
+   When the partner accepts the invite and the connection is made, there is no
+   push notification or email sent to the original inviter to let them know.
+   The inviter will only discover the connection when they return to the Partner
+   page and see the connected state, or if they navigate to Shared Matches.
+
+10. GUEST USER SECURITY NOTE
+    The SECURITY DEFINER RPC is granted to the 'anon' role because guest users
+    who are not authenticated still need to accept invites. This is intentional.
+    All safety checks (expiry, self-join, existing partners) are enforced inside
+    the function to compensate for the elevated privilege.
+
+================================================================================
+PART 16 — DESIGN TOKENS
+================================================================================
+
+rose-50:      hsl(350, 100%, 97%)   — hero card gradient start
+amber-50:     hsl(48, 100%, 97%)    — hero card gradient end
+rose-100:     hsl(350, 100%, 95%)   — partner avatar bg, border on hero card
+rose-400:     hsl(350, 79%, 75%)    #fb7185  — hero heart icon, spinner
+rose-500:     hsl(350, 79%, 62%)    #f43f5e  — invite button, share button
+rose-600:     hsl(350, 79%, 55%)    — rose-500 hover state
+amber-50:     hsl(48, 100%, 97%)    — auth notice background
+amber-200:    hsl(48, 96%, 89%)     — auth notice border
+amber-600:    hsl(28, 80%, 42%)     — auth notice lock icon
+amber-700:    hsl(28, 73%, 35%)     — auth notice text
+parchment:    hsl(38, 45%, 93%)     — all page backgrounds
+card:         hsl(40, 40%, 93%)     — all card surfaces
+background:   hsl(40, 30%, 95%)     — inputs, code display bg
+foreground:   hsl(25, 30%, 20%)     — primary text
+muted-fg:     hsl(25, 12%, 48%)     — secondary text, labels
+muted:        hsl(38, 25%, 87%)     — muted badges, info rows
+border:       hsl(35, 22%, 80%)     — card borders, dividers
+boyBlue:      hsl(214, 55%, 42%)    — "Join" button
+grass:        hsl(145, 45%, 35%)    — "Connected" label, success states
+destructive:  hsl(0, 72%, 50%)      — error states, "Unlink Partner"
+green-100:    hsl(142, 76%, 94%)    — success icon bg in JoinView

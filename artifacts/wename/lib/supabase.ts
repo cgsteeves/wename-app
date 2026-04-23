@@ -57,6 +57,17 @@ export type NamePack = {
   sort_order: number;
 };
 
+export type PartnerInvite = {
+  id: string;
+  token: string;
+  short_code: string;
+  inviter_id: string;
+  invitee_id: string | null;
+  status: "pending" | "accepted" | "expired";
+  created_at: string;
+  expires_at: string;
+};
+
 export const DEFAULT_PACK_SLUG = "top_2000";
 export const USER_ID_KEY = "baby_picker_user_id";
 export const ONBOARDED_KEY = "wename_onboarded";

@@ -10,9 +10,11 @@ import { useColors } from "@/hooks/useColors";
 export function SubPageHeader({
   title,
   subtitle,
+  onBack,
 }: {
   title: string;
   subtitle?: string;
+  onBack?: () => void;
 }) {
   const router = useRouter();
   const colors = useColors();
@@ -29,7 +31,7 @@ export function SubPageHeader({
       ]}
     >
       <Pressable
-        onPress={() => router.back()}
+        onPress={() => (onBack ? onBack() : router.back())}
         style={[styles.backBtn, { borderColor: colors.border, backgroundColor: colors.card }]}
         hitSlop={10}
       >

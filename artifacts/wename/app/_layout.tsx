@@ -82,6 +82,7 @@ export default function RootLayout() {
                       options={{ presentation: "modal" }}
                     />
                     <Stack.Screen name="auth/callback" />
+                    <Stack.Screen name="delete-account" />
                   </Stack>
                 </UserProvider>
                 <AuthModalOverlay />

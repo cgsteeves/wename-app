@@ -80,9 +80,9 @@ export default function PartnerScreen() {
 
   if (!user) return null;
 
-  function handleInvitePress() {
+  async function handleInvitePress() {
     if (!isAuthenticated) {
-      AsyncStorage.setItem("post_auth_redirect", "partner");
+      await AsyncStorage.setItem("post_auth_redirect", "partner");
       openAuthModal({
         preHeader: "To invite a partner",
         title: "Save your account first",

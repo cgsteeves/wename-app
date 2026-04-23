@@ -81,10 +81,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
 
   // 2. Clear partner's backlink if one exists
   if (userRow?.partner_id) {
-    await adminClient
+    const { error: partnerUpdateError } = await adminClient
       .from("users")
       .update({ partner_id: null })
       .eq("id", userRow.partner_id);
+
+    if (partnerUpdateError) {
+      console.error("[delete-account] partner backlink cleanup error:", partnerUpdateError);
+      return json(
+        { error: "Could not clean up partner link. Please try again or contact support." },
+        500,
+      );
+    }
   }
 
   // 3. Delete the public.users row (cascade deletes swipes/matches via FK)

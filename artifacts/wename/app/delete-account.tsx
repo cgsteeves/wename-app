@@ -263,6 +263,7 @@ function UnauthenticatedView({ bottomPad }: { bottomPad: number }) {
           headers: {
             "Content-Type": "application/json",
             apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
           },
           body: JSON.stringify({ email: trimmedEmail, reason: reason.trim() }),
         },

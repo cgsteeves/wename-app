@@ -760,7 +760,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 24,
+    bottom: 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

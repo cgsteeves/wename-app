@@ -138,14 +138,27 @@ export default function SwipeScreen() {
   async function handleSwipe(liked: boolean) {
     const current = names[currentIndex];
     if (!current || !user) return;
-    const { allowed, limitType: lt } = await limits.checkCanSwipe(liked);
+
+    // Always advance the card first so the UI never stalls.
+    setHistory((p) => [...p, { nameId: current.id, liked }]);
+    setCurrentIndex((i) => i + 1);
+
+    // Check limits after updating UI — if blocked, show the modal but do not
+    // roll back the card (the name will reappear on next deck load if not saved).
+    let allowed = true;
+    let lt: "swipe" | "like" | null = null;
+    try {
+      const result = await limits.checkCanSwipe(liked);
+      allowed = result.allowed;
+      lt = result.limitType;
+    } catch (e) {
+      console.warn("[SwipeScreen] limit check error (swipe allowed):", e);
+    }
     if (!allowed) {
       setLimitType(lt);
       setPremiumOpen(true);
       return;
     }
-    setHistory((p) => [...p, { nameId: current.id, liked }]);
-    setCurrentIndex((i) => i + 1);
     try {
       await supabase
         .from("swipes")

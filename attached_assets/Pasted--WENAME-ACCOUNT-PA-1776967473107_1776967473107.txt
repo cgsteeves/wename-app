@@ -1,0 +1,926 @@
+================================================================================
+WENAME — ACCOUNT PAGE, AUTH CREATION FLOW & AUTH PROVIDERS SPECIFICATION
+Covers: AccountPage, AuthModal, AuthCallback, AuthContext, authService,
+        send-magic-link Edge Function, delete-account Edge Function,
+        DeleteAccountPage, guestDataMerge, guest mode, and all auth flows
+================================================================================
+
+This document is the complete specification for everything related to user
+accounts, authentication, and session management in WeName.
+
+================================================================================
+PART 1 — USER IDENTITY MODEL
+================================================================================
+
+WeName uses a TWO-TABLE identity model:
+
+  TABLE 1: auth.users (Supabase-managed)
+    The authentication identity. Supabase writes and owns this table.
+    Never written to directly from app code.
+    auth.users.id is the canonical, permanent user ID.
+    Contains: id (uuid), email, provider, created_at, user_metadata (name from OAuth)
+
+  TABLE 2: public.users (App-managed)
+    The app profile table. id MUST equal auth.users.id.
+    Written to via upsert after every successful auth event.
+    This is the row the entire app reads for all user data.
+
+    Relevant columns for auth:
+      id           uuid    PK  — always equal to auth.users.id
+      email        text    nullable — synced from auth on sign-in
+      display_name text    nullable — set from OAuth metadata or user input
+      invite_code  text    — 8-char random code, generated on first use
+      updated_at   timestamptz
+
+GUEST MODE IDENTITY:
+  Before signing in, the app creates a row in public.users with a random UUID
+  (different from any auth.users.id). This UUID is stored in localStorage as
+  'baby_picker_user_id'. Guest users have full app functionality except:
+    - Data is saved on the current device only
+    - Cannot invite partner via link (only via code)
+    - Data will be lost if localStorage is cleared
+
+AUTHENTICATED MODE IDENTITY:
+  After sign-in, auth.users.id becomes the canonical ID.
+  The localStorage key 'baby_picker_user_id' is updated to the auth user ID.
+  Guest data is migrated from the old guest UUID to the new auth UUID.
+
+================================================================================
+PART 2 — ACCOUNT PAGE (Settings sub-page)
+================================================================================
+
+Route: activePage === 'account' inside SettingsPage.
+
+This is the PRIMARY auth entry point in the app. No other part of the app
+auto-triggers authentication. All auth flows begin explicitly here
+(or from the Partner page's invite flow, which also uses this same mechanism).
+
+The page has TWO completely different layouts depending on auth state.
+
+--- PAGE SHELL ---
+
+display: flex, flex-direction: column, flex: 1, min-height: 0
+background: parchment  hsl(38, 45%, 93%)
+overflow-y: auto
+
+SubPageHeader:
+  title: "Account"
+  onBack: sets activePage = null (returns to Settings Hub)
+
+Inner content area:
+  flex: 1, padding: 16 horizontal, 40 bottom, 8 top  (px-4 pb-10 pt-2)
+  space-y: 20  (space-y-5)
+
+--- STATE A: GUEST MODE (isAuthenticated=false) ---
+
+CARD 1 — Status + Auth Options:
+  bg-card, border-border/60, shadow-sm, border-radius 16 (rounded-2xl)
+  padding: 16 horizontal, 20 vertical  (px-4 py-5)
+  space-y: 16  (space-y-4)
+
+  Header row (flex, items: center, gap 12 / gap-3, border-bottom, padding-bottom 12):
+    Avatar circle: 40x40, bg-slate-100, border-radius 20
+      Shield icon: size 18, slate-500
+    Text block:
+      "Guest Mode" — Fredoka bold, size 14 (text-sm), foreground
+      "Names saved on this device only" — Fredoka regular, size 10 (text-xs), muted-foreground
+
+  Body text:
+    "Create a free account to back up your names, sync across devices, and never lose your matches."
+    Fredoka, size 14 (text-sm), muted-foreground, leading-relaxed
+
+  GOOGLE BUTTON:
+    width: 100%, padding 14 vertical (py-3.5)
+    bg-card, border-border/60, color: foreground, border-radius 12 (rounded-xl)
+    Fredoka bold, size 14 (text-sm)
+    flex row, items: center, justify: center, gap 10 (gap-2.5)
+    shadow-sm
+    disabled when googleLoading (opacity 0.60, active:scale-100)
+    active: scale 0.95, transition-all
+
+    Contents:
+      If googleLoading=false: GoogleIcon SVG + "Continue with Google"
+      If googleLoading=true:  "Connecting to Google…" (animate-pulse)
+
+    GoogleIcon is an inline SVG (17x17) with the four-color Google G logo:
+      Blue path:   #4285F4
+      Green path:  #34A853
+      Yellow path: #FBBC05
+      Red path:    #EA4335
+
+    On press: handleGoogleSignIn()
+      setGoogleLoading(true), setGoogleError('')
+      await signInWithGoogle()
+        → supabase.auth.signInWithOAuth({ provider: 'google', redirectTo: '{origin}/auth/callback' })
+        → This triggers a FULL PAGE REDIRECT to Google's OAuth page.
+        → If it resolves without redirect (rare, means popup blocked or error):
+            setGoogleError('Google sign-in failed. Please try again.')
+            setGoogleLoading(false)
+      Note: If the redirect happens, setGoogleLoading(false) is never called
+      because the page navigates away. The loading state is only visible
+      for the brief moment before the redirect fires.
+
+    googleError (shown below button if set):
+      Fredoka, size 10 (text-xs), text-destructive, text-center
+
+  DIVIDER:
+    flex row: left line (flex-1, h-px, bg-border/60) + "or" (Fredoka, size 10, muted-foreground) + right line
+
+  EMAIL MAGIC LINK FORM (shown when emailSent=false):
+
+    Email input:
+      Positioned inside a relative div with Mail icon absolutely positioned:
+        Mail icon: size 15, absolute, left 14, vertical center, muted-foreground
+      padding-left: 40 (pl-10) to clear the icon
+      padding: 14 vertical (py-3.5)
+      border-radius: 12 (rounded-xl)
+      bg-card, border-border/70
+      Fredoka, size 14 (text-sm), foreground
+      placeholder: "Enter your email"
+      placeholder color: muted-foreground/60
+      focus: ring-2, ring-boy/30, border-boy/50
+      autoComplete: "email"
+      disabled when googleLoading or emailLoading (opacity 0.60)
+      type: email, controlled with email state
+
+    emailError (shown if set):
+      flex row, items: center, gap 6 (gap-1.5)
+      AlertCircle icon: size 12, text-destructive
+      Error text: Fredoka, size 10 (text-xs), text-destructive
+
+    "Continue with Email" submit button:
+      width: 100%, padding 14 vertical (py-3.5)
+      bg-boy  hsl(214, 55%, 42%), color: white, border-radius 12 (rounded-xl)
+      Fredoka bold, size 14 (text-sm)
+      flex row, items: center, justify: center, gap 8 (gap-2)
+      Mail icon: size 15
+      shadow-md
+      disabled when googleLoading OR emailLoading OR email is empty
+      disabled styles: opacity 0.50, cursor-not-allowed, active:scale-100
+      active: scale 0.95
+
+      Contents:
+        If emailLoading: "Sending sign-in link…" (animate-pulse)
+        Else: Mail icon + "Continue with Email"
+
+      On press (form submit):
+        Validates email with regex /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        If invalid: setEmailError('Please enter a valid email address.') and return.
+        setEmailError(''), setEmailLoading(true)
+        await signInWithEmailMagicLink(email.trim())
+          (see Part 5 for full magic link flow)
+        On success: setEmailSent(true)
+        On error: setEmailError(error.message or 'Something went wrong. Please try again.')
+        setEmailLoading(false)
+
+  EMAIL SENT CONFIRMATION (shown when emailSent=true, replaces form):
+    text-center, padding 8 vertical (py-2), space-y 4 (space-y-1)
+    "Check your inbox" — Fredoka semibold, size 14 (text-sm), foreground
+    "We sent a sign-in link to {email}" — Fredoka, size 10 (text-xs), muted-foreground
+    email address shown in bold (font-bold, foreground) inline within the sentence
+
+--- STATE B: SIGNED IN (isAuthenticated=true) ---
+
+CARD 1 — Auth Status:
+  bg-card, border-border/60, shadow-sm, border-radius 16
+  padding: 16 horizontal, 20 vertical  (px-4 py-5)
+  space-y: 12 (space-y-3)
+
+  Header row (border-bottom, padding-bottom 12):
+    Avatar circle: 40x40, bg-grass/10, border-radius 20
+      CheckCircle2 icon: size 18, grass  hsl(145, 45%, 35%)
+    Text block:
+      "Signed In" — Fredoka bold, size 14, foreground
+      authUser.email — Fredoka regular, size 10 (text-xs), muted-foreground
+
+  Body text:
+    "Your progress is saved and synced across all your devices."
+    Fredoka, size 14 (text-sm), muted-foreground, leading-relaxed
+
+CARD 2 — Account Actions:
+  bg-card, border-border/60, shadow-sm, border-radius 16
+  padding: 0 horizontal (px-4)
+  divide-y divide-border/50
+
+  Row 1 — Email display (NOT a button, just info):
+    padding 14 vertical (py-3.5)
+    flex row, items: center, gap 12 (gap-3)
+    Mail icon: size 15, muted-foreground, flex-shrink 0
+    Text block:
+      "Email" — Fredoka semibold, size 14 (text-sm), foreground
+      authUser.email — Fredoka regular, size 10 (text-xs), muted-foreground
+
+  Row 2 — Sign Out button:
+    Full-width button, flex row, items: center, gap 12, padding 14 vertical (py-3.5)
+    text-left, active: opacity 0.70, transition-opacity
+    disabled when signingOut
+    LogOut icon: size 16, muted-foreground, flex-shrink 0
+    Text: "Signing out…" when signingOut=true, else "Sign Out"
+      Fredoka semibold, size 14 (text-sm), foreground
+
+    On press:
+      setSigningOut(true)
+      await signOut() → supabase.auth.signOut() → setSession(null) in AuthContext
+      setSigningOut(false)
+      (UI auto-transitions to Guest Mode because isAuthenticated becomes false)
+
+DANGER ZONE (below card 2, only when isAuthenticated=true):
+  padding-top 8 (pt-2), border-top border-border/50, space-y 8 (space-y-2)
+
+  Section label: "Danger Zone"
+    Fredoka semibold, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+    paddingLeft 4 (px-1), marginBottom 12 (mb-3)
+
+  "Delete Account" button:
+    width: 100%, padding 12 vertical (py-3)
+    border-radius 16 (rounded-2xl)
+    border: destructive/30, bg: destructive/5, color: destructive
+    Fredoka semibold, size 14 (text-sm)
+    flex row, items: center, justify: center, gap 8 (gap-2)
+    Trash2 icon: size 15
+    disabled when deletePending (opacity 0.60, active:scale-100)
+    active: scale 0.95
+
+    Text:
+      deletePending=true: "Deleting…"
+      deletePending=false: "Delete Account"
+
+    On press:
+      window.confirm('Are you sure? This permanently deletes all your data and cannot be undone.')
+      If cancelled: nothing.
+      If confirmed:
+        setDeletePending(true), setDeleteError('')
+        await deleteAccount()   (see Part 8 for full delete flow)
+        On error: setDeleteError(error.message or 'Account deletion is not yet available.')
+        setDeletePending(false)
+
+  deleteError (shown below button when set):
+    Fredoka, size 10 (text-xs), muted-foreground, text-center, paddingHorizontal 8 (px-2)
+
+  No-error text (shown when deleteError is empty):
+    "This permanently deletes all your data and cannot be undone"
+    Fredoka, size 10, muted-foreground, text-center
+
+  External deletion link paragraph:
+    "You can also request deletion at wename.app/delete-account"
+    Fredoka, size 10, muted-foreground, text-center, padding-top 4 (pt-1)
+    "wename.app/delete-account" is an anchor:
+      href="/delete-account", target="_blank", rel="noopener noreferrer"
+      color: sky-600 #0284c7, underline, underline-offset-2
+
+================================================================================
+PART 3 — AUTH MODAL (FLOATING SHEET)
+================================================================================
+
+The AuthModal is a bottom sheet on mobile, centered modal on desktop.
+It is the SAME auth UI shown in two contexts:
+  1. When opened from the Partner page's invite flow (with custom messaging)
+  2. Could be opened from any other explicit trigger in the future
+
+It is NEVER auto-opened. Always requires an explicit user action.
+
+--- OUTER SHELL ---
+
+Overlay:
+  position: fixed, inset 0, z-index 50
+  display: flex, items: flex-end (mobile) or center (sm:)
+  justify: center
+
+Backdrop:
+  position: absolute, inset 0
+  background: black/40
+  backdrop-filter: blur(4px)
+  onClick: closes modal (ONLY if anyLoading=false)
+
+Content panel:
+  position: relative, width: 100%, max-width: 448 (max-w-md), margin: auto
+  background: parchment  hsl(38, 45%, 93%)
+  border-radius: top corners 24 (rounded-t-3xl) on mobile, all 24 (sm:rounded-3xl) on desktop
+  shadow-2xl, overflow: hidden
+
+Paper texture overlay (inside content panel):
+  position: absolute, inset 0, opacity 0.30
+  background-image: url(/paper-texture.jpg), background-size: cover
+  pointer-events: none (doesn't interact)
+
+Inner content (relative, z-10):
+  padding: 20 top, 24 horizontal, 40 bottom  (px-6 pt-5 pb-10)
+
+Drag handle (mobile only, sm:hidden):
+  width 40 (w-10), height 4 (h-1), bg-border, border-radius 999
+  centered, margin-bottom 20 (mb-5)
+
+Close button (X — hidden when anyLoading=true):
+  position: absolute, top 16, right 16
+  size: 32x32 (w-8 h-8), border-radius 16
+  background: card/80, color: muted-foreground, hover: foreground
+  X icon: size 16
+  On press: onClose()
+
+Back button (shown ONLY in email mode and NOT loading):
+  position: absolute, top 16, left 16
+  size: 32x32, border-radius 16
+  background: card/80, color: muted-foreground, hover: foreground
+  ArrowLeft icon: size 16
+  On press: goBack() — resets to 'choose' mode, clears email and error
+
+anyLoading = loading || loadingProvider !== null
+
+--- MODE: 'choose' ---
+
+Header section (text-center, margin-bottom 28 / mb-7, padding-top 8 / pt-2):
+  Icon block:
+    56x56 (w-14 h-14), border-radius 16 (rounded-2xl)
+    bg-card, border-border/60, shadow-sm
+    Sparkles icon: size 24, text-boy  hsl(214, 55%, 42%)
+
+  preHeader (shown only if prop is passed):
+    Fredoka, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+    margin-bottom 6 (mb-1.5)
+
+  Title:
+    font-hand bold, size 24 (text-2xl), grass  hsl(145, 45%, 35%)
+    margin-bottom 8 (mb-2)
+    Default: "Create your free account"
+    Custom: passed via title prop
+
+  Body:
+    Fredoka, size 14 (text-sm), muted-foreground, leading-relaxed
+    Default: "Sign in to save your progress and sync your names across devices."
+    Custom: passed via body prop
+
+Buttons (space-y 12 / space-y-3):
+
+  GOOGLE button:
+    width: 100%, padding 14 vertical (py-3.5)
+    bg-card, border-border/60, color: foreground, border-radius 12 (rounded-xl)
+    Fredoka bold, size 14 (text-sm)
+    flex row, items: center, justify: center, gap 10 (gap-2.5)
+    disabled when loadingProvider !== null (opacity 0.60, active:scale-100)
+    active: scale 0.95
+
+    Contents:
+      loadingProvider='google': "Connecting to Google…" (animate-pulse)
+      else: GoogleIcon (17x17) + "Continue with Google"
+
+    On press: handleGoogle()
+      setLoadingProvider('google')
+      await signInWithGoogle()  → full page redirect to Google OAuth
+      If error: setErrorMsg('Google sign-in failed. Please try again.')
+                setMode('error')
+      setLoadingProvider(null)
+
+  DIVIDER: same as AccountPage (left line + "or" + right line, padding 4 vertical / py-1)
+
+  EMAIL button:
+    width: 100%, padding 14 vertical (py-3.5)
+    bg-card, border-border/60, color: foreground, border-radius 12 (rounded-xl)
+    Fredoka semibold (not bold), size 14 (text-sm)
+    flex row, items: center, justify: center, gap 8 (gap-2)
+    Mail icon: size 15, muted-foreground
+    disabled when loadingProvider !== null
+    active: scale 0.95
+
+    On press: setMode('email')
+    (Does NOT submit yet — just switches mode)
+
+Legal disclaimer (bottom):
+  "By continuing you agree to our terms and privacy policy."
+  Fredoka, size 10 (text-xs), muted-foreground, text-center, margin-top 20 (mt-5), leading-relaxed
+
+--- MODE: 'email' ---
+
+Header section:
+  Icon block: 56x56 (w-14 h-14), border-radius 16, bg-card, border-border/60, shadow-sm
+    Mail icon: size 22, text-boy
+  Heading: "Sign in with email"
+    font-hand bold, size 24, grass
+    margin-bottom 4 (mb-1)
+  Body: "Enter your email and we'll send you a magic sign-in link. No password needed."
+    Fredoka, size 14, muted-foreground, leading-relaxed
+
+Form (space-y 12 / space-y-3):
+  Label: "Email address"
+    Fredoka semibold, size 10 (text-xs), muted-foreground, uppercase, tracking-wider
+
+  Email input (with Mail icon absolutely positioned inside):
+    Same styling as AccountPage email input
+    autoFocus: true  (keyboard opens immediately when email mode is entered)
+    placeholder: "hello@example.com"
+
+  errorMsg (shown if set):
+    flex row, items: center, gap 6 (gap-1.5)
+    AlertCircle icon: size 12, text-destructive
+    Error text: Fredoka, size 10 (text-xs), text-destructive
+
+  Submit button: "Email me a sign-in link"
+    width: 100%, padding 14 vertical (py-3.5)
+    bg-boy, white, border-radius 12 (rounded-xl)
+    Fredoka bold, size 14 (text-sm)
+    flex row, items: center, justify: center, gap 8 (gap-2)
+    Mail icon: size 15
+    shadow-md
+    disabled when loading=true OR email is empty
+    active: scale 0.95
+
+    Contents:
+      loading=true: "Sending sign-in link…" (animate-pulse)
+      else: Mail icon + "Email me a sign-in link"
+
+    On submit:
+      Validates email regex. If invalid: setErrorMsg('Please enter a valid email address.') return.
+      clearError(), setLoading(true)
+      await signInWithEmailMagicLink(email)
+      On success: setMode('email-sent')
+      On error: setErrorMsg(msg), setMode('error')
+      setLoading(false)
+
+--- MODE: 'email-sent' ---
+
+text-center, padding 8 vertical (py-2)
+
+Icon block: 64x64 (w-16 h-16), border-radius 16, bg-card, border-border/60, shadow-sm
+  CheckCircle2 icon: size 28, grass
+
+Heading: "Check your inbox"
+  font-hand bold, size 24, grass
+  margin-bottom 8 (mb-2)
+
+Body text (two paragraphs):
+  "We sent a magic sign-in link to"
+    Fredoka, size 14, muted-foreground, leading-relaxed, margin-bottom 8
+  The email address:
+    Fredoka bold, size 14, foreground, margin-bottom 16 (mb-4)
+  "Tap the link in the email to sign in. The link expires after 1 hour."
+    Fredoka, size 10 (text-xs), muted-foreground, leading-relaxed
+
+"Got it" dismiss button:
+  margin-top 24 (mt-6), width: 100%, padding 12 vertical (py-3)
+  bg-card, border-border/60, border-radius 12 (rounded-xl)
+  Fredoka semibold, size 14 (text-sm), foreground
+  active: scale 0.95
+  On press: onClose()
+
+--- MODE: 'error' ---
+
+text-center, padding 16 vertical (py-4)
+
+Icon block: 64x64, border-radius 16
+  bg-destructive/10, border destructive/20
+  AlertCircle icon: size 28, text-destructive
+
+Heading: "Something went wrong"
+  font-hand bold, size 24, foreground
+  margin-bottom 8 (mb-2)
+
+Error message:
+  errorMsg or "We couldn't complete that. Please try again."
+  Fredoka, size 14 (text-sm), muted-foreground, leading-relaxed, margin-bottom 24 (mb-6)
+
+"Try again" button:
+  width: 100%, padding 14 vertical (py-3.5)
+  bg-boy, white, border-radius 12 (rounded-xl)
+  Fredoka bold, size 14 (text-sm), active: scale 0.95, shadow-md
+  On press: setMode('choose'), setErrorMsg('')
+
+================================================================================
+PART 4 — GOOGLE OAUTH FLOW (END TO END)
+================================================================================
+
+ENTRY POINTS:
+  - AccountPage "Continue with Google" button
+  - AuthModal "Continue with Google" button in 'choose' mode
+
+STEP 1: Initiation
+  signInWithGoogle() calls:
+    supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: '{window.location.origin}/auth/callback' }
+    })
+  This causes a FULL PAGE NAVIGATION to Google's OAuth consent screen.
+  The user is taken entirely away from the app.
+
+STEP 2: Google OAuth
+  User authenticates with Google (selects account, grants permissions).
+  Google redirects to Supabase's OAuth endpoint.
+
+STEP 3: Supabase Exchange
+  Supabase exchanges the authorization code for a session.
+  Supabase redirects to {origin}/auth/callback with session tokens in URL.
+
+STEP 4: AuthCallback
+  App.tsx detects the /auth/callback route and renders AuthCallback.
+  Supabase JS client automatically parses the URL and sets the session.
+  AuthCallback calls supabase.auth.getSession() to confirm the session.
+  If session not found after initial check: waits 800ms and tries again.
+  Once session confirmed: calls finalizeLogin(userId, email).
+
+STEP 5: finalizeLogin (see Part 6 for full details)
+
+STEP 6: Post-auth redirect
+  consumePostAuthRedirect() checks localStorage for a pending redirect key.
+  If found (e.g., 'partner'): redirects to '/?redirect=partner'
+  If not found: redirects to '/'
+  Uses setTimeout 1000ms before redirect (so AuthCallback success state is visible briefly)
+  Uses window.location.replace() so the /auth/callback URL is removed from history.
+
+================================================================================
+PART 5 — EMAIL MAGIC LINK FLOW (END TO END)
+================================================================================
+
+ENTRY POINTS:
+  - AccountPage email form
+  - AuthModal email mode
+
+STEP 1: User submits email
+  signInWithEmailMagicLink(email) is called from the app.
+  This calls the send-magic-link Edge Function:
+
+    POST {SUPABASE_URL}/functions/v1/send-magic-link
+    Headers:
+      Content-Type: application/json
+      Authorization: Bearer {SUPABASE_ANON_KEY}
+      Apikey: {SUPABASE_ANON_KEY}
+    Body: { email: "user@example.com", redirectTo: "{origin}/auth/callback" }
+
+STEP 2: Edge Function — send-magic-link
+  Runs on Deno runtime (Supabase Edge Functions).
+
+  Uses the Service Role Key to call Supabase Admin API:
+    supabaseAdmin.auth.admin.generateLink({
+      type: 'magiclink',
+      email: email.trim().toLowerCase(),
+      options: { redirectTo: redirectTo || 'https://wename.app/auth/callback' }
+    })
+
+  This generates a magic link that looks like:
+    https://[project].supabase.co/auth/v1/verify?token=...&type=magiclink&redirect_to={redirectTo}
+
+  Then sends a branded HTML email via SendGrid:
+    POST https://api.sendgrid.com/v3/mail/send
+    Authorization: Bearer {SENDGRID_API_KEY}
+    From: admin@wename.app (name: "WeName")
+    Subject: "Log in to WeName"
+    Content: branded HTML email + plain text fallback
+
+  EMAIL DESIGN:
+    Background: parchment #f2ead8
+    Card: #ece4d0 with warm border and subtle shadow
+    Logo image from Supabase Storage
+    Heading: "Sign Up or Log In" — bold, dark brown
+    Body text: warm gray, explains link is magic/passwordless, expires in 10 minutes
+    CTA button: blue (#2e6aad), pill-shaped (border-radius 999px), "Log In"
+    Fallback link: same URL shown in plain text below CTA
+    Footer: "If you didn't request this email, you can safely ignore it."
+
+  If SendGrid or link generation fails: returns 500 with { error: "..." }
+  On success: returns 200 with { success: true }
+
+STEP 3: User taps link in email
+  The magic link in the email routes to:
+    https://[supabase].supabase.co/auth/v1/verify?token=...
+  Supabase verifies the token and redirects to:
+    {origin}/auth/callback
+
+STEP 4: AuthCallback handles the session
+  Identical to Google OAuth Step 4 and beyond (see Part 4).
+
+LINK EXPIRY:
+  The Edge Function email body says "expires in 10 minutes."
+  The AuthModal email-sent screen says "expires after 1 hour."
+  The actual expiry is configured in Supabase project settings.
+  These messages should be made consistent to match the actual setting.
+
+================================================================================
+PART 6 — FINALIZE LOGIN (POST-AUTH PROFILE UPSERT)
+================================================================================
+
+finalizeLogin(userId: string, email: string) is called by AuthCallback
+after EVERY successful authentication event (any provider).
+
+Steps in order:
+
+  1. Build updates object:
+     { id: userId, updated_at: now().toISOString() }
+     If email is truthy: add email to updates.
+
+  2. Fetch existing profile from public.users:
+     SELECT display_name, invite_code FROM users WHERE id=userId
+     (maybeSingle — no error if not found)
+
+  3. If no display_name in existing profile:
+     Fetch auth metadata: supabase.auth.getUser()
+     Check user_metadata.full_name or user_metadata.name
+     If a name is found in metadata: add display_name to updates.
+     (This populates the display name from Google's profile for new OAuth users.)
+
+  4. If no invite_code in existing profile:
+     Generate a new invite_code: Math.random().toString(36).substring(2,10).toUpperCase()
+     Add to updates.
+
+  5. Upsert into public.users:
+     INSERT INTO users (...updates) ON CONFLICT (id) DO UPDATE SET ...
+     Uses ignoreDuplicates: false so all fields are always updated.
+
+  6. Guest data merge:
+     const guestUserId = localStorage.getItem('baby_picker_user_id')
+     If guestUserId exists AND guestUserId !== userId:
+       await mergeGuestData(guestUserId, userId)
+     (See Part 7 for full merge details)
+
+  7. Update localStorage:
+     localStorage.setItem('baby_picker_user_id', userId)
+     (useUser() will now load this auth user profile on next read)
+
+================================================================================
+PART 7 — GUEST DATA MERGE
+================================================================================
+
+mergeGuestData(guestUserId, authUserId) runs during finalizeLogin.
+Called only when the stored guest ID differs from the auth user ID.
+This means a user who was using the app as a guest before signing in
+will not lose their data.
+
+Three operations run in order:
+
+OPERATION 1 — mergeSwipes:
+  SELECT name_id, liked FROM swipes WHERE user_id=guestUserId
+  SELECT name_id FROM swipes WHERE user_id=authUserId
+  Build a Set of name_ids already swiped by auth user.
+  Filter guest swipes: keep only those NOT already in the Set.
+  INSERT INTO swipes (user_id=authUserId, name_id, liked) for each filtered row.
+  Conflict avoidance: duplicate name_ids are explicitly filtered before insert.
+
+OPERATION 2 — mergeMatches:
+  UPDATE matches SET user_a_id=authUserId WHERE user_a_id=guestUserId
+  UPDATE matches SET user_b_id=authUserId WHERE user_b_id=guestUserId
+  (Reassigns all match rows to the auth user ID)
+
+OPERATION 3 — mergeProfileSettings:
+  Reads both profiles (guestUserId and authUserId).
+  Only writes if the AUTH profile is missing a value:
+    display_name:        copy if auth has none, guest has some
+    baby_last_name:      copy if auth has none, guest has some
+    baby_gender:         copy if guest has a non-'either' value
+    partner_id:          copy if auth has no partner, guest does
+    invite_code:         copy if auth has no invite_code
+    onboarding_complete: copy if auth hasn't completed
+    plan_tier:           copy if auth has no plan tier
+  If any fields to write: UPDATE users SET {...} WHERE id=authUserId
+
+ERROR HANDLING:
+  The whole mergeGuestData function is wrapped in try/catch.
+  Errors are logged but DO NOT fail the login flow.
+  The user signs in successfully even if merge partially fails.
+
+================================================================================
+PART 8 — DELETE ACCOUNT FLOW
+================================================================================
+
+There are TWO deletion paths:
+
+PATH A: In-app deletion (authenticated user, from AccountPage)
+  Requires: isAuthenticated=true and a valid session
+
+  Client-side:
+    deleteAccount() from AuthContext → authDeleteAccount() from authService:
+      1. Get current session: supabase.auth.getSession()
+         If no session: throw Error('Not authenticated')
+      2. POST to delete-account Edge Function:
+         Authorization: Bearer {session.access_token}
+         (Uses user's own JWT — not the anon key)
+      3. On success: localStorage.removeItem('baby_picker_user_id')
+                     localStorage.removeItem('post_auth_redirect')
+                     await supabase.auth.signOut()
+      4. AuthContext sets session = null → app shows Guest Mode
+
+  Edge Function (delete-account):
+    Verifies the user JWT (not service role) to authenticate the request.
+    Creates two clients: one for auth (service role), one for user verification (anon+JWT).
+    Calls userClient.auth.getUser() to confirm identity from the JWT.
+
+    Then using the admin client:
+    1. SELECT partner_id FROM users WHERE id=userId
+    2. If partner_id exists:
+         UPDATE users SET partner_id=null WHERE id=partner_id
+         (Clears the partner's backlink so they don't have a dangling reference)
+    3. DELETE FROM users WHERE id=userId
+       (Cascade deletes swipes and matches via FK constraints)
+    4. supabaseAdmin.auth.admin.deleteUser(userId)
+       (Removes the auth.users row — full identity deletion)
+    5. Return { success: true }
+
+  On error from Edge Function:
+    setDeleteError(error.message)
+    The user remains signed in and the page shows the error.
+
+PATH B: External deletion request (unauthenticated, from /delete-account route)
+  For users who have forgotten their login or can't access the app.
+  Accessible at: https://wename.app/delete-account (standalone page, not in Settings)
+
+  Page: DeleteAccountPage (rendered from App.tsx when path === '/delete-account')
+  Uses AuthContext to detect if signed in.
+
+  If AUTHENTICATED (isAuthenticated=true): shows AuthenticatedView
+    Shows current email ("Signed in as")
+    Two-step confirmation:
+      Step 1 (idle): "Delete My Account" button (destructive/5 bg, light red)
+        On press: setStep('confirm')
+      Step 2 (confirm): Warning card + Cancel + "Yes, Delete" buttons
+        Cancel: setStep('idle')
+        "Yes, Delete": calls deleteAccount() (same as above)
+    On success: setDeleted(true) → shows "Account Deleted" confirmation screen
+
+  If NOT AUTHENTICATED (isAuthenticated=false): shows UnauthenticatedView
+    Shows "What gets deleted" list:
+      - Your profile and account credentials
+      - All name swipe history (likes and dislikes)
+      - All name matches with your partner
+      - Any custom names you created
+      - Your partner link (your partner's account is not affected)
+
+    Form with:
+      Email input (required, validated)
+      Reason textarea (optional, max 1000 chars)
+      "Submit Deletion Request" button (bg-destructive, white)
+
+    On submit:
+      POST {SUPABASE_URL}/functions/v1/submit-deletion-request
+      Headers: Apikey only (no Authorization needed — unauthenticated request)
+      Body: { email, reason? }
+      On success: shows "Request Received" confirmation:
+        CheckCircle2 icon, green
+        "We'll process your deletion request within 30 days and send a confirmation to {email}."
+      On error: shows error below form
+
+  After deletion (deleted=true):
+    Full-screen confirmation:
+      CheckCircle2 icon (size 32, green-600)
+      "Account Deleted" — Fredoka bold, size 18 (text-lg)
+      "Your account and all associated data have been permanently removed."
+      "Return to WeName" link (href="/", sky-600, underline, ExternalLink icon)
+
+================================================================================
+PART 9 — AUTH CALLBACK PAGE (/auth/callback)
+================================================================================
+
+Rendered by App.tsx when window.location.pathname === '/auth/callback'.
+Wrapped in AuthProvider.
+
+Page shell:
+  min-h-screen, flex column, items: center, justify: center, padding 24 horizontal (px-6)
+  Background: #faf6f0 (parchment-ish, set with inline style)
+  Paper texture overlay: absolute, inset 0, opacity 0.20
+
+Content box (relative, z-10, max-width 320 / max-w-xs):
+  Three states: 'loading', 'success', 'error'
+
+NOTE: The AuthCallback page uses inline styles rather than Tailwind classes
+for the heading and body text (historical reason — loaded before fonts were ready).
+The visual result should match the app's overall warm parchment aesthetic.
+
+LOADING STATE:
+  Icon box: 64x64, white/80, border-gray-200, border-radius 16, shadow-sm
+    Spinner: 24x24, border-2, sky-400, border-t-transparent, rounded-full, animate-spin
+  Heading: "Signing you in…" — Georgia serif, 22px, bold, #2d5a1b (grass-ish)
+  Body: "Just a moment while we set things up." — system-ui, 14px, #888
+
+SUCCESS STATE:
+  Icon box: same shell
+    Green checkmark SVG (28x28, stroke: #2d5a1b, strokeWidth: 2.5)
+    polyline points="20 6 9 17 4 12"
+  Heading: "You're signed in!" — same font/size/color
+  Body: "Taking you back to the app…" — same font/size/color
+
+ERROR STATE:
+  Icon box: 64x64, red-50, border-red-200, border-radius 16
+    Circle+vertical line SVG (28x28, red-600)
+  Heading: "Sign-in failed" — Georgia, 22px, bold, #1a1a1a
+  Body: errorMsg or "Your link may have expired. Please try again." — system-ui, 14px, #888
+  "Back to app" button:
+    width: 100%, padding 14px, bg: #5aabdf (sky-ish blue), white, border-radius 12px
+    system-ui bold, 14px, border: none
+    On press: window.location.replace('/')
+
+Session retry logic:
+  Initial getSession() → if no session: wait 800ms → retry getSession()
+  If still no session: throw Error('No session found. Your sign-in link may have expired.')
+
+Post-auth redirect:
+  After finalizeLogin completes:
+    consumePostAuthRedirect() reads and clears 'post_auth_redirect' from localStorage
+    If value is found (e.g., 'partner'):
+      redirect to '/?redirect=partner'
+    If not found:
+      redirect to '/'
+  setTimeout(1000ms) before redirect so the success state is briefly visible.
+  window.location.replace() is used — the /auth/callback URL is removed from history.
+
+================================================================================
+PART 10 — AUTH CONTEXT
+================================================================================
+
+AuthProvider wraps the entire app (and standalone page routes that need auth).
+
+State managed:
+  session:         Session | null  — the full Supabase auth session
+  authLoading:     boolean         — true until first getSession() resolves
+  showAuthModal:   boolean         — for future global modal trigger (currently unused in app)
+
+On mount:
+  supabase.auth.getSession() → sets session, authLoading=false
+  supabase.auth.onAuthStateChange() subscription:
+    On SIGNED_IN or USER_UPDATED with a session:
+      Upsert {id, email} into public.users (lightweight backstop)
+      Full profile upsert happens in finalizeLogin via /auth/callback
+    On any event: setSession(newSession)
+
+Exposed values:
+  session:          Supabase Session object (has .access_token, .user, etc.)
+  authUser:         session?.user — Supabase User object (has .id, .email, .user_metadata)
+  isAuthenticated:  !!session  — boolean shorthand
+  authLoading:      boolean
+  showAuthModal:    boolean
+  openAuthModal():  sets showAuthModal=true
+  closeAuthModal(): sets showAuthModal=false
+  signOut():        calls authSignOut() + setSession(null)
+  deleteAccount():  calls authDeleteAccount() + setSession(null)
+
+useAuth() hook:
+  Calls useContext(AuthContext)
+  Throws if used outside AuthProvider: 'useAuth must be used within AuthProvider'
+
+IMPORTANT: The AccountPage does NOT use AuthContext.openAuthModal().
+It manages its own auth state directly (googleLoading, emailLoading, emailSent, etc.)
+and calls signInWithGoogle() / signInWithEmailMagicLink() directly.
+The AuthModal is a separate component used for inline overlay presentation.
+
+================================================================================
+PART 11 — AUTH ENTRY POINTS MAP
+================================================================================
+
+Every place in the app where authentication can be triggered:
+
+1. Settings → Account page:
+   "Continue with Google" button → direct OAuth redirect
+   "Continue with Email" form → magic link via Edge Function
+
+2. Settings → Partner page → "Invite Partner" button (when guest):
+   Opens AuthModal with custom messaging (partner invite context)
+   Same auth options inside the modal
+
+3. /delete-account page → sign-in link text:
+   "Sign in to delete instantly" → href="/" (navigates to app where user can sign in)
+
+4. JoinView (/join/:token):
+   Does NOT require authentication. Guest users can accept invites.
+   Only creates a new guest user row if none exists.
+
+Auth is NOT triggered:
+  - Automatically on app load
+  - When accessing the swipe view or names view
+  - When using name packs (except premium gating)
+
+================================================================================
+PART 12 — SESSION PERSISTENCE
+================================================================================
+
+Supabase JS client persists the session automatically in localStorage.
+On app load, supabase.auth.getSession() reads from localStorage and
+re-hydrates the session without any network request.
+Sessions are refreshed automatically by the Supabase JS client.
+No manual token refresh logic is needed.
+
+localStorage keys used by the app (separate from Supabase's own keys):
+  'baby_picker_user_id'   — stores the user's public.users UUID
+  'post_auth_redirect'    — optional pending redirect destination after auth
+  'onboarded'             — whether the user has completed onboarding
+
+Supabase's own localStorage keys (managed by the JS client, not touched by app code):
+  'sb-{projectRef}-auth-token'  — the JWT session (handled automatically)
+
+================================================================================
+PART 13 — DESIGN TOKENS (ACCOUNT PAGE AND AUTH MODAL)
+================================================================================
+
+parchment:     hsl(38, 45%, 93%)   — page background, modal background
+card:          hsl(40, 40%, 93%)   — card surfaces, button bg (non-primary)
+background:    hsl(40, 30%, 95%)   — input field backgrounds
+foreground:    hsl(25, 30%, 20%)   — primary text
+muted-fg:      hsl(25, 12%, 48%)   — secondary text, labels, icons
+muted:         hsl(38, 25%, 87%)   — dividers, disabled states
+border:        hsl(35, 22%, 80%)   — card borders, input borders
+grass:         hsl(145, 45%, 35%)  — back button, success states, modal title
+boyBlue:       hsl(214, 55%, 42%)  — primary action buttons (email submit, auth CTAs)
+slate-100:     #f1f5f9             — guest mode avatar background
+slate-500:     #64748b             — shield icon, guest mode secondary text
+destructive:   hsl(0, 72%, 50%)    — delete button, error states
+sky-600:       #0284c7             — external links (delete-account link)
+green-50:      hsl(138, 100%, 97%) — deletion confirmation icon background
+green-600:     #16a34a             — deletion confirmation icon
+
+GoogleIcon colors (exact brand colors, NOT theme tokens):
+  Blue:   #4285F4
+  Green:  #34A853
+  Yellow: #FBBC05
+  Red:    #EA4335

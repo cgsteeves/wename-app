@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -47,7 +47,11 @@ export default function Onboarding() {
   const [partnerCode, setPartnerCode] = useState("");
   const [codeError, setCodeError] = useState("");
   const [linking, setLinking] = useState(false);
-  const [linked, setLinked] = useState(false);
+  const [linked, setLinked] = useState(!!user?.partner_id);
+
+  useEffect(() => {
+    if (user?.partner_id) setLinked(true);
+  }, [user?.partner_id]);
 
   async function finish() {
     if (user) {

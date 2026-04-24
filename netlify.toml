@@ -1,0 +1,15 @@
+[build]
+  base    = "artifacts/wename"
+  command = "pnpm run export:web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[build.package_manager]
+  command = "pnpm"
+
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200

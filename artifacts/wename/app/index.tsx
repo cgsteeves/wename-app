@@ -10,13 +10,13 @@ import { ONBOARDED_KEY } from "@/lib/supabase";
 export default function Index() {
   const { user, loading } = useUser();
   const colors = useColors();
-  const [onboarded, setOnboarded] = useState<boolean | null>(null);
+  const [localOnboarded, setLocalOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDED_KEY).then((v) => setOnboarded(v === "true"));
+    AsyncStorage.getItem(ONBOARDED_KEY).then((v) => setLocalOnboarded(v === "true"));
   }, []);
 
-  if (loading || onboarded === null) {
+  if (loading || localOnboarded === null) {
     return (
       <View style={[styles.center, { backgroundColor: colors.parchment }]}>
         <ActivityIndicator color={colors.primary} />
@@ -24,7 +24,9 @@ export default function Index() {
     );
   }
 
-  if (!onboarded || !user) {
+  const onboarded = localOnboarded || !!user?.onboarding_complete;
+
+  if (!onboarded) {
     return <Redirect href="/onboarding" />;
   }
   return <Redirect href="/(tabs)" />;

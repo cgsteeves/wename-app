@@ -51,6 +51,16 @@ export default function Onboarding() {
   const [linked, setLinked] = useState(!!user?.partner_id);
 
   useEffect(() => {
+    AsyncStorage.getItem(ONBOARDED_KEY).then((v) => {
+      if (v === "true") router.replace("/(tabs)");
+    });
+  }, []);
+
+  useEffect(() => {
+    if (user?.onboarding_complete) router.replace("/(tabs)");
+  }, [user?.onboarding_complete]);
+
+  useEffect(() => {
     if (user?.partner_id) setLinked(true);
   }, [user?.partner_id]);
 

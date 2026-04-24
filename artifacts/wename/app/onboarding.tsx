@@ -28,11 +28,12 @@ const tutorialBg = require("../assets/images/onboarding-tutorial-bg.jpg");
 const logo = require("../assets/images/wename-logo.png");
 
 type Gender = "boy" | "girl" | "either";
-type Step = "welcome" | "personalize" | "partner";
+type Step = "welcome" | "personalize" | "features" | "partner";
 
 const stepBg: Record<Step, any> = {
   welcome: welcomeBg,
   personalize: personalizeBg,
+  features: tutorialBg,
   partner: tutorialBg,
 };
 
@@ -114,9 +115,13 @@ export default function Onboarding() {
               setGender={setGender}
               lastName={lastName}
               setLastName={setLastName}
-              onNext={() => setStep("partner")}
-              onSkip={() => setStep("partner")}
+              onNext={() => setStep("features")}
+              onSkip={() => setStep("features")}
             />
+          )}
+
+          {step === "features" && (
+            <FeaturesStep colors={colors} onNext={() => setStep("partner")} />
           )}
 
           {step === "partner" && (
@@ -139,7 +144,7 @@ export default function Onboarding() {
 }
 
 function StepDots({ step }: { step: Step }) {
-  const order: Step[] = ["welcome", "personalize", "partner"];
+  const order: Step[] = ["welcome", "personalize", "features", "partner"];
   const idx = order.indexOf(step);
   return (
     <View style={styles.dots}>
@@ -295,6 +300,75 @@ function PersonalizeStep({
       <Pressable style={styles.secondaryBtn} onPress={onSkip}>
         <Text style={styles.secondaryBtnText}>Skip</Text>
       </Pressable>
+    </View>
+  );
+}
+
+function FeaturesStep({
+  colors,
+  onNext,
+}: {
+  colors: ReturnType<typeof useColors>;
+  onNext: () => void;
+}) {
+  const features: {
+    icon: keyof typeof Feather.glyphMap;
+    iconBg: string;
+    iconColor: string;
+    title: string;
+    body: string;
+  }[] = [
+    {
+      icon: "heart",
+      iconBg: colors.girlPink + "22",
+      iconColor: colors.girlPink,
+      title: "Your Picks",
+      body: "Every name you swipe right on is saved to your Names tab — browse and rank your shortlist any time.",
+    },
+    {
+      icon: "star",
+      iconBg: colors.sun + "33",
+      iconColor: "#d97706",
+      title: "Shared Matches",
+      body: "When you and your partner both love the same name, it becomes a Match. A moment worth celebrating.",
+    },
+    {
+      icon: "zap",
+      iconBg: "#fef3c7",
+      iconColor: "#d97706",
+      title: "Premium",
+      body: "Unlock 10,000+ more names, AI-powered suggestions, unlimited swipes, and advanced filters — upgrade any time in Settings.",
+    },
+  ];
+
+  return (
+    <View style={styles.stepContent}>
+      <Text style={[styles.heading, { color: colors.grass }]}>What's inside</Text>
+      <Text style={[styles.partnerSubhead, { color: "hsl(25, 12%, 48%)" }]}>
+        Here's everything waiting for you
+      </Text>
+      <View style={{ height: 20 }} />
+      <GlassCard>
+        <View style={{ gap: 20 }}>
+          {features.map((f, i) => (
+            <View key={i} style={styles.featureRow}>
+              <View style={[styles.featureIconWrap, { backgroundColor: f.iconBg }]}>
+                <Feather name={f.icon} size={20} color={f.iconColor} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.featureTitle, { color: "hsl(25, 30%, 18%)" }]}>
+                  {f.title}
+                </Text>
+                <Text style={[styles.featureBody, { color: "hsl(25, 12%, 48%)" }]}>
+                  {f.body}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      </GlassCard>
+      <View style={{ flex: 1, minHeight: 24 }} />
+      <PrimaryButton label="Next" onPress={onNext} color={colors.grass} />
     </View>
   );
 }
@@ -629,5 +703,28 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     marginTop: 10,
     lineHeight: 17,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  featureIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  featureTitle: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 15,
+    marginBottom: 3,
+  },
+  featureBody: {
+    fontFamily: fonts.display,
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

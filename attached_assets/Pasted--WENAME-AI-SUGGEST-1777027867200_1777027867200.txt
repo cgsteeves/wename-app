@@ -1,0 +1,624 @@
+================================================================================
+WENAME — AI SUGGESTIONS FEATURE: COMPLETE UX, FUNCTIONALITY & ARCHITECTURE SPEC
+Covers: NameSuggestions component, suggest-names Edge Function, NamesView
+        integration, streaming, style filters, add-to-picks flow, premium gate,
+        context assembly, and all edge cases
+================================================================================
+
+This document is the complete specification for the AI Suggestions tab in WeName.
+
+================================================================================
+PART 1 — WHERE AI SUGGESTIONS LIVES IN THE APP
+================================================================================
+
+AI Suggestions is the third tab ("AI Suggestions") in the NamesView screen,
+alongside "Your Picks" and "Shared Matches".
+
+  Tab type:  SubTab = 'liked' | 'matches' | 'suggestions'
+  Accessed:  User taps "AI Suggestions" tab in the NamesView tab bar
+
+PREMIUM GATE:
+  The tab is labeled with a "PRO" badge when the user is NOT premium.
+  Tapping the tab when free opens PremiumUpgradeModal (limitType='discover').
+  When the modal is dismissed: activeSubTab returns to 'liked'.
+  When the user IS premium (user.plan_tier === 'premium'): tap goes directly to tab.
+
+  Check: isPremium = user.plan_tier === 'premium'
+  handleDiscoverClick():
+    if isPremium → setActiveSubTab('suggestions')
+    else → setDiscoverGateOpen(true)
+
+The NameSuggestions component is rendered ONLY when activeSubTab === 'suggestions'.
+It lives inside the NamesView content area (not a separate page/route).
+
+TAB BAR APPEARANCE ("AI Suggestions" tab button):
+  Active (selected): gender-themed bg/border/text (boy blue or girl pink)
+  Inactive: bg-white/50 text-muted-foreground border-border/30
+  "PRO" badge: amber/orange pill, 9px font, uppercase, shown only when !isPremium
+    style: background: hsl(38 85% 48%), color: white
+    size: tiny pill below the tab label
+
+NamesView header when suggestions tab is active:
+  Heading: "AI Suggestions" with Sparkles icon (size 22, gender-themed color)
+  NO count, NO "Drag to reorder" instruction, NO add name form, NO share button
+  The header area is simplified to just the heading.
+
+================================================================================
+PART 2 — DATA FLOW: WHAT CONTEXT IS PASSED TO AI SUGGESTIONS
+================================================================================
+
+NamesView assembles context BEFORE passing it to NameSuggestions.
+This happens in loadSuggestionContext(), which runs when activeSubTab === 'suggestions'.
+
+CONTEXT ASSEMBLY (loadSuggestionContext):
+
+  1. allSwipedNames (excludeNames in suggestions):
+     SELECT name_id FROM swipes WHERE user_id = me
+     → get name UUIDs
+     → SELECT uuid, name FROM names WHERE uuid IN (nameIds)
+     → map to array of name strings
+     RESULT: ALL names the user has swiped (liked AND passed)
+     PURPOSE: Prevents AI from suggesting names the user has already seen
+
+  2. partnerLikedNames (only loaded if user.partner_id is set):
+     SELECT name_id FROM swipes WHERE user_id = partner_id AND liked = true
+     → SELECT uuid, name FROM names WHERE uuid IN (nameIds)
+     → map to array of name strings
+     RESULT: Names the partner has liked
+     PURPOSE: Helps AI understand shared taste patterns
+
+WHAT GETS PASSED TO NameSuggestions:
+  user            — the full user object (for gender and last name)
+  likedNames      — swipes.map(s => s.names.text)   (user's liked name strings)
+  matchedNames    — matches.map(m => m.name.text)   (both parents agreed on these)
+  partnerLikedNames — from loadSuggestionContext()
+  excludeNames    — allSwipedNames from loadSuggestionContext()
+  onNameAdded     — handleAddFromSuggestion callback
+
+GENDER DETERMINATION (inside NameSuggestions):
+  settingsGender = user.baby_gender === 'girl' ? 'girl' : 'boy'
+  selectedGender = settingsGender
+  isBoy = selectedGender === 'boy'
+  ('either' setting defaults to 'boy' for suggestion gender)
+
+================================================================================
+PART 3 — AUTO-FETCH TRIGGER
+================================================================================
+
+Suggestions are fetched automatically when the component has enough data.
+They are NOT fetched on every render — there is strict deduplication.
+
+AUTO-FETCH condition:
+  useEffect watches [likedNames.length]:
+    if (!hasFetchedOnMount.current && likedNames.length >= 3):
+      hasFetchedOnMount.current = true
+      fetchSuggestions(false)
+
+  This means: on first mount, if the user has 3 or more liked names,
+  suggestions start loading immediately without the user needing to press anything.
+
+STYLE FILTER change auto-refetch:
+  useEffect watches [selectedStyle]:
+    if (hasFetchedOnMount.current):  // only if we've already loaded once
+      fetchSuggestions(false)
+  Changing Classic/Modern/Unique instantly triggers a new fetch.
+
+MINIMUM LIKES GATE:
+  If likedNames.length < 3 AND hasLoaded=false:
+    Show the "like a few more names" prompt card instead of suggestions.
+    No fetch happens.
+  The user can still manually press "Generate Suggestions" if it appears
+  (see Part 5 for the manual trigger state).
+
+================================================================================
+PART 4 — THE SUGGEST-NAMES EDGE FUNCTION
+================================================================================
+
+URL: {SUPABASE_URL}/functions/v1/suggest-names
+Method: POST
+Auth: Authorization: Bearer {SUPABASE_ANON_KEY}
+Content-Type: application/json
+
+REQUEST PAYLOAD:
+  {
+    gender:           "boy" | "girl"
+    likedNames:       string[]     — user's liked names (up to 15 used in prompt)
+    matchedNames:     string[]     — both-liked names (up to 10 used in prompt)
+    partnerLikedNames: string[]    — partner's liked names (up to 8 used in prompt)
+    excludeNames:     string[]     — names already seen (excluded from suggestions)
+    style:            "classic" | "modern" | "unique" | null
+    lastName:         string       — baby's last name (may be empty string)
+  }
+
+CONTEXT ASSEMBLY (inside Edge Function):
+
+TASTE CONTEXT (one of four branches):
+  IF matchedNames > 0 AND likedNames > 0:
+    "Both parents have agreed and matched on these names (highest priority for style):
+    {matchedNames[0..9]}. The user has personally liked: {likedNames[0..11]}.
+    [if partner]: Their partner has also liked: {partnerLikedNames[0..7]}.
+    Use all of these to understand the couple's shared taste."
+
+  ELSE IF matchedNames > 0 (but no likes):
+    "Both parents matched on these names: {matchedNames[0..9]}.
+    Suggest names with a very similar style and feel."
+
+  ELSE IF likedNames > 0 (no matches):
+    "The user has personally liked: {likedNames[0..14]}.
+    [if partner]: Their partner has liked: {partnerLikedNames[0..7]}.
+    Suggest names with a similar style or feel."
+
+  ELSE (nothing yet):
+    "Suggest a variety of beautiful, timeless names."
+
+STYLE CONTEXT (appended if style is set):
+  classic: "Focus on timeless, traditional names with long histories — think elegant and enduring."
+  modern:  "Focus on fresh, contemporary names that feel current and stylish."
+  unique:  "Focus on rare, distinctive names that stand out — uncommon but beautiful."
+
+LAST NAME CONTEXT:
+  If lastName is non-empty: "The baby's last name will be '{lastName}'.
+  Make sure the first names flow well with it."
+
+EXCLUDE CONTEXT:
+  "IMPORTANT: Do NOT suggest any of these names (they have already been seen or
+  swiped): {excludeNames joined by comma}."
+
+FULL PROMPT TEMPLATE:
+  "You are a helpful baby name expert. Suggest 12 unique baby {boy/girl} names.
+  {tasteContext}
+  {styleContext}
+  {lastNameContext}
+  {excludeContext}
+
+  Return ONLY a JSON array of objects, nothing else. Each object must have:
+  - "name": the baby name (string)
+  - "meaning": a short 1-sentence meaning or origin (string)
+  - "gender": "{boy/girl}" (string, always this exact value)
+  - "reason": a warm, personalized 1-sentence explanation of why this name
+    suits the parents' taste (string)
+
+  Example format:
+  [{"name":"Aria","meaning":"Italian origin meaning 'air' or 'song'.","gender":"girl",
+    "reason":"Like Isla and Luna, Aria has a lyrical, melodic quality you seem to love."}]
+
+  Do not include markdown, code blocks, or any text outside the JSON array."
+
+AI MODEL CALL:
+  Provider: OpenAI
+  Model: gpt-4o-mini
+  Max tokens: 1800
+  Temperature: 0.8
+  Stream: true (SSE streaming)
+
+STREAMING OUTPUT:
+  The Edge Function reads SSE chunks from OpenAI's streaming response.
+  It maintains a jsonBuffer of accumulated token content.
+  As complete JSON objects are detected (matching braces at depth 0):
+    Each complete {name, gender, ...} object is immediately emitted as:
+      JSON.stringify(obj) + "\n"
+  The stream uses ReadableStream with a text/plain content type.
+
+STREAM PARSING (brace-depth matching):
+  Iterates over jsonBuffer char by char.
+  depth=0, start=-1.
+  On '{': if depth=0, save start=i. Increment depth.
+  On '}': decrement depth. If depth=0 and start!=-1: extract jsonBuffer[start..i+1].
+  Each extracted substring is JSON.parse'd and validated (obj.name && obj.gender).
+  Valid objects are enqueued immediately — they arrive at the client one by one.
+  After emitting items, jsonBuffer is trimmed to everything after the last '}'.
+
+RESPONSE HEADERS:
+  Content-Type: text/plain; charset=utf-8
+  X-Content-Type-Options: nosniff
+  Cache-Control: no-cache
+  CORS headers
+
+ERROR RESPONSES:
+  400: { error: "Email is required" } (not applicable here)
+  500: { error: "OpenAI API key not configured" } — key missing
+  500: { error: "OpenAI error: {status}", detail: {text} } — API call failed
+  500: { error: "{error message}" } — unexpected exception
+
+================================================================================
+PART 5 — COMPONENT UI STATES
+================================================================================
+
+The NameSuggestions component has six distinct content states:
+
+--- STATE 1: TOO FEW LIKES (tooFewNames=true AND hasLoaded=false) ---
+
+A soft informational card shown ABOVE the scroll area.
+
+Background: gender-themed (boy: bg-boy/5 border-boy/15, girl: bg-girl-pink/5 border-girl-pink/15)
+Border-radius: 12 (rounded-xl), padding 16 (p-4), text-center, margin-bottom 12 (mb-3)
+
+Sparkles icon: size 24, gender-themed color, centered, margin-bottom 8 (mb-2)
+Message: "Like a few more names while swiping to unlock personalized suggestions."
+  font-display, size 14 (text-sm), muted-foreground, leading-snug
+
+This card disappears once hasLoaded=true (even if there are still fewer than 3 likes).
+
+--- STATE 2: LOADING SKELETON (loading=true) ---
+
+8 animated skeleton tiles in a space-y-1.5 list.
+
+Each skeleton tile:
+  border-radius 8 (rounded-lg), overflow hidden, animate-pulse
+  border: gender-themed (boy: hsl(214 50% 62%), girl: hsl(345 50% 68%))
+  background: gender-themed gradient (boy: blue-tinted, girl: pink-tinted)
+
+  Content row (flex, items center, gap 10, padding: 10 horizontal, 10 vertical / px-3 py-2.5):
+    Left: flex-1 space-y-1.5
+      Name placeholder: h-4, w-24, rounded, gender-themed darker tone
+      Description placeholder: h-3, w-40, rounded, gender-themed lighter tone
+    Right: w-7 h-7 rounded-full, gender-themed tone, flex-shrink 0
+
+Loading starts showing AFTER the fetch begins. setLoading(false) is called
+as soon as the first chunk begins streaming (before any suggestions appear).
+This means the skeleton shows for the duration of the HTTP request, then
+the first suggestions start appearing as they stream in.
+
+--- STATE 3: SUGGESTIONS LIST (suggestions.length > 0, loading=false) ---
+
+The main suggestion cards shown as they stream in, one by one.
+
+Each card is appended to the list as soon as its JSON object is parsed.
+The list grows progressively during streaming — names appear one at a time.
+
+SUGGESTION TILE:
+  position: relative, border-radius 8 (rounded-lg), font-display, shadow-md, overflow hidden
+
+  BACKGROUNDS (same visual language as the swipe cards and swipe list):
+    Boy tiles:
+      Background image: boyCardBg (rolling hills landscape)
+      backgroundPosition: center {(index * 17) % 60}%  (shifts image per row for variety)
+      backgroundSize: cover
+      Over-image overlay: linear-gradient(90deg, hsl(214 72% 88% / 0.82) 0%, hsl(210 65% 86% / 0.72) 100%)
+      Border: 1px solid hsl(214 50% 62%)
+    Girl tiles:
+      Multi-layer radial gradient (pink/rose) — no image
+      border: 1px solid hsl(345 50% 68%)
+
+  Content area (relative z-10, padding: 10 horizontal, 10 vertical / px-3 py-2.5):
+
+    Top row (flex, items start, gap 10 / gap-2.5):
+
+      Left text block (flex-1, min-w-0):
+        Name: font-medium, size 16 (text-base), block
+          Boy color: hsl(214 55% 30%)
+          Girl color: hsl(345 55% 38%)
+        Meaning: size 10 (text-xs), muted-foreground, leading-snug, block, pr-4
+
+      Right button (Add to My Picks / Added):
+        flex-shrink 0, border-radius 8 (rounded-lg), px-2.5 py-1, size 10 (text-xs)
+        font-display font-medium, flex row, items center, gap 4 (gap-1), margin-top 2 (mt-0.5)
+
+        UNCLICKED state:
+          Boy: bg-white/60 text-boy border border-boy/30 hover:bg-boy/10
+          Girl: bg-white/60 text-girl-pink border border-girl-pink/30 hover:bg-girl-pink/10
+          Plus icon (size 11) + "Add to My Picks"
+
+        CLICKED state (added=true):
+          bg-green-100, text-green-600, border-green-300
+          Check icon (size 11) + "Added"
+          disabled=true (cannot be clicked again)
+
+    Bottom "Why you'll like this" panel (shown only when s.reason is set):
+      margin-top 8 (mt-2), border-radius 8 (rounded-lg), px-2.5 py-1.5
+      Background: gender-tinted semi-transparent (boy: rgba(100,140,200,0.10), girl: rgba(255,160,170,0.12))
+      Border: gender-tinted (boy: hsl(214 50% 76%), girl: hsl(345 50% 80%))
+
+      Label "Why you'll like this":
+        size 10px (text-[10px]), font-display, font-semibold, uppercase, tracking-wide
+        margin-bottom 2 (mb-0.5)
+        Boy: hsl(214 45% 55%), Girl: hsl(345 45% 55%)
+
+      Reason text:
+        size 10 (text-xs), leading-snug, flex row, items start, gap 4 (gap-1)
+        Sparkles icon: size 9, flex-shrink 0, margin-top 2 (mt-0.5)
+        Boy: hsl(214 45% 40%), Girl: hsl(345 45% 46%)
+
+After all suggestions load: "Refresh Suggestions" button appended at the bottom.
+  Width: 100%, margin-top 8 (mt-2), padding 10 vertical, 16 horizontal (py-2.5 px-4)
+  border-radius 12 (rounded-xl), Fredoka medium, size 14 (text-sm)
+  Boy: bg-boy/10 text-boy border-boy/20 hover:bg-boy/20
+  Girl: bg-girl-pink/10 text-girl-pink border-girl-pink/20 hover:bg-girl-pink/20
+  disabled when loading=true (opacity 0.50)
+  flex row, items center, justify center, gap 8 (gap-2)
+  RefreshCw icon: size 14
+  On press: fetchSuggestions(true) with isRefresh=true
+
+--- STATE 4: EMPTY (no suggestions after load, hasLoaded=true, not loading) ---
+
+"No more new suggestions right now."
+  font-display, size 14 (text-sm), muted-foreground, text-center, padding 32 vertical (py-8)
+
+"Try Again" button:
+  Same styling as Refresh but smaller: py-2 px-5, mx-auto
+  On press: fetchSuggestions(true)
+
+--- STATE 5: NOT YET LOADED (loading=false, hasLoaded=false, but likedNames >= 3) ---
+
+  "Generate Suggestions" button:
+    Full-width, same style as Refresh
+    Sparkles icon: size 16
+    "Generate Suggestions"
+    disabled when loading
+    padding 4 vertical (py-4), margin from top
+    On press: fetchSuggestions(false)
+
+--- ERROR STATE (shown below any other content when error is set) ---
+
+  "Could not load suggestions. Please try again." or "Something went wrong..."
+  size 10 (text-xs), red-400, font-display, text-center, margin-top 8 (mt-2)
+
+================================================================================
+PART 6 — STYLE FILTER PILLS
+================================================================================
+
+Three pills shown at the TOP of the NameSuggestions component, above all content.
+They are always visible (not hidden behind loading states).
+
+Container: flex row, gap 8 (gap-2), padding: 8 vertical (py-2), flex-shrink 0
+
+Each pill:
+  flex: 1 (equal width), padding 6 vertical (py-1.5), border-radius 8 (rounded-lg)
+  font-display, font-medium, size 10 (text-xs), border, transition-all
+  Text: "Classic" | "Modern" | "Unique" (capitalized)
+
+ACTIVE state (selectedStyle === this value):
+  Boy active: bg-boy/10 text-boy border-boy/20
+  Girl active: bg-girl-pink/10 text-girl-pink border-girl-pink/20
+
+INACTIVE state (selectedStyle !== this value):
+  bg-white/40 text-muted-foreground border-border/30
+
+TOGGLE behavior:
+  Tapping an active pill: deselects it → selectedStyle = null
+  Tapping an inactive pill: selects it → selectedStyle = 'classic'|'modern'|'unique'
+  This is a single-select toggle — only one can be active at a time.
+
+REFETCH on style change:
+  useEffect fires when selectedStyle changes (if hasFetchedOnMount.current=true).
+  A new fetch begins immediately.
+  The current suggestions list is cleared (setSuggestions([])).
+  The addedIds set is cleared (setAddedIds(new Set())).
+  The new suggestions stream in fresh.
+  The shownNames set is NOT cleared on style change (only cleared on isRefresh).
+
+================================================================================
+PART 7 — THE REFRESH MECHANISM
+================================================================================
+
+fetchSuggestions(isRefresh: boolean) is the main fetch function.
+
+CALLED WITH isRefresh=false:
+  excludeNames sent to API = [...excludeNames] (from parent, = all swiped names)
+  The previously shown suggestions are excluded via the parent's allSwipedNames.
+  The shownNames set (local to component) is NOT added.
+
+CALLED WITH isRefresh=true:
+  excludeNames sent to API = [...excludeNames, ...Array.from(shownNames)]
+  shownNames tracks every suggestion name that has been displayed.
+  This prevents the same suggestions from appearing again on refresh.
+  The shownNames set accumulates across refreshes (never reset).
+
+BEFORE EVERY FETCH:
+  setLoading(true)
+  setError('')
+  setSuggestions([])  — clear previous suggestions
+  setAddedIds(new Set())  — reset "Added" button states
+
+LOADING → STREAMING TRANSITION:
+  setLoading(false) and setHasLoaded(true) are called immediately AFTER
+  the HTTP response is received but BEFORE any suggestions are parsed.
+  This means: the skeleton shows briefly, then disappears, and suggestions
+  appear one by one as they stream in.
+  The loading skeleton is NOT shown during streaming — only before the first byte.
+
+POST-FETCH VALIDATION:
+  If fetched.length === 0 after the stream ends:
+    setError('Could not load suggestions. Please try again.')
+
+SHOWNNAMES accumulation:
+  Every suggestion name is added to shownNames as it arrives:
+    setShownNames((prev) => new Set([...prev, obj.name]))
+  Also added when "Add to My Picks" is tapped (in case the name was added
+  before fully appearing in the list, preventing re-suggestion).
+
+================================================================================
+PART 8 — ADD TO MY PICKS (onNameAdded FLOW)
+================================================================================
+
+When a user taps "Add to My Picks" on a suggestion tile:
+
+handleAddToLiked(suggestion) runs:
+  1. Build key = suggestion.name + suggestion.gender
+  2. If addedIds.has(key): return early (prevent double-add)
+  3. setAddedIds((prev) => new Set([...prev, key]))
+     (button immediately shows "Added" state)
+  4. setShownNames((prev) => new Set([...prev, suggestion.name]))
+     (prevents this name from appearing in next refresh)
+  5. Call onNameAdded(suggestion.name, suggestion.gender)
+
+onNameAdded is handleAddFromSuggestion in NamesView:
+
+handleAddFromSuggestion(name, gender):
+  OPTIMISTIC UPDATE:
+    Create optimistic Swipe with id='optimistic-{timestamp}-{random}'
+    Add to swipes immediately (if not already in list)
+    Add name to allSwipedNames immediately
+    showToastNotification('{name} added to Your Picks!')
+
+  DB WRITE:
+    1. SELECT uuid, name, gender FROM names WHERE name=name AND gender=gender (maybeSingle)
+    2. If not found:
+         INSERT INTO names (name, gender) — WITHOUT user_created flag
+         (Note: AI-suggested names that exist get found; truly new names are inserted)
+    3. INSERT INTO swipes (user_id, name_id, liked=true)
+    4. On success: replace optimistic swipe with real DB swipe (with real id and ranking)
+
+  ON ERROR:
+    Rollback: remove optimistic swipe from list
+    Remove name from allSwipedNames
+    showToastNotification('Failed to add {name}')
+
+IMPORTANT: The add-from-suggestion flow does NOT set user_created=true because
+AI suggestions may reference names that ARE already in the names table.
+Only manually typed names (via the add form) set user_created=true.
+
+================================================================================
+PART 9 — COMPLETE STATE VARIABLES
+================================================================================
+
+All local state within NameSuggestions:
+
+  selectedStyle:    StyleFilter      = 'classic' | 'modern' | 'unique' | null
+                    Starts: null
+
+  suggestions:      Suggestion[]     = array of streamed-in suggestion objects
+                    Each: { name, meaning, gender, reason? }
+                    Starts: []
+
+  loading:          boolean          — true from fetch start until first byte received
+                    Starts: false
+
+  error:            string           — error message, shown below content
+                    Starts: ''
+
+  addedIds:         Set<string>      — composite keys (name+gender) of added suggestions
+                    Starts: new Set()
+
+  hasLoaded:        boolean          — becomes true after first successful fetch
+                    Starts: false
+
+  shownNames:       Set<string>      — all suggestion names ever shown (for refresh dedup)
+                    Starts: new Set()
+
+  hasFetchedOnMount: useRef<boolean> — prevents double-fetch in React StrictMode
+                    Starts: false
+
+Derived:
+  settingsGender: 'boy' | 'girl'    — from user.baby_gender
+  selectedGender: same as settingsGender
+  isBoy:          boolean           — selectedGender === 'boy'
+  accentColor:    string            — hsl value for boy or girl
+  tooFewNames:    boolean           — likedNames.length < 3
+
+================================================================================
+PART 10 — VISUAL DESIGN LANGUAGE
+================================================================================
+
+The AI Suggestions tab matches the visual language of the Your Picks list tiles.
+The same landscape background image (boyCardBg) is used for boy suggestion tiles.
+The same pink radial gradient system is used for girl suggestion tiles.
+
+ACCENT COLORS:
+  Boy suggestions:
+    Tile background gradient overlay: hsl(214 72% 88% / 0.82) → hsl(210 65% 86% / 0.72)
+    Border: hsl(214 50% 62%)
+    Name text: hsl(214 55% 30%)
+    Reason label: hsl(214 45% 55%)
+    Reason text: hsl(214 45% 40%)
+    Reason panel bg: rgba(100,140,200,0.10)
+    Reason panel border: hsl(214 50% 76%)
+
+  Girl suggestions:
+    Tile background: multi-layer pink radial gradients
+    Border: hsl(345 50% 68%)
+    Name text: hsl(345 55% 38%)
+    Reason label: hsl(345 45% 55%)
+    Reason text: hsl(345 45% 46%)
+    Reason panel bg: rgba(255,160,170,0.12)
+    Reason panel border: hsl(345 50% 80%)
+
+  Skeleton tiles:
+    Boy: background linear-gradient(90deg, hsl(214 72% 93%), hsl(210 65% 91%))
+    Girl: linear-gradient(135deg, rgba(255,228,225,0.9), rgba(255,210,215,0.85))
+
+LOADING SKELETON DETAILS (8 tiles):
+  Each skeleton has internal structure matching real tiles:
+  - Name placeholder: h-4, w-24
+  - Description placeholder: h-3, w-40
+  - Circle placeholder: w-7, h-7 (simulates the Add button area)
+
+FONT USAGE:
+  All text: Fredoka (font-display)
+  Name text: font-medium, text-base
+  Meaning text: text-xs
+  Reason label: text-[10px] uppercase tracking-wide font-semibold
+  Reason body: text-xs
+  Style pills: text-xs font-medium
+  Add button: text-xs font-medium
+
+================================================================================
+PART 11 — CONSIDERATIONS & EDGE CASES
+================================================================================
+
+1. GENDER MISMATCH WITH USER PREFERENCE
+   The suggestions always use settingsGender (from user.baby_gender).
+   'either' maps to 'boy' for suggestions (line: user.baby_gender === 'girl' ? 'girl' : 'boy').
+   This means users set to 'either' only get boy name suggestions.
+   A future improvement would alternate between boy and girl suggestions,
+   or offer a gender toggle within the suggestions tab.
+
+2. OPENAI API LATENCY
+   The gpt-4o-mini model is fast but can take 3-8 seconds for a full response.
+   The skeleton loading state bridges this wait.
+   Because streaming is used, the first suggestion often appears within 1-2 seconds.
+   The user sees progressive results rather than a long blank wait.
+
+3. STREAMING PARSE ROBUSTNESS
+   The brace-depth parser handles partial JSON arriving in chunks.
+   Incomplete objects are skipped (try/catch around JSON.parse).
+   Objects are only emitted when a complete outer { } pair is found at depth 0.
+   Nested objects (reason containing quotes etc.) are handled correctly
+   because depth tracking accounts for all nested braces.
+
+4. DUPLICATE PREVENTION (MULTI-LAYER)
+   Layer 1: excludeNames from parent (all names the user has ever swiped)
+   Layer 2: shownNames (names shown in this session, accumulated across refreshes)
+   Layer 3: addedIds (prevents double-tapping Add on the same tile)
+   Layer 4: handleAddFromSuggestion checks swipes array for duplicates before inserting
+
+5. PARTNER CONTEXT QUALITY
+   The AI receives three quality tiers of name signals:
+   - Matched names (both agreed): highest weight, listed first in prompt
+   - User's liked names: medium weight
+   - Partner's liked names: supporting context
+   This tiering is encoded in the tasteContext string sent to OpenAI.
+   The more context (especially matches), the more personalized the suggestions.
+
+6. SUGGEST-NAMES API RATE LIMITING
+   There is no client-side rate limiting on suggestions fetches.
+   Each style change and each refresh triggers a new OpenAI call.
+   With 8 possible rapid changes (3 style toggles + deselect + refresh), a user
+   could trigger many calls quickly. No debouncing is currently implemented.
+
+7. NO CACHING
+   Suggestions are NOT cached between sessions or even between tab switches.
+   Every time the user navigates away and back to the suggestions tab:
+     The suggestions list is empty (the component re-renders from scratch)
+     The auto-fetch fires again if likedNames.length >= 3 and hasFetchedOnMount is false
+     (hasFetchedOnMount resets on unmount because it's a ref on the component instance)
+
+8. SUGGESTION NAME ADDED TO PICKS WHILE ALREADY LIKED
+   handleAddFromSuggestion checks swipes for duplicates before inserting optimistically.
+   If name is already in swipes with same gender: the optimistic add is skipped.
+   Toast still shows "{name} added to Your Picks!" even in this case — this is a bug.
+   The correct behavior would be to show "already in your picks" instead.
+
+9. NO PARTNER MATCHING FROM SUGGESTIONS
+   When a user adds an AI suggestion to their picks:
+   It creates a swipe row (liked=true). If the partner has ALSO previously liked
+   that same name, a match is created immediately via the match-detection trigger.
+   This is correct behavior — AI suggestions that happen to match the partner
+   will appear as matches in real time.
+
+10. LAST NAME PERSONALIZATION
+    If the user has set baby_last_name in their profile:
+    The last name is included in the AI prompt as a flow-compatibility hint.
+    "Make sure the first names flow well with it."
+    This means suggestions like "Xavier Smith" or "Ava Chen" are subtly optimized.
+    If no last name is set, lastName is an empty string and the context is omitted.

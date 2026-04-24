@@ -32,6 +32,8 @@ const grassBorder = require("../../assets/images/grass-flower-border.png");
 const boyRowBg = require("../../assets/images/boy-card-bg.jpg");
 const paperTexture = require("../../assets/images/paper-texture.jpg");
 
+import { NameSuggestions } from "@/components/NameSuggestions";
+import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
@@ -86,6 +88,14 @@ export default function NamesScreen() {
   const [isReordering, setIsReordering] = useState(false);
   const activeDragIdx = useSharedValue(-1);
   const dragY = useSharedValue(0);
+
+  // AI Suggestions state
+  const [allSwipedNames, setAllSwipedNames] = useState<string[]>([]);
+  const [partnerLikedNames, setPartnerLikedNames] = useState<string[]>([]);
+  const [discoverGateOpen, setDiscoverGateOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const isPremium = user?.plan_tier === "premium";
 
   const fetchNamesByIds = useCallback(async (ids: string[]) => {
     if (ids.length === 0)
@@ -199,6 +209,121 @@ export default function NamesScreen() {
       loadAll();
     }, [loadAll]),
   );
+
+  const loadSuggestionContext = useCallback(async () => {
+    if (!user) return;
+    try {
+      // All swiped names (liked + passed) — for excludeNames
+      const { data: allSwipes } = await supabase
+        .from("swipes")
+        .select("name_id")
+        .eq("user_id", user.id);
+      const swipedIds = (allSwipes ?? []).map((s: { name_id: string }) => s.name_id);
+      if (swipedIds.length > 0) {
+        const { data: swipedRows } = await supabase
+          .from("names")
+          .select("name")
+          .in("uuid", swipedIds);
+        setAllSwipedNames((swipedRows ?? []).map((n: { name: string }) => n.name));
+      } else {
+        setAllSwipedNames([]);
+      }
+
+      // Partner liked names — for context
+      if (user.partner_id) {
+        const { data: partnerSwipes } = await supabase
+          .from("swipes")
+          .select("name_id")
+          .eq("user_id", user.partner_id)
+          .eq("liked", true);
+        const partnerIds = (partnerSwipes ?? []).map((s: { name_id: string }) => s.name_id);
+        if (partnerIds.length > 0) {
+          const { data: partnerRows } = await supabase
+            .from("names")
+            .select("name")
+            .in("uuid", partnerIds);
+          setPartnerLikedNames((partnerRows ?? []).map((n: { name: string }) => n.name));
+        } else {
+          setPartnerLikedNames([]);
+        }
+      }
+    } catch (e) {
+      console.error("[NamesScreen] loadSuggestionContext error", e);
+    }
+  }, [user]);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }
+
+  async function handleAddFromSuggestion(name: string, gender: string) {
+    if (!user) return;
+
+    // Dedup check
+    const alreadyIn = liked.some(
+      (n) => n.text.toLowerCase() === name.toLowerCase() && n.gender === gender,
+    );
+    if (!alreadyIn) {
+      const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const optimisticItem: NameItem = {
+        recordId: optimisticId,
+        id: optimisticId,
+        text: name,
+        gender,
+        rank: null,
+      };
+      setLiked((p) => [...p, optimisticItem]);
+      setAllSwipedNames((p) => [...p, name]);
+      showToast(`${name} added to Your Picks!`);
+
+      try {
+        let { data: nameRow } = await supabase
+          .from("names")
+          .select("uuid, name, gender")
+          .eq("name", name)
+          .eq("gender", gender)
+          .maybeSingle();
+
+        if (!nameRow) {
+          const { data: inserted, error: insertErr } = await supabase
+            .from("names")
+            .insert({ name, gender })
+            .select("uuid, name, gender")
+            .single();
+          if (insertErr || !inserted) throw insertErr ?? new Error("insert failed");
+          nameRow = inserted;
+        }
+
+        const nameUuid = (nameRow as { uuid: string }).uuid;
+        const { data: swipe, error: swErr } = await supabase
+          .from("swipes")
+          .upsert(
+            { user_id: user.id, name_id: nameUuid, liked: true },
+            { onConflict: "user_id,name_id" },
+          )
+          .select("id")
+          .single();
+
+        if (swErr || !swipe) throw swErr ?? new Error("swipe failed");
+
+        setLiked((p) =>
+          p.map((i) =>
+            i.recordId === optimisticId
+              ? { ...optimisticItem, recordId: (swipe as { id: string }).id, id: nameUuid }
+              : i,
+          ),
+        );
+      } catch {
+        // Rollback
+        setLiked((p) => p.filter((i) => i.recordId !== optimisticId));
+        setAllSwipedNames((p) => p.filter((n) => n !== name));
+        showToast(`Failed to add ${name}`);
+      }
+    } else {
+      showToast(`${name} added to Your Picks!`);
+    }
+  }
 
   async function deleteItem(item: NameItem, isFinalistRow: boolean) {
     if (!user) return;
@@ -480,7 +605,15 @@ export default function NamesScreen() {
           }
           active={tab === "suggestions"}
           accent={accentColor}
-          onPress={() => setTab("suggestions")}
+          proBadge={!isPremium}
+          onPress={() => {
+            if (isPremium) {
+              setTab("suggestions");
+              loadSuggestionContext();
+            } else {
+              setDiscoverGateOpen(true);
+            }
+          }}
         />
       </View>
 
@@ -634,12 +767,17 @@ export default function NamesScreen() {
             </Pressable>
           </View>
         ) : tab === "suggestions" ? (
-          <View style={styles.bigEmpty}>
-            <FontAwesome5 name="magic" size={56} color={accentColor} style={{ opacity: 0.6 }} />
-            <Text style={[styles.bigEmptyTitle, { color: FOREGROUND }]}>Coming soon</Text>
-            <Text style={[styles.bigEmptyBody, { color: MUTED }]}>
-              Personalized AI name suggestions based on your picks will appear here.
-            </Text>
+          <View style={{ paddingTop: 4 }}>
+            {user && (
+              <NameSuggestions
+                user={user}
+                likedNames={liked.map((n) => n.text)}
+                matchedNames={matches.map((n) => n.text)}
+                partnerLikedNames={partnerLikedNames}
+                excludeNames={allSwipedNames}
+                onNameAdded={handleAddFromSuggestion}
+              />
+            )}
           </View>
         ) : loading ? (
           <View style={styles.empty}>
@@ -718,6 +856,44 @@ export default function NamesScreen() {
         item={infoItem}
         onClose={() => setInfoItem(null)}
       />
+
+      <PremiumModal
+        open={discoverGateOpen}
+        limitType="discover"
+        onClose={() => {
+          setDiscoverGateOpen(false);
+          if (tab === "suggestions") setTab("liked");
+        }}
+        onUpgrade={() => setDiscoverGateOpen(false)}
+      />
+
+      {!!toast && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            bottom: insets.bottom + 90,
+            left: 20,
+            right: 20,
+            backgroundColor: "rgba(30,24,20,0.88)",
+            borderRadius: 12,
+            paddingVertical: 10,
+            paddingHorizontal: 16,
+            alignItems: "center",
+            zIndex: 999,
+          }}
+        >
+          <Text
+            style={{
+              color: "#fff",
+              fontFamily: fonts.display,
+              fontSize: 13,
+            }}
+          >
+            {toast}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
@@ -727,12 +903,14 @@ function TabButton({
   icon,
   active,
   accent,
+  proBadge,
   onPress,
 }: {
   label: string;
   icon: React.ReactNode;
   active: boolean;
   accent: string;
+  proBadge?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -748,15 +926,38 @@ function TabButton({
       ]}
     >
       {icon}
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.tabLabel,
-          { color: active ? accent : MUTED },
-        ]}
-      >
-        {label}
-      </Text>
+      <View style={{ alignItems: "center", gap: 2 }}>
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.tabLabel,
+            { color: active ? accent : MUTED },
+          ]}
+        >
+          {label}
+        </Text>
+        {proBadge && (
+          <View
+            style={{
+              backgroundColor: "hsl(38,85%,48%)",
+              borderRadius: 4,
+              paddingHorizontal: 4,
+              paddingVertical: 1,
+            }}
+          >
+            <Text
+              style={{
+                color: "#fff",
+                fontSize: 9,
+                fontFamily: fonts.displayMedium,
+                letterSpacing: 0.5,
+              }}
+            >
+              PRO
+            </Text>
+          </View>
+        )}
+      </View>
     </Pressable>
   );
 }

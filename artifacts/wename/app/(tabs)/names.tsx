@@ -935,7 +935,7 @@ function TabButton({
       ]}
     >
       {icon}
-      <View style={{ alignItems: "center", gap: 2 }}>
+      <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
         <Text
           numberOfLines={1}
           style={[
@@ -1410,18 +1410,18 @@ const styles = StyleSheet.create({
   },
   tab: {
     flex: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 11,
-    paddingHorizontal: 8,
+    gap: 4,
+    paddingVertical: 9,
+    paddingHorizontal: 10,
     borderRadius: 14,
     borderWidth: 1.5,
   },
   tabLabel: {
     fontFamily: fonts.displayMedium,
-    fontSize: 13,
+    fontSize: 12,
     letterSpacing: 0.1,
   },
 

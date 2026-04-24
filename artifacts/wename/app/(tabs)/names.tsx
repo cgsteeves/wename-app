@@ -143,63 +143,62 @@ export default function NamesScreen() {
     if (!user) return;
     setLoading(true);
     try {
-      const { data: swipeData } = await supabase
-        .from("swipes")
-        .select("id, name_id, ranking, created_at")
-        .eq("user_id", user.id)
-        .eq("liked", true)
-        .order("ranking", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false });
-      const swipeIds = (swipeData ?? []).map((s: { name_id: string }) => s.name_id);
-      const swipeMap = await fetchNamesByIds(swipeIds);
+      const [swipeData, matchData, finData] = await Promise.all([
+        supabase
+          .from("swipes")
+          .select("id, name_id, ranking, created_at")
+          .eq("user_id", user.id)
+          .eq("liked", true)
+          .order("ranking", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: false })
+          .then((r) => r.data ?? []),
+        user.partner_id
+          ? supabase
+              .from("matches")
+              .select("id, name_id, created_at, ranking")
+              .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
+              .order("ranking", { ascending: true, nullsFirst: false })
+              .order("created_at", { ascending: false })
+              .then((r) => r.data ?? [])
+          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null }[]),
+        supabase
+          .from("finalists")
+          .select("id, name_id, ranking, created_at")
+          .eq("user_id", user.id)
+          .order("ranking", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: false })
+          .then((r) => r.data ?? []),
+      ]);
+
+      const allIds = [
+        ...new Set([
+          ...(swipeData as { name_id: string }[]).map((s) => s.name_id),
+          ...(matchData as { name_id: string }[]).map((m) => m.name_id),
+          ...(finData as { name_id: string }[]).map((f) => f.name_id),
+        ]),
+      ];
+      const nameMap = await fetchNamesByIds(allIds);
+
       setLiked(
-        (swipeData ?? [])
-          .filter((s: { name_id: string }) => swipeMap.has(s.name_id))
-          .map((s: { id: string; name_id: string }) => ({
-            recordId: s.id,
-            id: s.name_id,
-            ...swipeMap.get(s.name_id)!,
-          })),
+        (swipeData as { id: string; name_id: string }[])
+          .filter((s) => nameMap.has(s.name_id))
+          .map((s) => ({ recordId: s.id, id: s.name_id, ...nameMap.get(s.name_id)! })),
       );
 
       if (user.partner_id) {
-        const { data: matchData } = await supabase
-          .from("matches")
-          .select("id, name_id, created_at, ranking")
-          .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
-          .order("ranking", { ascending: true, nullsFirst: false })
-          .order("created_at", { ascending: false });
-        const ids = (matchData ?? []).map((m: { name_id: string }) => m.name_id);
-        const map = await fetchNamesByIds(ids);
         setMatches(
-          (matchData ?? [])
-            .filter((m: { name_id: string }) => map.has(m.name_id))
-            .map((m: { id: string; name_id: string }) => ({
-              recordId: m.id,
-              id: m.name_id,
-              ...map.get(m.name_id)!,
-            })),
+          (matchData as { id: string; name_id: string }[])
+            .filter((m) => nameMap.has(m.name_id))
+            .map((m) => ({ recordId: m.id, id: m.name_id, ...nameMap.get(m.name_id)! })),
         );
       } else {
         setMatches([]);
       }
 
-      const { data: finData } = await supabase
-        .from("finalists")
-        .select("id, name_id, ranking, created_at")
-        .eq("user_id", user.id)
-        .order("ranking", { ascending: true, nullsFirst: false })
-        .order("created_at", { ascending: false });
-      const fIds = (finData ?? []).map((f: { name_id: string }) => f.name_id);
-      const fMap = await fetchNamesByIds(fIds);
       setFinalists(
-        (finData ?? [])
-          .filter((f: { name_id: string }) => fMap.has(f.name_id))
-          .map((f: { id: string; name_id: string }) => ({
-            recordId: f.id,
-            id: f.name_id,
-            ...fMap.get(f.name_id)!,
-          })),
+        (finData as { id: string; name_id: string }[])
+          .filter((f) => nameMap.has(f.name_id))
+          .map((f) => ({ recordId: f.id, id: f.name_id, ...nameMap.get(f.name_id)! })),
       );
     } catch (e) {
       console.error("[NamesScreen] load error", e);

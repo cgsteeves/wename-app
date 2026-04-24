@@ -165,35 +165,52 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
     let jsonBuffer = "";
 
     const flush = async () => {
-      let depth = 0;
-      let start = -1;
-      for (let i = 0; i < jsonBuffer.length; i++) {
-        const ch = jsonBuffer[i];
-        if (ch === "{") {
-          if (depth === 0) start = i;
-          depth++;
-        } else if (ch === "}") {
-          depth--;
-          if (depth === 0 && start !== -1) {
-            const slice = jsonBuffer.slice(start, i + 1);
-            try {
-              const obj = JSON.parse(slice);
-              if (obj.name && obj.gender) {
-                await writer.write(
-                  encoder.encode(JSON.stringify(obj) + "\n"),
-                );
+      let i = 0;
+      while (i < jsonBuffer.length) {
+        // Skip until we find the start of a JSON object
+        if (jsonBuffer[i] !== "{") { i++; continue; }
+
+        // Walk forward tracking depth, respecting string boundaries
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+        let j = i;
+        let foundComplete = false;
+
+        while (j < jsonBuffer.length) {
+          const ch = jsonBuffer[j];
+          if (escaped) { escaped = false; j++; continue; }
+          if (ch === "\\" && inString) { escaped = true; j++; continue; }
+          if (ch === '"') { inString = !inString; j++; continue; }
+          if (!inString) {
+            if (ch === "{") depth++;
+            else if (ch === "}") {
+              depth--;
+              if (depth === 0) {
+                // Complete object found
+                const slice = jsonBuffer.slice(i, j + 1);
+                try {
+                  const obj = JSON.parse(slice);
+                  if (obj.name && obj.gender) {
+                    await writer.write(encoder.encode(JSON.stringify(obj) + "\n"));
+                  }
+                } catch {
+                  // invalid slice — skip
+                }
+                i = j + 1;
+                foundComplete = true;
+                break;
               }
-            } catch {
-              // incomplete or invalid — skip
             }
-            start = -1;
           }
+          j++;
         }
+
+        // If we didn't finish a complete object the buffer is incomplete — stop
+        if (!foundComplete) break;
       }
-      const lastClose = jsonBuffer.lastIndexOf("}");
-      if (lastClose !== -1) {
-        jsonBuffer = jsonBuffer.slice(lastClose + 1);
-      }
+      // Trim everything we've already processed
+      jsonBuffer = jsonBuffer.slice(i);
     };
 
     try {

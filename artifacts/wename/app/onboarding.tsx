@@ -9,6 +9,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -27,12 +28,12 @@ const tutorialBg = require("../assets/images/onboarding-tutorial-bg.jpg");
 const logo = require("../assets/images/wename-logo.png");
 
 type Gender = "boy" | "girl" | "either";
-type Step = "welcome" | "personalize" | "tutorial";
+type Step = "welcome" | "personalize" | "partner";
 
 const stepBg: Record<Step, any> = {
   welcome: welcomeBg,
   personalize: personalizeBg,
-  tutorial: tutorialBg,
+  partner: tutorialBg,
 };
 
 export default function Onboarding() {
@@ -44,9 +45,9 @@ export default function Onboarding() {
   const [gender, setGender] = useState<Gender>("either");
   const [lastName, setLastName] = useState("");
   const [partnerCode, setPartnerCode] = useState("");
-  const [showCode, setShowCode] = useState(false);
   const [codeError, setCodeError] = useState("");
   const [linking, setLinking] = useState(false);
+  const [linked, setLinked] = useState(false);
 
   async function finish() {
     if (user) {
@@ -70,7 +71,7 @@ export default function Onboarding() {
       setCodeError(res.error ?? "Could not link");
       return;
     }
-    setStep("personalize");
+    setLinked(true);
   }
 
   return (
@@ -97,14 +98,8 @@ export default function Onboarding() {
           {step === "welcome" && (
             <WelcomeStep
               colors={colors}
-              showCode={showCode}
-              setShowCode={setShowCode}
-              partnerCode={partnerCode}
-              setPartnerCode={setPartnerCode}
-              codeError={codeError}
-              linking={linking}
               onContinue={() => setStep("personalize")}
-              onJoin={joinByCode}
+              onSkip={finish}
             />
           )}
 
@@ -115,12 +110,24 @@ export default function Onboarding() {
               setGender={setGender}
               lastName={lastName}
               setLastName={setLastName}
-              onNext={() => setStep("tutorial")}
-              onSkip={() => setStep("tutorial")}
+              onNext={() => setStep("partner")}
+              onSkip={() => setStep("partner")}
             />
           )}
 
-          {step === "tutorial" && <TutorialStep colors={colors} onStart={finish} />}
+          {step === "partner" && (
+            <PartnerStep
+              colors={colors}
+              inviteCode={user?.invite_code ?? ""}
+              partnerCode={partnerCode}
+              setPartnerCode={setPartnerCode}
+              codeError={codeError}
+              linking={linking}
+              linked={linked}
+              onJoin={joinByCode}
+              onDone={finish}
+            />
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </View>
@@ -128,7 +135,7 @@ export default function Onboarding() {
 }
 
 function StepDots({ step }: { step: Step }) {
-  const order: Step[] = ["welcome", "personalize", "tutorial"];
+  const order: Step[] = ["welcome", "personalize", "partner"];
   const idx = order.indexOf(step);
   return (
     <View style={styles.dots}>
@@ -180,24 +187,12 @@ function PrimaryButton({
 
 function WelcomeStep({
   colors,
-  showCode,
-  setShowCode,
-  partnerCode,
-  setPartnerCode,
-  codeError,
-  linking,
   onContinue,
-  onJoin,
+  onSkip,
 }: {
   colors: ReturnType<typeof useColors>;
-  showCode: boolean;
-  setShowCode: (v: boolean) => void;
-  partnerCode: string;
-  setPartnerCode: (v: string) => void;
-  codeError: string;
-  linking: boolean;
   onContinue: () => void;
-  onJoin: () => void;
+  onSkip: () => void;
 }) {
   return (
     <View style={styles.stepContent}>
@@ -217,42 +212,9 @@ function WelcomeStep({
 
       <PrimaryButton label="Get started" onPress={onContinue} color={colors.grass} />
 
-      {!showCode ? (
-        <Pressable style={styles.secondaryBtn} onPress={() => setShowCode(true)}>
-          <Text style={styles.secondaryBtnText}>I already have a partner code</Text>
-        </Pressable>
-      ) : (
-        <View style={{ marginTop: 12, gap: 8 }}>
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            <TextInput
-              value={partnerCode}
-              onChangeText={(v) => setPartnerCode(v.toUpperCase())}
-              placeholder="PARTNER CODE"
-              placeholderTextColor="hsl(25, 12%, 60%)"
-              autoCapitalize="characters"
-              maxLength={8}
-              style={styles.codeInput}
-            />
-            <PrimaryButton
-              label={linking ? "..." : "Join"}
-              onPress={onJoin}
-              color={colors.accent}
-              disabled={linking || partnerCode.length === 0}
-            />
-          </View>
-          {!!codeError && (
-            <Text
-              style={{
-                color: colors.destructive,
-                textAlign: "center",
-                fontFamily: fonts.display,
-              }}
-            >
-              {codeError}
-            </Text>
-          )}
-        </View>
-      )}
+      <Pressable style={styles.secondaryBtn} onPress={onSkip}>
+        <Text style={styles.secondaryBtnText}>Skip for now</Text>
+      </Pressable>
     </View>
   );
 }
@@ -286,7 +248,7 @@ function PersonalizeStep({
       </Text>
       <View style={{ height: 18 }} />
       <GlassCard>
-        <Text style={styles.handLabel}>Baby gender preference</Text>
+        <Text style={styles.handLabel}>Which names are you looking for?</Text>
         <View style={{ flexDirection: "row", gap: 8 }}>
           {opts.map((o) => {
             const active = gender === o.value;
@@ -333,52 +295,141 @@ function PersonalizeStep({
   );
 }
 
-function TutorialStep({
+function PartnerStep({
   colors,
-  onStart,
+  inviteCode,
+  partnerCode,
+  setPartnerCode,
+  codeError,
+  linking,
+  linked,
+  onJoin,
+  onDone,
 }: {
   colors: ReturnType<typeof useColors>;
-  onStart: () => void;
+  inviteCode: string;
+  partnerCode: string;
+  setPartnerCode: (v: string) => void;
+  codeError: string;
+  linking: boolean;
+  linked: boolean;
+  onJoin: () => void;
+  onDone: () => void;
 }) {
-  const items: {
-    icon: keyof typeof Feather.glyphMap;
-    text: string;
-    color: string;
-  }[] = [
-    { icon: "arrow-right", text: "Swipe right to like", color: colors.grass },
-    { icon: "arrow-left", text: "Swipe left to pass", color: colors.heart },
-    {
-      icon: "heart",
-      text: "If your partner likes the same name, it becomes a match",
-      color: colors.girlPink,
-    },
-    {
-      icon: "list",
-      text: "Add names manually and rank your favorites",
-      color: colors.sun,
-    },
-    {
-      icon: "settings",
-      text: "Connect with your partner and tweak preferences",
-      color: colors.boy,
-    },
-  ];
+  const [copied, setCopied] = useState(false);
+
+  async function handleShare() {
+    if (Platform.OS === "web") {
+      try {
+        await navigator.clipboard.writeText(inviteCode);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch {
+        // fallback: nothing to do, code is visible on screen
+      }
+      return;
+    }
+    try {
+      await Share.share({
+        message: `Join me on WeName! Use my invite code: ${inviteCode}`,
+      });
+    } catch {
+      // user dismissed share sheet
+    }
+  }
+
   return (
     <View style={styles.stepContent}>
-      <Text style={[styles.heading, { color: colors.grass }]}>How it works</Text>
+      <Text style={[styles.heading, { color: colors.grass }]}>Connect with your partner</Text>
+      <Text style={[styles.partnerSubhead, { color: "hsl(25, 12%, 48%)" }]}>
+        Share your code so you can match on names together
+      </Text>
       <View style={{ height: 16 }} />
-      <View style={{ gap: 10 }}>
-        {items.map((it, i) => (
-          <View key={i} style={styles.tutorialRow}>
-            <View style={[styles.tutorialIcon, { backgroundColor: it.color + "22" }]}>
-              <Feather name={it.icon} size={18} color={it.color} />
-            </View>
-            <Text style={styles.tutorialText}>{it.text}</Text>
-          </View>
-        ))}
+
+      <GlassCard>
+        <Text style={styles.handLabel}>Your invite code</Text>
+        <View style={styles.codeDisplay}>
+          <Text style={[styles.codeText, { color: colors.grass }]}>
+            {inviteCode}
+          </Text>
+        </View>
+        <Pressable
+          onPress={handleShare}
+          style={({ pressed }) => [
+            styles.shareBtn,
+            { borderColor: colors.grass + "55", backgroundColor: colors.grass + "12" },
+            pressed && { opacity: 0.75 },
+          ]}
+        >
+          <Feather
+            name={Platform.OS === "web" ? "copy" : "share-2"}
+            size={15}
+            color={colors.grass}
+          />
+          <Text style={[styles.shareBtnText, { color: colors.grass }]}>
+            {copied ? "Copied!" : Platform.OS === "web" ? "Copy code" : "Share with partner"}
+          </Text>
+        </Pressable>
+      </GlassCard>
+
+      <View style={styles.dividerRow}>
+        <View style={[styles.dividerLine, { backgroundColor: "hsl(35,22%,78%)" }]} />
+        <Text style={[styles.dividerText, { color: "hsl(25,12%,55%)" }]}>
+          or join your partner
+        </Text>
+        <View style={[styles.dividerLine, { backgroundColor: "hsl(35,22%,78%)" }]} />
       </View>
+
+      <GlassCard>
+        <Text style={styles.handLabel}>Already have a code?</Text>
+        {linked ? (
+          <View style={styles.linkedRow}>
+            <Feather name="check-circle" size={18} color={colors.grass} />
+            <Text style={[styles.linkedText, { color: colors.grass }]}>
+              Partner linked!
+            </Text>
+          </View>
+        ) : (
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <TextInput
+                value={partnerCode}
+                onChangeText={(v) => setPartnerCode(v.toUpperCase())}
+                placeholder="ENTER CODE"
+                placeholderTextColor="hsl(25, 12%, 60%)"
+                autoCapitalize="characters"
+                maxLength={8}
+                editable={!linking}
+                style={styles.codeInput}
+              />
+              <PrimaryButton
+                label={linking ? "…" : "Join"}
+                onPress={onJoin}
+                color={colors.accent}
+                disabled={linking || partnerCode.trim().length === 0}
+              />
+            </View>
+            {!!codeError && (
+              <Text style={[styles.errorText, { color: colors.destructive }]}>
+                {codeError}
+              </Text>
+            )}
+          </View>
+        )}
+      </GlassCard>
+
       <View style={{ flex: 1, minHeight: 24 }} />
-      <PrimaryButton label="Start swiping" onPress={onStart} color={colors.grass} />
+
+      <PrimaryButton
+        label={linked ? "Start swiping together →" : "Done"}
+        onPress={onDone}
+        color={linked ? colors.accent : colors.grass}
+      />
+      {!linked && (
+        <Text style={[styles.skipNote, { color: "hsl(25, 12%, 55%)" }]}>
+          You can connect with your partner any time from Settings
+        </Text>
+      )}
     </View>
   );
 }
@@ -432,13 +483,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     letterSpacing: -0.3,
   },
+  partnerSubhead: {
+    fontSize: 14,
+    fontFamily: fonts.display,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 19,
+  },
   handLabel: {
     fontSize: 17,
     fontFamily: "PatrickHand_400Regular",
     fontStyle: "italic",
     color: "hsl(25, 12%, 48%)",
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: 12,
   },
   genderBtn: {
     flex: 1,
@@ -459,6 +517,48 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontFamily: fonts.display,
   },
+  codeDisplay: {
+    backgroundColor: "rgba(255,255,255,0.6)",
+    borderWidth: 1,
+    borderColor: "hsl(35, 22%, 80%)",
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  codeText: {
+    fontSize: 28,
+    fontFamily: fonts.displayBold,
+    letterSpacing: 8,
+  },
+  shareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  shareBtnText: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 14,
+  },
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginVertical: 14,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+  },
+  dividerText: {
+    fontSize: 13,
+    fontFamily: fonts.display,
+  },
   codeInput: {
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.8)",
@@ -472,6 +572,22 @@ const styles = StyleSheet.create({
     textAlign: "center",
     color: "hsl(25, 30%, 20%)",
     fontFamily: fonts.displaySemibold,
+  },
+  errorText: {
+    textAlign: "center",
+    fontFamily: fonts.display,
+    fontSize: 13,
+  },
+  linkedRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 8,
+  },
+  linkedText: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 16,
   },
   primaryBtn: {
     paddingVertical: 16,
@@ -503,28 +619,11 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displayMedium,
     fontSize: 14,
   },
-  tutorialRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: "rgba(255,255,255,0.78)",
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.6)",
-  },
-  tutorialIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tutorialText: {
-    flex: 1,
-    fontSize: 14,
-    color: "hsl(25, 30%, 25%)",
-    lineHeight: 19,
+  skipNote: {
+    textAlign: "center",
+    fontSize: 12,
     fontFamily: fonts.display,
+    marginTop: 10,
+    lineHeight: 17,
   },
 });

@@ -107,6 +107,10 @@ export default function NamesScreen() {
     if (error) {
       console.error("[NamesScreen] fetchNamesByIds error", error);
     }
+    const cleanField = (val: string | null | undefined): string | null => {
+      if (val == null || val === "\\N" || val === "" || val.trim() === "\\N") return null;
+      return val;
+    };
     return new Map(
       (data ?? []).map((n: {
         uuid: string;
@@ -126,10 +130,10 @@ export default function NamesScreen() {
             n.us_rank != null && /^\d+$/.test(String(n.us_rank))
               ? Number(n.us_rank)
               : null,
-          origin: n.origin_raw,
-          meaning: n.meaning,
-          nickname: n.nicknames,
-          pronunciation: n.pronunciation,
+          origin: cleanField(n.origin_raw),
+          meaning: cleanField(n.meaning),
+          nickname: cleanField(n.nicknames),
+          pronunciation: cleanField(n.pronunciation),
         },
       ]),
     );

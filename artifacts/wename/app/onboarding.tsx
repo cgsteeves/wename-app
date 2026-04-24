@@ -329,15 +329,15 @@ function FeaturesStep({
     body: string;
   }[] = [
     {
-      icon: "heart",
-      iconBg: colors.girlPink + "22",
+      icon: "bookmark",
+      iconBg: "rgba(197, 60, 90, 0.13)",
       iconColor: colors.girlPink,
       title: "Your Picks",
       body: "Every name you swipe right on is saved to your Names tab — browse and rank your shortlist any time.",
     },
     {
       icon: "star",
-      iconBg: colors.sun + "33",
+      iconBg: "rgba(217, 119, 6, 0.13)",
       iconColor: "#d97706",
       title: "Shared Matches",
       body: "When you and your partner both love the same name, it becomes a Match. A moment worth celebrating.",

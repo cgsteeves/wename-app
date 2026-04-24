@@ -1,4 +1,3 @@
-[project]
 project_id = "cwpanlrimbccdgzchkdo"
 
 [functions.send-magic-link]
@@ -8,4 +7,7 @@ enabled = true
 enabled = true
 
 [functions.submit-deletion-request]
+enabled = true
+
+[functions.suggest-names]
 enabled = true

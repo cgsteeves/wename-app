@@ -580,7 +580,7 @@ export default function NamesScreen() {
       <View style={[styles.tabBar, { paddingTop: insets.top + 8 }]}>
         <TabButton
           label="Your Picks"
-          icon={<Feather name="heart" size={13} color={tab === "liked" ? accentColor : MUTED} />}
+          icon={<Feather name="heart" size={14} color={tab === "liked" ? accentColor : MUTED} />}
           active={tab === "liked"}
           accent={accentColor}
           onPress={() => setTab("liked")}
@@ -590,7 +590,7 @@ export default function NamesScreen() {
           icon={
             <FontAwesome5
               name="handshake"
-              size={13}
+              size={14}
               color={tab === "matches" ? accentColor : MUTED}
             />
           }
@@ -603,7 +603,7 @@ export default function NamesScreen() {
           icon={
             <FontAwesome5
               name="magic"
-              size={13}
+              size={14}
               color={tab === "suggestions" ? accentColor : MUTED}
             />
           }
@@ -923,9 +923,14 @@ function TabButton({
       style={({ pressed }) => [
         styles.tab,
         {
-          backgroundColor: active ? accentA(accent, 0.1) : "rgba(255,255,255,0.5)",
-          borderColor: active ? accentA(accent, 0.2) : BORDER_A(0.3),
-          opacity: pressed ? 0.9 : 1,
+          backgroundColor: active ? accentA(accent, 0.15) : "rgba(255,255,255,0.72)",
+          borderColor: active ? accentA(accent, 0.45) : BORDER_A(0.18),
+          shadowColor: active ? accent : "#000",
+          shadowOffset: { width: 0, height: active ? 2 : 1 },
+          shadowOpacity: active ? 0.13 : 0.04,
+          shadowRadius: active ? 4 : 2,
+          elevation: active ? 2 : 1,
+          opacity: pressed ? 0.85 : 1,
         },
       ]}
     >
@@ -935,7 +940,7 @@ function TabButton({
           numberOfLines={1}
           style={[
             styles.tabLabel,
-            { color: active ? accent : MUTED },
+            { color: active ? accent : MUTED, fontFamily: active ? fonts.displayBold : fonts.displayMedium },
           ]}
         >
           {label}
@@ -1396,8 +1401,8 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: "row",
     gap: 8,
-    paddingHorizontal: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: BORDER_A(0.2),
     backgroundColor: "rgba(255,255,255,0.2)",
@@ -1409,14 +1414,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingVertical: 11,
+    paddingHorizontal: 8,
+    borderRadius: 14,
+    borderWidth: 1.5,
   },
   tabLabel: {
     fontFamily: fonts.displayMedium,
-    fontSize: 12,
+    fontSize: 13,
+    letterSpacing: 0.1,
   },
 
   headerWrap: {

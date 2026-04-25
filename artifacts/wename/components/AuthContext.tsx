@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import type { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 import { supabase, USER_ID_KEY } from "@/lib/supabase";
-import { authSignOut, authDeleteAccount } from "@/lib/authService";
+import { authSignOut, authDeleteAccount, finalizeLogin } from "@/lib/authService";
 
 export type AuthModalProps = {
   title?: string;
@@ -44,18 +44,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session);
       if (event === "SIGNED_IN" && session?.user) {
         try {
-          await supabase
-            .from("users")
-            .upsert(
-              {
-                id: session.user.id,
-                email: session.user.email,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "id" },
-            );
-        } catch {
-          // ignore upsert errors on sign-in
+          // Full finalize: upsert profile defaults (display_name from
+          // Google metadata, invite_code if missing), merge any guest
+          // data, and reassign USER_ID_KEY from guest to authenticated.
+          await finalizeLogin(session.user.id, session.user.email ?? "");
+        } catch (e) {
+          console.warn("[AuthContext] finalizeLogin failed", e);
         }
       }
     });

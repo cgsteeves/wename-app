@@ -106,14 +106,16 @@ export default function AuthCallback() {
       }
     }
 
-    // OUTER SAFETY: no matter what hangs (network, locks, anything), force
-    // the popup to close / navigate after 5s. Better to bail than leave the
-    // user staring at a spinner forever.
+    // OUTER SAFETY: if the token exchange hasn't completed in 5 seconds we
+    // surface an error rather than pretend success — pretending would close
+    // the popup and leave the opener tab in a confusing half-signed-in
+    // state.
+    let exchangeCompleted = false;
     safety = setTimeout(() => {
-      if (cancelled) return;
-      console.warn("[auth/callback v3] safety timer fired — forcing exit");
-      setStatus("success");
-      notifyAndClose();
+      if (cancelled || exchangeCompleted) return;
+      console.warn("[auth/callback v3] safety timer fired — exchange did not complete");
+      setErrorMsg("Sign-in is taking longer than expected. Please close this window and try again.");
+      setStatus("error");
     }, 5000);
 
     async function run() {
@@ -130,6 +132,7 @@ export default function AuthCallback() {
           }
         }
 
+        exchangeCompleted = true;
         if (cancelled) return;
         if (safety) clearTimeout(safety);
         setStatus("success");

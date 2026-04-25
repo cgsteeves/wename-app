@@ -18,9 +18,8 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/components/AuthContext";
 import { AuthModal } from "@/components/AuthModal";
-import { UserProvider, useUser } from "@/components/UserContext";
+import { UserProvider } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
-import { supabase } from "@/lib/supabase";
 
 const TextAny = Text as any;
 TextAny.defaultProps = TextAny.defaultProps || {};
@@ -47,38 +46,6 @@ function AuthModalOverlay() {
       preHeader={authModalProps?.preHeader}
     />
   );
-}
-
-// Listens for the popup-window callback's success message and refreshes
-// the opener tab's session + user profile so the original tab reflects the
-// signed-in state without requiring a manual reload.
-function PopupAuthSyncBridge() {
-  const { reload } = useUser();
-  const { closeAuthModal } = useAuth();
-
-  useEffect(() => {
-    if (Platform.OS !== "web" || typeof window === "undefined") return;
-
-    function handleMessage(e: MessageEvent) {
-      if (e.origin !== window.location.origin) return;
-      const data = e.data as { type?: string } | null;
-      if (!data || data.type !== "wename:auth:signed_in") return;
-      // Pick up the session the popup just wrote into localStorage and
-      // refresh the user profile.
-      supabase.auth
-        .refreshSession()
-        .catch(() => {})
-        .finally(() => {
-          reload();
-          closeAuthModal();
-        });
-    }
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [reload, closeAuthModal]);
-
-  return null;
 }
 
 export default function RootLayout() {
@@ -140,7 +107,6 @@ export default function RootLayout() {
             <KeyboardProvider>
               <AuthProvider>
                 <UserProvider>
-                  <PopupAuthSyncBridge />
                   <Stack screenOptions={{ headerShown: false }}>
                     <Stack.Screen name="(tabs)" />
                     <Stack.Screen
@@ -154,8 +120,8 @@ export default function RootLayout() {
                     <Stack.Screen name="auth/callback" />
                     <Stack.Screen name="delete-account" />
                   </Stack>
-                  <AuthModalOverlay />
                 </UserProvider>
+                <AuthModalOverlay />
               </AuthProvider>
             </KeyboardProvider>
           </GestureHandlerRootView>

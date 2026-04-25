@@ -43,7 +43,8 @@ export default function AuthCallback() {
             if (tokenHash && type) {
               const { data, error } = await supabase.auth.verifyOtp({
                 token_hash: tokenHash,
-                type: type as Parameters<typeof supabase.auth.verifyOtp>[0]["type"],
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                type: type as any,
               });
               if (!error && data.session) {
                 session = data.session;

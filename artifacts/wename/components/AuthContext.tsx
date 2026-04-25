@@ -43,17 +43,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       if (event === "SIGNED_IN" && session?.user) {
-        await supabase
-          .from("users")
-          .upsert(
-            {
-              id: session.user.id,
-              email: session.user.email,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" },
-          )
-          .catch(() => {});
+        try {
+          await supabase
+            .from("users")
+            .upsert(
+              {
+                id: session.user.id,
+                email: session.user.email,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "id" },
+            );
+        } catch {
+          // ignore upsert errors on sign-in
+        }
       }
     });
 

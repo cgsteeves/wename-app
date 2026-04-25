@@ -95,6 +95,7 @@ export default function ProfileScreen() {
           text: "OK",
           style: "destructive",
           onPress: async () => {
+            if (!user) return;
             try {
               const { error } = await supabase
                 .from("swipes")
@@ -107,7 +108,7 @@ export default function ProfileScreen() {
               Alert.alert("Done", "Swipes reset successfully!", [
                 {
                   text: "OK",
-                  onPress: () => router.replace("/(tabs)/"),
+                  onPress: () => router.replace("/(tabs)"),
                 },
               ]);
             } catch (e) {

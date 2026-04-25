@@ -65,7 +65,7 @@ export default function JoinScreen() {
   });
 
   const goHome = useCallback(() => {
-    router.replace("/(tabs)/");
+    router.replace("/(tabs)");
   }, [router]);
 
   // ── Phase 1: validate token ────────────────────────────────────────────────

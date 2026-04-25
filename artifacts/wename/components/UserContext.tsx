@@ -46,6 +46,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   const load = useCallback(async () => {
     setLoading(true);
+    const safetyTimer = setTimeout(() => setLoading(false), 8000);
     try {
       const stored = await AsyncStorage.getItem(USER_ID_KEY);
       if (stored) {
@@ -64,6 +65,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error("[UserContext] load error", e);
     } finally {
+      clearTimeout(safetyTimer);
       setLoading(false);
     }
   }, [createUser]);

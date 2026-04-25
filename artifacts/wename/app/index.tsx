@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Redirect } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 
 import { useUser } from "@/components/UserContext";
@@ -11,9 +11,29 @@ export default function Index() {
   const { user, loading } = useUser();
   const colors = useColors();
   const [localOnboarded, setLocalOnboarded] = useState<boolean | null>(null);
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
-    AsyncStorage.getItem(ONBOARDED_KEY).then((v) => setLocalOnboarded(v === "true"));
+    resolvedRef.current = false;
+
+    const resolve = (value: boolean) => {
+      if (!resolvedRef.current) {
+        resolvedRef.current = true;
+        setLocalOnboarded(value);
+      }
+    };
+
+    const timeout = setTimeout(() => resolve(false), 3000);
+
+    AsyncStorage.getItem(ONBOARDED_KEY)
+      .then((v) => resolve(v === "true"))
+      .catch(() => resolve(false))
+      .finally(() => clearTimeout(timeout));
+
+    return () => {
+      resolvedRef.current = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   if (loading || localOnboarded === null) {

@@ -89,6 +89,27 @@ function GoogleSignInButton({
           return;
         }
         onWebClick();
+        // Belt-and-suspenders: the anchor's native target="_blank" should
+        // open a new tab, but in some embedded/iframe contexts the default
+        // navigation gets suppressed silently. Calling window.open here is
+        // safe because (a) we're inside a real user-gesture event handler
+        // and (b) href is pre-generated so there's NO async work between
+        // the click and window.open — both conditions popup blockers
+        // require. If window.open succeeds we preventDefault to avoid
+        // opening a second tab from the anchor's default action.
+        if (href) {
+          try {
+            const popup = window.open(href, "_blank");
+            if (popup) {
+              e.preventDefault();
+            }
+            // If popup is null (blocker / sandboxed), let the anchor's
+            // default target="_blank" navigation proceed as the fallback.
+          } catch {
+            // window.open may throw in some sandboxed contexts; fall
+            // through to the anchor's default behavior.
+          }
+        }
       },
       style: {
         textDecoration: "none",
@@ -99,10 +120,16 @@ function GoogleSignInButton({
         color: "inherit",
       },
       children: (
+        // pointerEvents: "none" means the inner View (and its descendants —
+        // Text, Svg) cannot receive click events. Clicks pass straight
+        // through to the parent <a>, so the anchor's onClick + native
+        // target="_blank" navigation always fire reliably regardless of
+        // any handlers RN-Web's child components might add. Use style
+        // form (not prop form) — the prop form is deprecated in RN-Web.
         <View
           style={[
             styles.providerBtn,
-            { borderColor: BORDER + "99", backgroundColor: CARD_BG },
+            { borderColor: BORDER + "99", backgroundColor: CARD_BG, pointerEvents: "none" },
           ]}
         >
           {inner}

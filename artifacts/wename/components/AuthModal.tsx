@@ -69,74 +69,64 @@ function GoogleSignInButton({
 
   if (Platform.OS === "web") {
     const isDisabled = disabled || !href;
-    // Use react-native-web's unstable_createElement to render a real <a> tag.
-    // React.createElement('a') and JSX <a> are intercepted by RN-Web's custom
-    // renderer and converted to <div>; unstable_createElement is the supported
-    // escape hatch for arbitrary HTML elements.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { unstable_createElement } = require("react-native-web");
-    // NOTE: unstable_createElement signature is (component, props, options) —
-    // the 3rd arg is NOT children. Children must be passed via props.children.
-    return unstable_createElement("a", {
-      href: href ?? "#",
-      target: "_blank",
-      // NOTE: deliberately NOT using rel="noopener" — the popup at
-      // /auth/callback uses window.opener to auto-close itself after the
-      // OAuth exchange completes.  noopener would set opener=null.
-      onClick: (e: React.MouseEvent) => {
-        if (isDisabled) {
-          e.preventDefault();
-          return;
-        }
-        if (!href) return;
 
-        // We always handle navigation explicitly — never rely on the
-        // anchor's default target="_blank" behavior, because some
-        // privacy-strict browsers (Brave, Firefox with strict mode,
-        // Safari with popup blocker, certain extensions) silently block
-        // BOTH window.open AND target="_blank" anchor navigation.
+    const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+      if (isDisabled || !href) {
         e.preventDefault();
-        onWebClick();
+        return;
+      }
+      // Always handle navigation explicitly — never rely on the anchor's
+      // default target="_blank" behavior, because some privacy-strict
+      // browsers (Brave, Firefox-strict, Safari with popup blocker, certain
+      // extensions) silently block BOTH window.open AND target="_blank"
+      // anchor navigation.
+      e.preventDefault();
+      onWebClick();
 
-        // Tier 1: open in a new tab (best UX — user keeps original tab).
-        // Allowed by browsers because we're in a real user-gesture handler
-        // and href is pre-generated (no async work between click and open).
-        let popup: Window | null = null;
-        try {
-          popup = window.open(href, "_blank");
-        } catch {
-          // window.open may throw in sandboxed contexts; fall through.
-        }
+      // Tier 1: open in a new tab (best UX — user keeps original tab).
+      // Allowed by browsers because we're in a real user-gesture handler
+      // and href is pre-generated (no async work between click and open).
+      let popup: Window | null = null;
+      try {
+        popup = window.open(href, "_blank");
+      } catch {
+        // window.open may throw in sandboxed contexts; fall through.
+      }
 
-        if (popup && !popup.closed) {
-          // Tier 1 succeeded — popup is open, original tab preserved.
-          // Supabase will sync auth state via BroadcastChannel when the
-          // popup completes, and the callback page closes itself.
-          return;
-        }
+      if (popup && !popup.closed) {
+        // Popup opened, original tab preserved. Supabase sync handles
+        // SIGNED_IN propagation via BroadcastChannel.
+        return;
+      }
 
-        // Tier 2 (bulletproof fallback): popup blocked by browser policy
-        // or extension. Navigate the CURRENT tab to the OAuth URL. The
-        // callback page handles the redirect-back to "/".  This sacrifices
-        // the original tab's state, but guarantees sign-in always works
-        // no matter how strict the browser is.
-        window.location.href = href;
-      },
-      style: {
-        textDecoration: "none",
-        width: "100%",
-        opacity: isDisabled ? 0.6 : 1,
-        cursor: isDisabled ? "not-allowed" : "pointer",
-        display: "block",
-        color: "inherit",
-      },
-      children: (
-        // pointerEvents: "none" means the inner View (and its descendants —
-        // Text, Svg) cannot receive click events. Clicks pass straight
-        // through to the parent <a>, so the anchor's onClick + native
-        // target="_blank" navigation always fire reliably regardless of
-        // any handlers RN-Web's child components might add. Use style
-        // form (not prop form) — the prop form is deprecated in RN-Web.
+      // Tier 2 (bulletproof): popup blocked. Navigate current tab to the
+      // OAuth URL. Sacrifices original tab state but guarantees sign-in
+      // always works regardless of browser settings.
+      window.location.href = href;
+    };
+
+    // Plain JSX <a> tag — React renders this as a real DOM <a> element.
+    // RN-Web only intercepts its own primitive components (View, Text,
+    // Pressable); it does NOT transform raw HTML element strings, so a
+    // JSX <a> reliably produces an anchor in the DOM.
+    return (
+      <a
+        href={href ?? "#"}
+        target="_blank"
+        // NOTE: deliberately NOT using rel="noopener" — the popup at
+        // /auth/callback uses window.opener to auto-close itself.
+        rel="noreferrer"
+        onClick={handleClick}
+        style={{
+          textDecoration: "none",
+          width: "100%",
+          opacity: isDisabled ? 0.6 : 1,
+          cursor: isDisabled ? "not-allowed" : "pointer",
+          display: "block",
+          color: "inherit",
+        }}
+      >
+        {/* pointerEvents: "none" so child View can't intercept clicks */}
         <View
           style={[
             styles.providerBtn,
@@ -145,8 +135,8 @@ function GoogleSignInButton({
         >
           {inner}
         </View>
-      ),
-    });
+      </a>
+    );
   }
 
   return (

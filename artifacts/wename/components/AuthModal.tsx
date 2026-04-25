@@ -206,8 +206,9 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
     let cancelled = false;
     setGoogleUrl(null);
     signInWithGoogle()
-      .then((url) => {
-        if (!cancelled && url) setGoogleUrl(url);
+      .then((result) => {
+        if (cancelled) return;
+        if (result.kind === "web-url") setGoogleUrl(result.url);
       })
       .catch(() => {
         // Silent — button stays disabled (href=null); user can close + reopen.
@@ -244,14 +245,29 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   }, [onClose]);
 
   function handleGoogleNative() {
-    // Native (Expo Go / standalone): signInWithGoogle handles the browser
+    // Native (Expo Go / standalone): signInWithGoogle drives the in-app
+    // browser session itself and resolves with a kind discriminator.
     setLoadingProvider("google");
     setErrorMsg("");
-    signInWithGoogle().catch(() => {
-      setErrorMsg("Google sign-in failed. Please try again.");
-      setMode("error");
-      setLoadingProvider(null);
-    });
+    signInWithGoogle()
+      .then((result) => {
+        if (result.kind === "native-success") {
+          // SIGNED_IN auth state change closes the modal via the listener
+          // above; nothing more to do here.
+          return;
+        }
+        if (result.kind === "native-cancelled") {
+          // User backed out of the in-app browser. Silent reset — leave the
+          // modal usable so they can retry without an angry red error.
+          setLoadingProvider(null);
+          return;
+        }
+      })
+      .catch(() => {
+        setErrorMsg("Google sign-in failed. Please try again.");
+        setMode("error");
+        setLoadingProvider(null);
+      });
   }
 
   async function handleEmailSubmit() {

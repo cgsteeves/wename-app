@@ -1,6 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Linking from "expo-linking";
+import { Platform } from "react-native";
+import * as WebBrowser from "expo-web-browser";
 
 import { supabase, USER_ID_KEY } from "@/lib/supabase";
+
+// Required on iOS so the in-app browser session is properly closed when the
+// app returns to the foreground after the OAuth redirect. Safe no-op on web.
+WebBrowser.maybeCompleteAuthSession();
 
 function getOrigin(): string {
   if (typeof window !== "undefined" && window.location?.origin) {
@@ -42,12 +49,16 @@ function getProjectRef(): string {
   return new URL(url).hostname.split(".")[0];
 }
 
-export async function signInWithGoogle(): Promise<string | null> {
-  const redirectTo = `${getOrigin()}/auth/callback`;
+export type GoogleSignInResult =
+  | { kind: "web-url"; url: string }
+  | { kind: "native-success" }
+  | { kind: "native-cancelled" };
 
-  if (typeof window !== "undefined") {
+export async function signInWithGoogle(): Promise<GoogleSignInResult> {
+  if (Platform.OS === "web" && typeof window !== "undefined") {
     // Web: build the Supabase /authorize URL ourselves so we never touch the
     // auth-js lock that hangs in proxied iframes.
+    const redirectTo = `${getOrigin()}/auth/callback`;
     const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
     const projectRef = getProjectRef();
     const storageKey = `sb-${projectRef}-auth-token-code-verifier`;
@@ -62,16 +73,55 @@ export async function signInWithGoogle(): Promise<string | null> {
       code_challenge: challenge,
       code_challenge_method: "s256",
     });
-    return `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+    return {
+      kind: "web-url",
+      url: `${supabaseUrl}/auth/v1/authorize?${params.toString()}`,
+    };
   }
 
-  // Native: standard redirect (expo-web-browser handles it)
-  const { error } = await supabase.auth.signInWithOAuth({
+  // Native (Expo Go / standalone): use the app scheme as the redirect target
+  // so Supabase deep-links back into the app, not the marketing site. We
+  // open the OAuth URL inside an in-app browser session via expo-web-browser
+  // and complete the PKCE exchange manually with the returned ?code=...
+  const redirectTo = Linking.createURL("/auth/callback");
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo },
+    options: { redirectTo, skipBrowserRedirect: true },
   });
   if (error) throw error;
-  return null;
+  if (!data?.url) throw new Error("Sign-in URL was not returned by Supabase.");
+
+  const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+  if (result.type === "cancel" || result.type === "dismiss") {
+    return { kind: "native-cancelled" };
+  }
+  if (result.type !== "success") {
+    throw new Error("Google sign-in did not complete.");
+  }
+
+  // Supabase (PKCE flow) returns ?code=... on the redirect URL. Extract it
+  // and exchange for a session — auth-js will read the code_verifier it
+  // stored in AsyncStorage during signInWithOAuth above.
+  const returned = new URL(result.url);
+  const code =
+    returned.searchParams.get("code") ??
+    new URLSearchParams(returned.hash.replace(/^#/, "")).get("code");
+
+  // Surface OAuth-level errors that Supabase forwards as ?error=...
+  const oauthError =
+    returned.searchParams.get("error_description") ??
+    returned.searchParams.get("error");
+
+  if (!code) {
+    throw new Error(oauthError || "No authorization code in redirect URL.");
+  }
+
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) throw exchangeError;
+
+  return { kind: "native-success" };
 }
 
 export async function signInWithEmailMagicLink(email: string): Promise<void> {

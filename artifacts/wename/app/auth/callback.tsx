@@ -75,8 +75,17 @@ export default function AuthCallback() {
     let cancelled = false;
     let safety: ReturnType<typeof setTimeout> | null = null;
 
+    // Native short-circuit: WebBrowser.openAuthSessionAsync intercepts the
+    // deep-link redirect inside the in-app browser session, so this route
+    // should never load on native via the normal sign-in flow. If it does
+    // load (stray deep link, share intent, etc.) just send the user home —
+    // there is no PKCE work to do here on native.
+    if (Platform.OS !== "web") {
+      router.replace("/");
+      return;
+    }
+
     const isWebPopup =
-      Platform.OS === "web" &&
       typeof window !== "undefined" &&
       !!window.opener &&
       window.opener !== window;

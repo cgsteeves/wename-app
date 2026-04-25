@@ -81,29 +81,33 @@ export default function AccountScreen() {
     setGoogleLoading(true);
     setGoogleError("");
     try {
-      const url = await signInWithGoogle();
-      // On web, signInWithGoogle returns the OAuth URL — we must navigate
-      // to it ourselves. On native, it returns null after expo-web-browser
-      // handles the in-app browser session, so there's nothing to do here.
-      if (url) {
-        // Tier 1: try opening in a new tab (best UX). Allowed because we're
-        // still inside the synchronous user-gesture stack frame from the
-        // press event (signInWithGoogle is fast — just a PKCE digest).
+      const result = await signInWithGoogle();
+
+      if (result.kind === "web-url") {
+        // Web: open the OAuth URL in a popup (best UX). Allowed because
+        // we're still inside the user-gesture stack frame from the press.
         let popup: Window | null = null;
         try {
-          popup = window.open(url, "_blank");
+          popup = window.open(result.url, "_blank");
         } catch {
           // window.open may throw in sandboxed contexts; fall through.
         }
         if (!popup || popup.closed) {
-          // Tier 2 (bulletproof): popup blocked by browser policy. Navigate
-          // current tab — same-tab navigation cannot be blocked.
-          window.location.href = url;
+          // Tier 2 (bulletproof): popup blocked. Same-tab nav cannot be blocked.
+          window.location.href = result.url;
         }
-        // Loading stays true: SIGNED_IN auth state change (broadcast from
-        // the popup OR from the redirected current tab on return) closes
-        // the loading state via the AuthContext.
+        // Loading stays true: SIGNED_IN auth state change closes it.
+        return;
       }
+
+      if (result.kind === "native-cancelled") {
+        // User backed out of the in-app browser. Silent reset, no error.
+        setGoogleLoading(false);
+        return;
+      }
+
+      // native-success — SIGNED_IN listener will refresh the UI.
+      setGoogleLoading(false);
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
       setGoogleLoading(false);

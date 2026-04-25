@@ -11,6 +11,19 @@ import { useUser } from "@/components/UserContext";
 
 type Status = "loading" | "success" | "error";
 
+const EMAIL_OTP_TYPES = [
+  "signup",
+  "recovery",
+  "email_change",
+  "email",
+  "invite",
+  "magiclink",
+] as const;
+type EmailOtpType = (typeof EMAIL_OTP_TYPES)[number];
+function isEmailOtpType(value: string): value is EmailOtpType {
+  return (EMAIL_OTP_TYPES as readonly string[]).includes(value);
+}
+
 export default function AuthCallback() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -40,11 +53,10 @@ export default function AuthCallback() {
           if (!session) {
             const tokenHash = searchParams.get("token_hash");
             const type = searchParams.get("type");
-            if (tokenHash && type) {
+            if (tokenHash && type && isEmailOtpType(type)) {
               const { data, error } = await supabase.auth.verifyOtp({
                 token_hash: tokenHash,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                type: type as any,
+                type,
               });
               if (!error && data.session) {
                 session = data.session;

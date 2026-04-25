@@ -8,7 +8,6 @@ import {
 import { PatrickHand_400Regular } from "@expo-google-fonts/patrick-hand";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
-import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
 import { Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -30,8 +29,6 @@ TextInputAny.defaultProps.style = [
   TextInputAny.defaultProps.style,
 ];
 
-SplashScreen.preventAutoHideAsync();
-
 const queryClient = new QueryClient();
 
 function AuthModalOverlay() {
@@ -48,17 +45,13 @@ function AuthModalOverlay() {
 }
 
 export default function RootLayout() {
-  const [loaded] = useFredoka({
+  useFredoka({
     Fredoka_400Regular,
     Fredoka_500Medium,
     Fredoka_600SemiBold,
     Fredoka_700Bold,
     PatrickHand_400Regular,
   });
-
-  useEffect(() => {
-    if (loaded) SplashScreen.hideAsync();
-  }, [loaded]);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -94,8 +87,6 @@ export default function RootLayout() {
       document.getElementById("wename-phone-frame")?.remove();
     };
   }, []);
-
-  if (!loaded) return null;
 
   return (
     <SafeAreaProvider>

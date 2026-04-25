@@ -10,13 +10,29 @@ function getOrigin(): string {
   return domain ? `https://${domain}` : "https://wename.app";
 }
 
-export async function signInWithGoogle(): Promise<void> {
+export async function signInWithGoogle(): Promise<string | null> {
   const redirectTo = `${getOrigin()}/auth/callback`;
+
+  if (typeof window !== "undefined") {
+    // Web: use skipBrowserRedirect so the PKCE setup completes and the lock is
+    // released before we navigate.  We drive the redirect ourselves, which
+    // avoids the navigator.locks / window.location.assign interaction that
+    // causes the spinner to hang in proxied preview environments.
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo, skipBrowserRedirect: true },
+    });
+    if (error) throw error;
+    return data.url ?? null;
+  }
+
+  // Native: standard redirect (expo-web-browser handles it)
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: { redirectTo },
   });
   if (error) throw error;
+  return null;
 }
 
 export async function signInWithEmailMagicLink(email: string): Promise<void> {

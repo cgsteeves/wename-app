@@ -9,6 +9,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error("Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY");
 }
 
+// Per-tab, per-process lock implementation that avoids navigator.locks
+// (Web Locks API is shared across all same-origin tabs, which causes
+// lock-steal cascades when multiple Supabase contexts compete).
+const _processLocks: Record<string, Promise<unknown>> = {};
+async function inProcessLock<T>(
+  name: string,
+  _acquireTimeout: number,
+  fn: () => T | PromiseLike<T>,
+): Promise<T> {
+  const previous: Promise<unknown> = _processLocks[name] ?? Promise.resolve();
+  const current = previous.then(
+    () => fn(),
+    () => fn(),
+  );
+  _processLocks[name] = current.catch(() => {});
+  return current as Promise<T>;
+}
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage as unknown as Storage,
@@ -16,6 +34,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
     flowType: "pkce",
+    lock: inProcessLock,
   },
 });
 

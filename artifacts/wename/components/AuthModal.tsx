@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Svg, Path } from "react-native-svg";
 
 import { fonts } from "@/constants/fonts";
+import { supabase } from "@/lib/supabase";
 import { signInWithGoogle, signInWithEmailMagicLink } from "@/lib/authService";
 
 const PARCHMENT = "#ede8dc";
@@ -66,19 +67,54 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<"google" | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const authListenerRef = useRef<{ unsubscribe: () => void } | null>(null);
 
   const anyLoading = loading || loadingProvider !== null;
+
+  // Clean up any dangling auth-state listener when the modal unmounts
+  useEffect(() => {
+    return () => {
+      authListenerRef.current?.unsubscribe();
+    };
+  }, []);
 
   async function handleGoogle() {
     setLoadingProvider("google");
     setErrorMsg("");
+
+    // Tear down any previous listener before starting a new attempt
+    authListenerRef.current?.unsubscribe();
+    authListenerRef.current = null;
+
     try {
-      await signInWithGoogle();
+      const oauthUrl = await signInWithGoogle();
+
+      if (oauthUrl) {
+        // Web path: signInWithGoogle() returned the URL instead of redirecting.
+        // Subscribe to auth state BEFORE navigating so we catch the completion
+        // even if it happens in a popup/new tab (Replit preview, etc.).
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+          if (event === "SIGNED_IN") {
+            subscription.unsubscribe();
+            authListenerRef.current = null;
+            setLoadingProvider(null);
+            onClose();
+          }
+        });
+        authListenerRef.current = subscription;
+
+        // Navigate the current window to the Google OAuth page
+        window.location.href = oauthUrl;
+        // NOTE: on a normal (non-proxied) browser the page will navigate away;
+        // setLoadingProvider(null) below won't matter because the component
+        // unmounts.  In a proxied/iframe context (Replit preview) where the
+        // navigation may be intercepted, the subscription above will reset state.
+      }
     } catch {
       setErrorMsg("Google sign-in failed. Please try again.");
       setMode("error");
+      setLoadingProvider(null);
     }
-    setLoadingProvider(null);
   }
 
   async function handleEmailSubmit() {

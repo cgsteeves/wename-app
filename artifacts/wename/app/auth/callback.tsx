@@ -106,11 +106,29 @@ export default function AuthCallback() {
           throw new Error("No session found. Your sign-in link may have expired.");
         }
 
-        // Upsert the user row and migrate any guest data
-        await finalizeLogin(session.user.id, session.user.email ?? "");
+        // Upsert the user row and migrate any guest data. Wrap in a hard
+        // timeout — if the network is slow or RLS blocks something, we MUST
+        // NOT leave the user staring at a spinning popup forever. The
+        // opener tab will sync session via SIGNED_IN event regardless.
+        const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
+          Promise.race<T | "timeout">([
+            p,
+            new Promise<"timeout">((r) => setTimeout(() => r("timeout"), ms)),
+          ]).then((v) => {
+            if (v === "timeout") {
+              console.warn(`[auth/callback] ${label} timed out after ${ms}ms`);
+            }
+            return v;
+          });
+
+        await withTimeout(
+          finalizeLogin(session.user.id, session.user.email ?? ""),
+          3000,
+          "finalizeLogin",
+        );
 
         // Force UserContext to reload with the authenticated user's ID
-        await reloadUser();
+        await withTimeout(reloadUser(), 3000, "reloadUser");
 
         if (!cancelled) {
           setStatus("success");

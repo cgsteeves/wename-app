@@ -114,6 +114,39 @@ export default function AuthCallback() {
 
         if (!cancelled) {
           setStatus("success");
+
+          // If we were opened as a popup from the main app (target="_blank"
+          // anchor for Google sign-in on web), close ourselves so the user
+          // returns to the original tab — Supabase syncs the session across
+          // tabs via storage events / BroadcastChannel.
+          const isWebPopup =
+            typeof window !== "undefined" &&
+            !!window.opener &&
+            window.opener !== window;
+
+          if (isWebPopup) {
+            try {
+              window.opener.postMessage(
+                { type: "wename:auth:signed_in" },
+                window.location.origin,
+              );
+            } catch {
+              // postMessage may throw cross-origin — best-effort only
+            }
+            setTimeout(() => {
+              if (cancelled) return;
+              try {
+                window.close();
+              } catch {
+                // window.close may be blocked — fall back to redirect below
+              }
+              // Belt-and-suspenders: if close was blocked, navigate the popup
+              // back to the app so the user sees something useful.
+              setTimeout(() => router.replace("/"), 200);
+            }, 600);
+            return;
+          }
+
           setTimeout(async () => {
             if (cancelled) return;
 

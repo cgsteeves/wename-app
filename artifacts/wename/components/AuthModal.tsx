@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
@@ -37,6 +37,96 @@ type Props = {
   preHeader?: string;
 };
 
+type GoogleButtonProps = {
+  href: string | null;
+  loading: boolean;
+  disabled: boolean;
+  onWebClick: () => void;
+  onNativePress: () => void;
+};
+
+// On web, render a real <a target="_blank"> so the browser opens a new tab
+// natively — no JS popup blocker, no iframe-sandbox issues, no user-gesture
+// timing problems.  On native, fall back to a Pressable that calls into the
+// expo-web-browser flow.
+function GoogleSignInButton({
+  href,
+  loading,
+  disabled,
+  onWebClick,
+  onNativePress,
+}: GoogleButtonProps) {
+  const inner = loading ? (
+    <Text style={[styles.providerBtnText, { opacity: 0.7 }]}>
+      Connecting to Google…
+    </Text>
+  ) : (
+    <>
+      <GoogleIcon />
+      <Text style={styles.providerBtnTextBold}>Continue with Google</Text>
+    </>
+  );
+
+  if (Platform.OS === "web") {
+    const isDisabled = disabled || !href;
+    // Use react-native-web's unstable_createElement to render a real <a> tag.
+    // React.createElement('a') and JSX <a> are intercepted by RN-Web's custom
+    // renderer and converted to <div>; unstable_createElement is the supported
+    // escape hatch for arbitrary HTML elements.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { unstable_createElement } = require("react-native-web");
+    // NOTE: unstable_createElement signature is (component, props, options) —
+    // the 3rd arg is NOT children. Children must be passed via props.children.
+    return unstable_createElement("a", {
+      href: href ?? "#",
+      target: "_blank",
+      // NOTE: deliberately NOT using rel="noopener" — the popup at
+      // /auth/callback uses window.opener to auto-close itself after the
+      // OAuth exchange completes.  noopener would set opener=null.
+      onClick: (e: React.MouseEvent) => {
+        if (isDisabled) {
+          e.preventDefault();
+          return;
+        }
+        onWebClick();
+      },
+      style: {
+        textDecoration: "none",
+        width: "100%",
+        opacity: isDisabled ? 0.6 : 1,
+        cursor: isDisabled ? "not-allowed" : "pointer",
+        display: "block",
+        color: "inherit",
+      },
+      children: (
+        <View
+          style={[
+            styles.providerBtn,
+            { borderColor: BORDER + "99", backgroundColor: CARD_BG },
+          ]}
+        >
+          {inner}
+        </View>
+      ),
+    });
+  }
+
+  return (
+    <Pressable
+      onPress={onNativePress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        styles.providerBtn,
+        { borderColor: BORDER + "99", backgroundColor: CARD_BG },
+        disabled && { opacity: 0.6 },
+        pressed && !disabled && { transform: [{ scale: 0.95 }] },
+      ]}
+    >
+      {inner}
+    </Pressable>
+  );
+}
+
 function GoogleIcon() {
   return (
     <Svg width={17} height={17} viewBox="0 0 24 24">
@@ -67,57 +157,73 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadingProvider, setLoadingProvider] = useState<"google" | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
-  const authListenerRef = useRef<{ unsubscribe: () => void } | null>(null);
+  // Pre-generated OAuth URL — used as the href on a real <a target="_blank">
+  // anchor so the browser handles the navigation natively.  This avoids all
+  // popup-blocker / iframe-sandbox issues that JS-driven window.open hits.
+  const [googleUrl, setGoogleUrl] = useState<string | null>(null);
 
   const anyLoading = loading || loadingProvider !== null;
+  // The web "Connecting to Google…" state is non-blocking — the user opened
+  // a popup and may want to cancel and try again.  Disable the close button
+  // only for native/email flows, where loading reflects an in-flight request.
+  const lockClose = loading;
 
-  // Clean up any dangling auth-state listener when the modal unmounts
+  // Pre-generate the Google OAuth URL once when the modal mounts (web only).
+  // On native, signInWithGoogle drives its own in-app browser via expo.
+  // We refresh the URL after each successful click so the next attempt has
+  // a fresh PKCE verifier (the previous one was consumed by the popup).
+  const [urlVersion, setUrlVersion] = useState(0);
   useEffect(() => {
+    if (Platform.OS !== "web") return;
+    let cancelled = false;
+    setGoogleUrl(null);
+    signInWithGoogle()
+      .then((url) => {
+        if (!cancelled && url) setGoogleUrl(url);
+      })
+      .catch(() => {
+        // Silent — button stays disabled (href=null); user can close + reopen.
+      });
     return () => {
-      authListenerRef.current?.unsubscribe();
+      cancelled = true;
     };
-  }, []);
+  }, [urlVersion]);
 
-  async function handleGoogle() {
+  // After 90 seconds in the web "Connecting…" state with no SIGNED_IN, reset.
+  // Covers: user closed the popup, popup blocked, network failure, etc.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    if (loadingProvider !== "google") return;
+    const t = setTimeout(() => {
+      setLoadingProvider(null);
+      setUrlVersion((v) => v + 1);
+    }, 90_000);
+    return () => clearTimeout(t);
+  }, [loadingProvider]);
+
+  // Listen for SIGNED_IN globally on web so the modal closes when the user
+  // finishes auth in the popup tab (Supabase syncs auth state across tabs
+  // via BroadcastChannel).
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") {
+        setLoadingProvider(null);
+        onClose();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [onClose]);
+
+  function handleGoogleNative() {
+    // Native (Expo Go / standalone): signInWithGoogle handles the browser
     setLoadingProvider("google");
     setErrorMsg("");
-
-    // Tear down any previous listener before starting a new attempt
-    authListenerRef.current?.unsubscribe();
-    authListenerRef.current = null;
-
-    try {
-      const oauthUrl = await signInWithGoogle();
-
-      if (oauthUrl) {
-        // Web path: signInWithGoogle() returned the URL instead of redirecting.
-        // Subscribe to auth state BEFORE navigating so we catch the completion
-        // even if it happens in a popup/new tab (Replit preview, etc.).
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-          if (event === "SIGNED_IN") {
-            subscription.unsubscribe();
-            authListenerRef.current = null;
-            setLoadingProvider(null);
-            onClose();
-          }
-        });
-        authListenerRef.current = subscription;
-
-        // Open Google OAuth in a new tab so the Replit preview (iframe) and
-        // production (wename.app) both work reliably.  The onAuthStateChange
-        // listener above will detect SIGNED_IN via BroadcastChannel and close
-        // the modal once the user finishes in the new tab.
-        const popup = window.open(oauthUrl, "_blank", "noopener,noreferrer");
-        if (!popup) {
-          // Popup was blocked — fall back to navigating the current window
-          window.location.href = oauthUrl;
-        }
-      }
-    } catch {
+    signInWithGoogle().catch(() => {
       setErrorMsg("Google sign-in failed. Please try again.");
       setMode("error");
       setLoadingProvider(null);
-    }
+    });
   }
 
   async function handleEmailSubmit() {
@@ -145,17 +251,17 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   }
 
   return (
-    <Modal transparent animationType="slide" statusBarTranslucent onRequestClose={() => !anyLoading && onClose()}>
+    <Modal transparent animationType="slide" statusBarTranslucent onRequestClose={() => !lockClose && onClose()}>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.overlay}
       >
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => !anyLoading && Keyboard.dismiss()} />
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => !lockClose && Keyboard.dismiss()} />
 
         {/* Backdrop */}
         <Pressable
           style={styles.backdrop}
-          onPress={() => !anyLoading && onClose()}
+          onPress={() => !lockClose && onClose()}
         />
 
         {/* Sheet */}
@@ -163,15 +269,27 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
           {/* Drag handle */}
           <View style={styles.dragHandle} />
 
-          {/* Close button */}
-          {!anyLoading && (
-            <Pressable style={styles.closeBtn} onPress={onClose}>
+          {/* Close button — always available unless an in-flight request is
+              actually blocking (email magic-link or native browser). The web
+              "Connecting…" state must be cancellable since the user may have
+              closed the popup or popup was blocked. */}
+          {!lockClose && (
+            <Pressable
+              style={styles.closeBtn}
+              onPress={() => {
+                // Reset any in-flight web auth state on cancel
+                if (loadingProvider === "google") {
+                  setLoadingProvider(null);
+                }
+                onClose();
+              }}
+            >
               <Feather name="x" size={16} color={MUTED_FG} />
             </Pressable>
           )}
 
           {/* Back button (email mode only) */}
-          {mode === "email" && !anyLoading && (
+          {mode === "email" && !lockClose && (
             <Pressable style={styles.backBtn} onPress={goBack}>
               <Feather name="arrow-left" size={16} color={MUTED_FG} />
             </Pressable>
@@ -196,27 +314,16 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
               </View>
 
               <View style={{ gap: 12 }}>
-                <Pressable
-                  onPress={handleGoogle}
+                <GoogleSignInButton
+                  href={googleUrl}
+                  loading={loadingProvider === "google"}
                   disabled={anyLoading}
-                  style={({ pressed }) => [
-                    styles.providerBtn,
-                    { borderColor: BORDER + "99", backgroundColor: CARD_BG },
-                    anyLoading && { opacity: 0.6 },
-                    pressed && !anyLoading && { transform: [{ scale: 0.95 }] },
-                  ]}
-                >
-                  {loadingProvider === "google" ? (
-                    <Text style={[styles.providerBtnText, { opacity: 0.7 }]}>
-                      Connecting to Google…
-                    </Text>
-                  ) : (
-                    <>
-                      <GoogleIcon />
-                      <Text style={styles.providerBtnTextBold}>Continue with Google</Text>
-                    </>
-                  )}
-                </Pressable>
+                  onWebClick={() => {
+                    setLoadingProvider("google");
+                    setErrorMsg("");
+                  }}
+                  onNativePress={handleGoogleNative}
+                />
 
                 <Divider />
 

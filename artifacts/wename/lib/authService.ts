@@ -10,20 +10,59 @@ function getOrigin(): string {
   return domain ? `https://${domain}` : "https://wename.app";
 }
 
+// ── Manual PKCE for web Google sign-in ─────────────────────────────────────
+// We bypass supabase.auth.signInWithOAuth entirely on web because its
+// internal lock + initialize sequence stalls in proxied/iframe environments
+// (e.g. the Replit preview), leaving the user stuck on "Connecting to
+// Google…" forever.  By generating the OAuth URL ourselves and writing the
+// code_verifier into the same storage key that auth-js uses, the existing
+// callback handler can still exchange the returned `code` for a session via
+// supabase.auth.exchangeCodeForSession() with no other changes required.
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let str = "";
+  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function generatePkce(): Promise<{ verifier: string; challenge: string }> {
+  const verifierBytes = new Uint8Array(56);
+  crypto.getRandomValues(verifierBytes);
+  const verifier = base64UrlEncode(verifierBytes);
+  const challengeBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(verifier),
+  );
+  const challenge = base64UrlEncode(new Uint8Array(challengeBuf));
+  return { verifier, challenge };
+}
+
+function getProjectRef(): string {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+  return new URL(url).hostname.split(".")[0];
+}
+
 export async function signInWithGoogle(): Promise<string | null> {
   const redirectTo = `${getOrigin()}/auth/callback`;
 
   if (typeof window !== "undefined") {
-    // Web: use skipBrowserRedirect so the PKCE setup completes and the lock is
-    // released before we navigate.  We drive the redirect ourselves, which
-    // avoids the navigator.locks / window.location.assign interaction that
-    // causes the spinner to hang in proxied preview environments.
-    const { data, error } = await supabase.auth.signInWithOAuth({
+    // Web: build the Supabase /authorize URL ourselves so we never touch the
+    // auth-js lock that hangs in proxied iframes.
+    const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+    const projectRef = getProjectRef();
+    const storageKey = `sb-${projectRef}-auth-token-code-verifier`;
+
+    const { verifier, challenge } = await generatePkce();
+    // auth-js's exchangeCodeForSession reads this exact key from storage.
+    window.localStorage.setItem(storageKey, verifier);
+
+    const params = new URLSearchParams({
       provider: "google",
-      options: { redirectTo, skipBrowserRedirect: true },
+      redirect_to: redirectTo,
+      code_challenge: challenge,
+      code_challenge_method: "s256",
     });
-    if (error) throw error;
-    return data.url ?? null;
+    return `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
   }
 
   // Native: standard redirect (expo-web-browser handles it)

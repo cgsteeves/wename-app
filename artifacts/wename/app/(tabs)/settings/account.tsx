@@ -81,8 +81,29 @@ export default function AccountScreen() {
     setGoogleLoading(true);
     setGoogleError("");
     try {
-      await signInWithGoogle();
-      // Full page redirect happens — loading stays true
+      const url = await signInWithGoogle();
+      // On web, signInWithGoogle returns the OAuth URL — we must navigate
+      // to it ourselves. On native, it returns null after expo-web-browser
+      // handles the in-app browser session, so there's nothing to do here.
+      if (url) {
+        // Tier 1: try opening in a new tab (best UX). Allowed because we're
+        // still inside the synchronous user-gesture stack frame from the
+        // press event (signInWithGoogle is fast — just a PKCE digest).
+        let popup: Window | null = null;
+        try {
+          popup = window.open(url, "_blank");
+        } catch {
+          // window.open may throw in sandboxed contexts; fall through.
+        }
+        if (!popup || popup.closed) {
+          // Tier 2 (bulletproof): popup blocked by browser policy. Navigate
+          // current tab — same-tab navigation cannot be blocked.
+          window.location.href = url;
+        }
+        // Loading stays true: SIGNED_IN auth state change (broadcast from
+        // the popup OR from the redirected current tab on return) closes
+        // the loading state via the AuthContext.
+      }
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
       setGoogleLoading(false);

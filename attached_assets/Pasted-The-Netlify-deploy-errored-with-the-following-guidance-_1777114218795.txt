@@ -1,0 +1,131 @@
+The Netlify deploy errored, with the following guidance provided:
+
+Diagnosis:
+
+- TypeScript cannot resolve `@react-navigation/native-stack` in `app/(tabs)/_layout.tsx` ([line 85](#L85)). The package is missing from the workspace dependencies.
+- `app/(tabs)/settings/profile.tsx` calls `user` without null checks, producing `TS18047` ([lines 86-87](#L86-L87)).
+- `app/auth/callback.tsx` passes a `type` value of `'sms'` into `supabase.auth.verifyOtp`, but that overload accepts only `EmailOtpType`, triggering `TS2345` ([lines 88-92](#L88-L92)).
+- `components/AuthContext.tsx` chains `.catch` on a function that currently returns `void`, giving `TS2551` ([line 93](#L93)).
+- Every file under `supabase/functions/*` imports Deno-only modules (e.g. `https://deno.land/...`) so `tsc` reports `TS2307` and `TS2304` because the workspace TypeScript config assumes a Node/Expo environment ([lines 94-105](#L94-L105)).
+
+Solution:
+
+1. In `artifacts/wename`’s workspace package.json, install the missing navigation dependency:
+
+   ```bash
+   pnpm --filter @workspace/wename add @react-navigation/native-stack
+   ```
+
+   Then re-run `pnpm install` so TypeScript can resolve the import in `app/(tabs)/_layout.tsx`.
+
+2. Guard against a missing user object before dereferencing it in `app/(tabs)/settings/profile.tsx`, e.g.:
+
+   ```tsx
+   if (!user) {
+     return null; // or render a loading/empty state
+   }
+   ```
+
+   Apply the check (or optional chaining) wherever `user` is used on lines 102 and 106 so the compiler knows it’s non-null.
+
+3. Update `app/auth/callback.tsx` to only call `supabase.auth.verifyOtp` with email OTP types. For example, branch on the OTP type and skip/handle SMS separately, or narrow the value passed to `verifyOtp` to `EmailOtpType`:
+
+   ```tsx
+   if (otpType !== 'recovery' && otpType !== 'magiclink' /* etc */) {
+     throw new Error('Unsupported OTP type for email verification');
+   }
+   await supabase.auth.verifyOtp({ type: otpType, token_hash, email });
+   ```
+
+   (Alternatively, call the SMS-specific API when `otpType === 'sms'`.)
+
+4. Ensure the function in `components/AuthContext.tsx` that currently returns `void` is `async` (returning a `Promise`) before chaining `.catch`, or explicitly handle the error inline without `.catch`. This satisfies the compiler’s expectation that `.catch` is only available on promises.
+
+5. Prevent Node’s `tsc` from type-checking the Deno Supabase functions by excluding them in `artifacts/wename/tsconfig.json` (or moving them into a Deno-specific `tsconfig`). For example, add:
+
+   ```json
+   {
+     "exclude": ["supabase/functions"]
+   }
+   ```
+
+   to the project’s `tsconfig` (or extend the existing `exclude` array). This stops the Node-targeted compilation from trying to resolve Deno globals like `serve` or `Deno`.
+
+After making these changes, run `pnpm --filter @workspace/wename typecheck` locally to confirm the errors are resolved before pushing to Netlify.
+
+The relevant error logs are:
+
+Line 0: build-image version: ac6eb13fbf000e5c09ad677efd8b7c3c2d0142b6 (noble-new-builds)
+Line 1: buildbot version: 7d1ab19640c2bf7fcc3f970b4cb3025642f999bb
+Line 2: Fetching cached dependencies
+Line 3: Failed to fetch cache, continuing with build
+Line 4: Starting to prepare the repo for build
+Line 5: No cached dependencies found. Cloning fresh repo
+Line 6: git clone --filter=blob:none https://github.com/cgsteeves/wename-replit
+Line 7: Preparing Git Reference refs/heads/main
+Line 8: Installing dependencies
+Line 9: mise ~/.config/mise/config.toml tools: python@3.14.3
+Line 10: mise ~/.config/mise/config.toml tools: ruby@3.4.8
+Line 11: mise ~/.config/mise/config.toml tools: go@1.26.2
+Line 12: v22.22.2 is already installed.
+Line 13: Now using node v22.22.2 (npm v10.9.7)
+Line 74: > pnpm run typecheck:libs && pnpm -r --filter "./artifacts/**" --filter "./scripts" --if-present run typecheck
+Line 75: > workspace@0.0.0 typecheck:libs /opt/build/repo
+Line 76: > tsc --build
+Line 77: Scope: 4 of 9 workspace projects
+Line 78: artifacts/api-server typecheck$ tsc -p tsconfig.json --noEmit
+Line 79: artifacts/mockup-sandbox typecheck$ tsc -p tsconfig.json --noEmit
+Line 80: artifacts/wename typecheck$ tsc -p tsconfig.json --noEmit
+Line 81: artifacts/api-server typecheck: Done
+Line 82: scripts typecheck$ tsc -p tsconfig.json --noEmit
+Line 83: scripts typecheck: Done
+Line 84: Failed during stage 'building site': Build script returned non-zero exit code: 2
+Line 85: artifacts/wename typecheck: app/(tabs)/_layout.tsx(13,40): error TS2307: Cannot find module '@react-navigati
+Line 86: artifacts/wename typecheck: app/(tabs)/settings/profile.tsx(102,32): error TS18047: 'user' is possibly 'null
+Line 87: artifacts/wename typecheck: app/(tabs)/settings/profile.tsx(106,65): error TS18047: 'user' is possibly 'null
+Line 88: artifacts/wename typecheck: app/auth/callback.tsx(44,69): error TS2345: Argument of type '{ token_hash: stri
+Line 89: artifacts/wename typecheck:   Type '{ token_hash: string; type: Parameters<typeof supabase.auth.verifyOtp>[0
+Line 90: artifacts/wename typecheck:     Types of property 'type' are incompatible.
+Line 91: artifacts/wename typecheck:       Type 'MobileOtpType | EmailOtpType' is not assignable to type 'EmailOtpTyp
+Line 92: artifacts/wename typecheck:         Type '"sms"' is not assignable to type 'EmailOtpType'.
+Line 93: artifacts/wename typecheck: components/AuthContext.tsx(56,12): error TS2551: Property 'catch' does not exist
+Line 94: artifacts/wename typecheck: supabase/functions/delete-account/index.ts(13,30): error TS2307: Cannot find mod
+Line 95: artifacts/wename typecheck: supabase/functions/delete-account/index.ts(29,1): error TS2304: Cannot find name
+Line 96: artifacts/wename typecheck: supabase/functions/delete-account/index.ts(38,23): error TS2304: Cannot find nam
+Line 97: artifacts/wename typecheck: supabase/functions/delete-account/index.ts(39,26): error TS2304: Cannot find nam
+Line 98: artifacts/wename typecheck: supabase/functions/delete-account/index.ts(40,19): error TS2304: Cannot find nam
+Line 99: artifacts/wename typecheck: supabase/functions/send-magic-link/index.ts(10,30): error TS2307: Cannot find mo
+Line 100: artifacts/wename typecheck: supabase/functions/send-magic-link/index.ts(26,1): error TS2304: Cannot find nam
+Line 101: artifacts/wename typecheck: supabase/functions/send-magic-link/index.ts(35,23): error TS2304: Cannot find na
+Line 102: artifacts/wename typecheck: supabase/functions/send-magic-link/index.ts(36,26): error TS2304: Cannot find na
+Line 103: artifacts/wename typecheck: supabase/functions/send-magic-link/index.ts(37,23): error TS2304: Cannot find na
+Line 104: artifacts/wename typecheck: supabase/functions/submit-deletion-request/index.ts(28,1): error TS2304: Cannot 
+Line 105: artifacts/wename typecheck: supabase/functions/submit-deletion-request/index.ts(37,23): error TS2304: Cannot
+Line 106: artifacts/wename typecheck: Failed
+Line 107: /opt/build/repo/artifacts/wename:
+Line 108:  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/wename@0.0.0 typecheck: `tsc -p tsconfig.json --noEmit`
+Line 109: Exit status 2
+Line 110:  ELIFECYCLE  Command failed with exit code 2.
+Line 111: ​
+Line 112: "build.command" failed                                        
+Line 113: ────────────────────────────────────────────────────────────────
+Line 114: ​
+Line 115:   Error message
+Line 116:   Command failed with exit code 2: npm run build
+Line 117: ​
+Line 118:   Error location
+Line 119:   In Build command from Netlify app:
+Line 120:   npm run build
+Line 121: ​
+Line 122:   Resolved config
+Line 123:   build:
+Line 124:     command: npm run build
+Line 125:     commandOrigin: ui
+Line 126:     environment:
+Line 127:       - VITE_SUPABASE_ANON_KEY
+Line 128:       - VITE_SUPABASE_URL
+Line 129:     publish: /opt/build/repo/dist
+Line 130:     publishOrigin: ui
+Line 131: Build failed due to a user error: Build script returned non-zero exit code: 2
+Line 132: Failing build: Failed to build site
+Line 133: Finished processing build request in 27.764s

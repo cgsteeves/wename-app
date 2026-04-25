@@ -103,12 +103,15 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
         });
         authListenerRef.current = subscription;
 
-        // Navigate the current window to the Google OAuth page
-        window.location.href = oauthUrl;
-        // NOTE: on a normal (non-proxied) browser the page will navigate away;
-        // setLoadingProvider(null) below won't matter because the component
-        // unmounts.  In a proxied/iframe context (Replit preview) where the
-        // navigation may be intercepted, the subscription above will reset state.
+        // Open Google OAuth in a new tab so the Replit preview (iframe) and
+        // production (wename.app) both work reliably.  The onAuthStateChange
+        // listener above will detect SIGNED_IN via BroadcastChannel and close
+        // the modal once the user finishes in the new tab.
+        const popup = window.open(oauthUrl, "_blank", "noopener,noreferrer");
+        if (!popup) {
+          // Popup was blocked — fall back to navigating the current window
+          window.location.href = oauthUrl;
+        }
       }
     } catch {
       setErrorMsg("Google sign-in failed. Please try again.");

@@ -15,16 +15,17 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const _processLocks: Record<string, Promise<unknown>> = {};
 async function inProcessLock<T>(
   name: string,
-  _acquireTimeout: number,
+  acquireTimeout: number,
   fn: () => T | PromiseLike<T>,
 ): Promise<T> {
   const previous: Promise<unknown> = _processLocks[name] ?? Promise.resolve();
-  const current = previous.then(
-    () => fn(),
-    () => fn(),
-  );
+  const gate: Promise<unknown> =
+    acquireTimeout > 0
+      ? Promise.race([previous, new Promise<void>((r) => setTimeout(r, acquireTimeout))])
+      : previous;
+  const current = gate.then(() => fn(), () => fn()) as Promise<T>;
   _processLocks[name] = current.catch(() => {});
-  return current as Promise<T>;
+  return current;
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

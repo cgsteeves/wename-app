@@ -88,28 +88,39 @@ function GoogleSignInButton({
           e.preventDefault();
           return;
         }
+        if (!href) return;
+
+        // We always handle navigation explicitly — never rely on the
+        // anchor's default target="_blank" behavior, because some
+        // privacy-strict browsers (Brave, Firefox with strict mode,
+        // Safari with popup blocker, certain extensions) silently block
+        // BOTH window.open AND target="_blank" anchor navigation.
+        e.preventDefault();
         onWebClick();
-        // Belt-and-suspenders: the anchor's native target="_blank" should
-        // open a new tab, but in some embedded/iframe contexts the default
-        // navigation gets suppressed silently. Calling window.open here is
-        // safe because (a) we're inside a real user-gesture event handler
-        // and (b) href is pre-generated so there's NO async work between
-        // the click and window.open — both conditions popup blockers
-        // require. If window.open succeeds we preventDefault to avoid
-        // opening a second tab from the anchor's default action.
-        if (href) {
-          try {
-            const popup = window.open(href, "_blank");
-            if (popup) {
-              e.preventDefault();
-            }
-            // If popup is null (blocker / sandboxed), let the anchor's
-            // default target="_blank" navigation proceed as the fallback.
-          } catch {
-            // window.open may throw in some sandboxed contexts; fall
-            // through to the anchor's default behavior.
-          }
+
+        // Tier 1: open in a new tab (best UX — user keeps original tab).
+        // Allowed by browsers because we're in a real user-gesture handler
+        // and href is pre-generated (no async work between click and open).
+        let popup: Window | null = null;
+        try {
+          popup = window.open(href, "_blank");
+        } catch {
+          // window.open may throw in sandboxed contexts; fall through.
         }
+
+        if (popup && !popup.closed) {
+          // Tier 1 succeeded — popup is open, original tab preserved.
+          // Supabase will sync auth state via BroadcastChannel when the
+          // popup completes, and the callback page closes itself.
+          return;
+        }
+
+        // Tier 2 (bulletproof fallback): popup blocked by browser policy
+        // or extension. Navigate the CURRENT tab to the OAuth URL. The
+        // callback page handles the redirect-back to "/".  This sacrifices
+        // the original tab's state, but guarantees sign-in always works
+        // no matter how strict the browser is.
+        window.location.href = href;
       },
       style: {
         textDecoration: "none",

@@ -1,198 +1,158 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/constants/fonts";
-import { supabase } from "@/lib/supabase";
-import { finalizeLogin } from "@/lib/authService";
-import { useUser } from "@/components/UserContext";
 
 type Status = "loading" | "success" | "error";
 
-const EMAIL_OTP_TYPES = [
-  "signup",
-  "recovery",
-  "email_change",
-  "email",
-  "invite",
-  "magiclink",
-] as const;
-type EmailOtpType = (typeof EMAIL_OTP_TYPES)[number];
-function isEmailOtpType(value: string): value is EmailOtpType {
-  return (EMAIL_OTP_TYPES as readonly string[]).includes(value);
+function getProjectRef(): string {
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+  return new URL(url).hostname.split(".")[0];
+}
+
+// Manual PKCE token exchange — bypasses @supabase/supabase-js entirely so the
+// auth-js internal lock can never deadlock the popup. We talk straight to the
+// Supabase REST endpoint, then write the session into the same localStorage
+// key auth-js reads on next load. Opener tab picks it up via the storage
+// event listener registered in _layout.tsx.
+async function exchangeCodeWeb(code: string): Promise<void> {
+  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+  const projectRef = getProjectRef();
+  const verifierKey = `sb-${projectRef}-auth-token-code-verifier`;
+  const sessionKey = `sb-${projectRef}-auth-token`;
+
+  const verifier = window.localStorage.getItem(verifierKey);
+  if (!verifier) throw new Error("Code verifier missing — please try signing in again.");
+
+  const res = await fetch(
+    `${supabaseUrl}/auth/v1/token?grant_type=pkce`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+      },
+      body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+    },
+  );
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as Record<string, string>);
+    throw new Error(
+      body.error_description || body.msg || body.error || `Token exchange failed (${res.status})`,
+    );
+  }
+
+  const session = await res.json();
+  const expiresIn = Number(session.expires_in ?? 3600);
+  const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
+
+  const stored = {
+    access_token: session.access_token,
+    token_type: session.token_type || "bearer",
+    expires_in: expiresIn,
+    expires_at: expiresAt,
+    refresh_token: session.refresh_token,
+    user: session.user,
+    provider_token: session.provider_token ?? null,
+    provider_refresh_token: session.provider_refresh_token ?? null,
+  };
+
+  window.localStorage.setItem(sessionKey, JSON.stringify(stored));
+  window.localStorage.removeItem(verifierKey);
 }
 
 export default function AuthCallback() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { reload: reloadUser } = useUser();
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     let cancelled = false;
+    let safety: ReturnType<typeof setTimeout> | null = null;
 
-    async function handleCallback() {
-      try {
-        let session = null;
+    const isWebPopup =
+      Platform.OS === "web" &&
+      typeof window !== "undefined" &&
+      !!window.opener &&
+      window.opener !== window;
 
-        if (typeof window !== "undefined") {
-          const searchParams = new URLSearchParams(window.location.search);
-          const code = searchParams.get("code");
-
-          // 1. PKCE flow: ?code=... query param
-          // Wrap in try/catch — if the code was already exchanged (race condition / double
-          // render), fall through to the getSession fallbacks below rather than erroring.
-          if (code) {
-            try {
-              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-              if (!error && data.session) {
-                session = data.session;
-              }
-              // error means the code was already consumed; session may still exist in storage
-            } catch {
-              // Unexpected throw from exchangeCodeForSession — session may still exist
-            }
-          }
-
-          // 2. OTP / magic-link via token_hash (Supabase email template)
-          if (!session) {
-            const tokenHash = searchParams.get("token_hash");
-            const type = searchParams.get("type");
-            if (tokenHash && type && isEmailOtpType(type)) {
-              const { data, error } = await supabase.auth.verifyOtp({
-                token_hash: tokenHash,
-                type,
-              });
-              if (!error && data.session) {
-                session = data.session;
-              }
-            }
-          }
-
-          // 3. Implicit / hash-based tokens (#access_token=...&refresh_token=...)
-          if (!session && window.location.hash) {
-            const hashParams = new URLSearchParams(window.location.hash.substring(1));
-            const accessToken = hashParams.get("access_token");
-            const refreshToken = hashParams.get("refresh_token");
-            if (accessToken && refreshToken) {
-              const { data, error } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              });
-              if (!error && data.session) {
-                session = data.session;
-              }
-            }
-          }
-        }
-
-        // 4. Fallback: Supabase client may already have the session persisted
-        if (!session) {
-          const { data } = await supabase.auth.getSession();
-          session = data.session;
-        }
-
-        // 5. Retry once — session propagation can take a moment
-        if (!session) {
-          await new Promise<void>((r) => setTimeout(r, 800));
-          const { data } = await supabase.auth.getSession();
-          session = data.session;
-        }
-
-        if (!session) {
-          throw new Error("No session found. Your sign-in link may have expired.");
-        }
-
-        // Upsert the user row and migrate any guest data. Wrap in a hard
-        // timeout — if the network is slow or RLS blocks something, we MUST
-        // NOT leave the user staring at a spinning popup forever. The
-        // opener tab will sync session via SIGNED_IN event regardless.
-        const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
-          Promise.race<T | "timeout">([
-            p,
-            new Promise<"timeout">((r) => setTimeout(() => r("timeout"), ms)),
-          ]).then((v) => {
-            if (v === "timeout") {
-              console.warn(`[auth/callback] ${label} timed out after ${ms}ms`);
-            }
-            return v;
-          });
-
-        await withTimeout(
-          finalizeLogin(session.user.id, session.user.email ?? ""),
-          3000,
-          "finalizeLogin",
-        );
-
-        // Force UserContext to reload with the authenticated user's ID
-        await withTimeout(reloadUser(), 3000, "reloadUser");
-
-        if (!cancelled) {
-          setStatus("success");
-
-          // If we were opened as a popup from the main app (target="_blank"
-          // anchor for Google sign-in on web), close ourselves so the user
-          // returns to the original tab — Supabase syncs the session across
-          // tabs via storage events / BroadcastChannel.
-          const isWebPopup =
-            typeof window !== "undefined" &&
-            !!window.opener &&
-            window.opener !== window;
-
-          if (isWebPopup) {
-            try {
-              window.opener.postMessage(
-                { type: "wename:auth:signed_in" },
-                window.location.origin,
-              );
-            } catch {
-              // postMessage may throw cross-origin — best-effort only
-            }
-            setTimeout(() => {
-              if (cancelled) return;
-              try {
-                window.close();
-              } catch {
-                // window.close may be blocked — fall back to redirect below
-              }
-              // Belt-and-suspenders: if close was blocked, navigate the popup
-              // back to the app so the user sees something useful.
-              setTimeout(() => router.replace("/"), 200);
-            }, 600);
-            return;
-          }
-
-          setTimeout(async () => {
-            if (cancelled) return;
-
-            // Consume any pending post-auth redirect stored before sign-in
-            const redirect = await AsyncStorage.getItem("post_auth_redirect");
-            await AsyncStorage.removeItem("post_auth_redirect");
-
-            if (redirect) {
-              router.replace(`/?redirect=${encodeURIComponent(redirect)}`);
-            } else {
-              router.replace("/");
-            }
-          }, 1000);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setErrorMsg(
-            e instanceof Error ? e.message : "Sign-in failed. Please try again.",
+    function notifyAndClose() {
+      if (Platform.OS !== "web" || typeof window === "undefined") return;
+      if (isWebPopup) {
+        try {
+          window.opener.postMessage(
+            { type: "wename:auth:signed_in" },
+            window.location.origin,
           );
-          setStatus("error");
+        } catch {
+          /* cross-origin — best effort */
         }
+        try {
+          window.close();
+        } catch {
+          /* may be blocked */
+        }
+        // If close was blocked, send the popup home so the user sees something useful.
+        setTimeout(() => {
+          if (!cancelled) router.replace("/");
+        }, 250);
+      } else {
+        router.replace("/");
       }
     }
 
-    handleCallback();
+    // OUTER SAFETY: no matter what hangs (network, locks, anything), force
+    // the popup to close / navigate after 5s. Better to bail than leave the
+    // user staring at a spinner forever.
+    safety = setTimeout(() => {
+      if (cancelled) return;
+      console.warn("[auth/callback v3] safety timer fired — forcing exit");
+      setStatus("success");
+      notifyAndClose();
+    }, 5000);
+
+    async function run() {
+      try {
+        if (Platform.OS === "web" && typeof window !== "undefined") {
+          const params = new URLSearchParams(window.location.search);
+          const code = params.get("code");
+          const errorDesc = params.get("error_description");
+
+          if (errorDesc) throw new Error(errorDesc);
+
+          if (code) {
+            await exchangeCodeWeb(code);
+          }
+        }
+
+        if (cancelled) return;
+        if (safety) clearTimeout(safety);
+        setStatus("success");
+
+        // Small delay so the user briefly sees "You're signed in!" before close
+        setTimeout(() => {
+          if (!cancelled) notifyAndClose();
+        }, 400);
+      } catch (e) {
+        if (cancelled) return;
+        if (safety) clearTimeout(safety);
+        setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
+        setStatus("error");
+      }
+    }
+
+    run();
+
     return () => {
       cancelled = true;
+      if (safety) clearTimeout(safety);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

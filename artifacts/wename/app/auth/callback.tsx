@@ -39,13 +39,21 @@ export default function AuthCallback() {
         let session = null;
 
         if (typeof window !== "undefined") {
-          // 1. PKCE flow: ?code=... query param
           const searchParams = new URLSearchParams(window.location.search);
           const code = searchParams.get("code");
+
+          // 1. PKCE flow: ?code=... query param
+          // Wrap in try/catch — if the code was already exchanged (race condition / double
+          // render), fall through to the getSession fallbacks below rather than erroring.
           if (code) {
-            const { data, error } = await supabase.auth.exchangeCodeForSession(code);
-            if (!error && data.session) {
-              session = data.session;
+            try {
+              const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+              if (!error && data.session) {
+                session = data.session;
+              }
+              // error means the code was already consumed; session may still exist in storage
+            } catch {
+              // Unexpected throw from exchangeCodeForSession — session may still exist
             }
           }
 

@@ -15,17 +15,13 @@ import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
-import {
-  getAllPacks,
-  getUserSelectedPacks,
-  setUserPack,
-} from "@/lib/namePacks";
+import { getAllPacks, getUserSelectedPacks } from "@/lib/namePacks";
 import { NamePack } from "@/lib/supabase";
 
 export default function NamePacksScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user } = useUser();
+  const { user, changeSelectedPack } = useUser();
   const [packs, setPacks] = useState<NamePack[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,9 +55,7 @@ export default function NamePacksScreen() {
       return;
     }
     setSelected(slug);
-    try {
-      await setUserPack(user!.id, slug);
-    } catch {}
+    await changeSelectedPack(slug);
   }
 
   return (

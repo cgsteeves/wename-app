@@ -7,11 +7,14 @@ import React, {
   useState,
 } from "react";
 
+import { getUserSelectedPacks, setUserPack } from "@/lib/namePacks";
 import { supabase, User, USER_ID_KEY } from "@/lib/supabase";
 
 type UserContextValue = {
   user: User | null;
   loading: boolean;
+  selectedPackSlug: string | null;
+  changeSelectedPack: (slug: string) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   removePartner: () => Promise<void>;
   reload: () => Promise<void>;
@@ -28,6 +31,16 @@ function generateInviteCode(): string {
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedPackSlug, setSelectedPackSlug] = useState<string | null>(null);
+
+  const loadPackForUser = useCallback(async (userId: string) => {
+    try {
+      const slugs = await getUserSelectedPacks(userId);
+      setSelectedPackSlug(slugs[0] ?? null);
+    } catch {
+      setSelectedPackSlug(null);
+    }
+  }, []);
 
   const createUser = useCallback(async (): Promise<User | null> => {
     const { data, error } = await supabase
@@ -65,6 +78,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
           if (!error && data) {
             setUser(data as User);
+            loadPackForUser((data as User).id);
             return;
           }
 
@@ -85,7 +99,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
       }
     },
-    [],
+    [loadPackForUser],
   );
 
   // General load — reads USER_ID_KEY from storage and falls through to guest
@@ -103,18 +117,22 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           .maybeSingle();
         if (!error && data) {
           setUser(data as User);
+          loadPackForUser((data as User).id);
           return;
         }
       }
       const created = await createUser();
-      if (created) setUser(created);
+      if (created) {
+        setUser(created);
+        loadPackForUser(created.id);
+      }
     } catch (e) {
       console.error("[UserContext] load error", e);
     } finally {
       clearTimeout(safetyTimer);
       setLoading(false);
     }
-  }, [createUser]);
+  }, [createUser, loadPackForUser]);
 
   // On mount: load the profile for whoever is current (guest or authenticated).
   useEffect(() => {
@@ -140,6 +158,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     });
     return () => subscription.unsubscribe();
   }, [load, loadById]);
+
+  const changeSelectedPack = useCallback(
+    async (slug: string) => {
+      if (!user) return;
+      setSelectedPackSlug(slug);
+      try {
+        await setUserPack(user.id, slug);
+      } catch (e) {
+        console.error("[UserContext] changeSelectedPack error", e);
+      }
+    },
+    [user],
+  );
 
   const updateUser = useCallback(
     async (updates: Partial<User>) => {
@@ -208,6 +239,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         loading,
+        selectedPackSlug,
+        changeSelectedPack,
         updateUser,
         removePartner,
         reload: load,

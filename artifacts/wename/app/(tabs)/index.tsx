@@ -29,7 +29,7 @@ type LimitType = "swipe" | "like" | "match" | "discover" | null;
 export default function SwipeScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { user, updateUser } = useUser();
+  const { user, updateUser, selectedPackSlug } = useUser();
   const insets = useSafeAreaInsets();
   const { redirect } = useLocalSearchParams<{ redirect?: string }>();
 
@@ -71,6 +71,7 @@ export default function SwipeScreen() {
   const userId = user?.id;
   const userGender = user?.baby_gender;
   const partnerId = user?.partner_id;
+  const activePack = selectedPackSlug;
 
   const loadNames = useCallback(
     async (includeAlready = false) => {
@@ -111,7 +112,7 @@ export default function SwipeScreen() {
         setLoading(false);
       }
     },
-    [userId, userGender, partnerId],
+    [userId, userGender, partnerId, activePack],
   );
 
   useEffect(() => {

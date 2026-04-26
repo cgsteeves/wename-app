@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import * as Linking from "expo-linking";
+import { useRouter } from "expo-router";
 import React from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,6 +12,7 @@ import { useColors } from "@/hooks/useColors";
 export default function SupportScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.parchment }}>
@@ -52,14 +54,14 @@ export default function SupportScreen() {
             icon="lock"
             label="Privacy Policy"
             colors={colors}
-            onPress={() => Linking.openURL("https://wename.app/privacy")}
+            onPress={() => router.push("/privacy")}
           />
           <View style={[styles.divider, { backgroundColor: colors.border + "60" }]} />
           <Row
             icon="file-text"
             label="Terms of Service"
             colors={colors}
-            onPress={() => Linking.openURL("https://wename.app/terms")}
+            onPress={() => router.push("/terms")}
           />
         </View>
 

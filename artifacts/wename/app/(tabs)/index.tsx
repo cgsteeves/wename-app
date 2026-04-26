@@ -43,6 +43,9 @@ export default function SwipeScreen() {
   const [names, setNames] = useState<Name[]>([]);
   const [partnerPickIds, setPartnerPickIds] = useState<Set<string>>(new Set());
   const [currentIndex, setCurrentIndex] = useState(0);
+  // Tracks whether the swipe tab is currently focused so the partner-pick poll
+  // skips cycles when the user is on a different tab.
+  const isFocusedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [matchedName, setMatchedName] = useState<Name | null>(null);
@@ -117,8 +120,10 @@ export default function SwipeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      isFocusedRef.current = true;
       // refresh on focus only if we're empty
       if (names.length === 0 && !loading) loadNames();
+      return () => { isFocusedRef.current = false; };
     }, [names.length, loading, loadNames]),
   );
 
@@ -131,6 +136,8 @@ export default function SwipeScreen() {
     let lastChecked = new Date().toISOString();
 
     const poll = async () => {
+      // Skip if the user is on a different tab — no point fetching while off-screen.
+      if (!isFocusedRef.current) return;
       const since = lastChecked;
       lastChecked = new Date().toISOString();
       try {
@@ -203,11 +210,14 @@ export default function SwipeScreen() {
           incoming.forEach((n) => next.add(n.id));
           return next;
         });
-      } catch {
-        // Silent — poll failure must not affect swipe UX
+      } catch (e) {
+        console.warn("[SwipeScreen] partner-pick poll error:", e);
       }
     };
 
+    // Fire once immediately so the first check happens as soon as the partner
+    // is known — subsequent checks run on the 15-second interval.
+    poll();
     const timer = setInterval(poll, 15_000);
     return () => clearInterval(timer);
   }, [partnerId, userId, userGender]);

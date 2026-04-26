@@ -146,11 +146,40 @@ export async function signInWithEmailMagicLink(email: string): Promise<void> {
 }
 
 export async function authSignOut(): Promise<void> {
-  // scope:'local' clears the session from device storage immediately without
-  // making a server round-trip to revoke the token. The global scope (default)
-  // issues a network request that can hang indefinitely for OAuth (Google)
-  // sessions in mobile/proxy environments, causing an infinite spinner.
-  await supabase.auth.signOut({ scope: "local" });
+  // supabase.auth.signOut() acquires the inProcessLock internally. If a
+  // concurrent token-refresh or exchangeCodeForSession is still running (common
+  // after Google OAuth), that lock never releases and signOut hangs forever.
+  //
+  // Fix: race signOut against a 3-second timeout. If it loses, we clear the
+  // auth token from storage ourselves so the session is gone regardless. The
+  // AuthContext.signOut() wrapper always calls setSession(null) after us, so
+  // the UI unblocks either way.
+  const projectRef = getProjectRef();
+  const storageKey = `sb-${projectRef}-auth-token`;
+
+  const signOutP = supabase.auth
+    .signOut({ scope: "local" })
+    .then(() => {})
+    .catch(() => {});
+  const timeoutP = new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+
+  await Promise.race([signOutP, timeoutP]);
+
+  // Belt-and-suspenders: wipe the token from both storage layers so no stale
+  // session survives even if the Supabase call didn't complete in time.
+  try {
+    await AsyncStorage.removeItem(storageKey);
+  } catch {
+    // ignore
+  }
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem(storageKey);
+      window.localStorage.removeItem(`${storageKey}-code-verifier`);
+    }
+  } catch {
+    // ignore
+  }
 }
 
 export async function authDeleteAccount(): Promise<void> {

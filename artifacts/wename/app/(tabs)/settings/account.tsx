@@ -137,8 +137,11 @@ export default function AccountScreen() {
         setAppleLoading(false);
       }
       // "success" — UI refreshes automatically via AuthContext session change.
-    } catch {
-      setAppleError("Apple sign-in failed. Please try again.");
+    } catch (e: unknown) {
+      const msg =
+        e instanceof Error ? e.message : "Apple sign-in failed. Please try again.";
+      console.error("[AccountScreen] Apple sign-in error:", msg);
+      setAppleError(msg);
       setAppleLoading(false);
     }
   }

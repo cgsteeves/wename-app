@@ -294,8 +294,13 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
         }
         // "success" — SIGNED_IN auth state change will close the modal.
       })
-      .catch(() => {
-        setErrorMsg("Apple sign-in failed. Please try again.");
+      .catch((e: unknown) => {
+        const msg =
+          e instanceof Error
+            ? e.message
+            : "Apple sign-in failed. Please try again.";
+        console.error("[AuthModal] Apple sign-in error:", msg);
+        setErrorMsg(msg);
         setMode("error");
         setLoadingProvider(null);
       });

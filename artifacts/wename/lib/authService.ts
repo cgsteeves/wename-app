@@ -179,7 +179,10 @@ export async function signInWithApple(): Promise<AppleSignInResult> {
     token: credential.identityToken,
   });
 
-  if (error) throw error;
+  if (error) {
+    console.error("[signInWithApple] Supabase error:", error.message, error.status, error.name);
+    throw error;
+  }
   return "success";
 }
 

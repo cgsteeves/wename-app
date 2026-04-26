@@ -146,7 +146,11 @@ export async function signInWithEmailMagicLink(email: string): Promise<void> {
 }
 
 export async function authSignOut(): Promise<void> {
-  await supabase.auth.signOut();
+  // scope:'local' clears the session from device storage immediately without
+  // making a server round-trip to revoke the token. The global scope (default)
+  // issues a network request that can hang indefinitely for OAuth (Google)
+  // sessions in mobile/proxy environments, causing an infinite spinner.
+  await supabase.auth.signOut({ scope: "local" });
 }
 
 export async function authDeleteAccount(): Promise<void> {

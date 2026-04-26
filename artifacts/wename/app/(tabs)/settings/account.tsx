@@ -135,8 +135,11 @@ export default function AccountScreen() {
 
   async function handleSignOut() {
     setSigningOut(true);
-    await signOut();
-    setSigningOut(false);
+    try {
+      await signOut();
+    } finally {
+      setSigningOut(false);
+    }
   }
 
   async function handleDeleteAccount() {

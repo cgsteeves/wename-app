@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,10 +14,17 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Svg, Path } from "react-native-svg";
 
+import * as AppleAuthentication from "expo-apple-authentication";
+
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useAuth } from "@/components/AuthContext";
 import { fonts } from "@/constants/fonts";
-import { signInWithGoogle, signInWithEmailMagicLink } from "@/lib/authService";
+import {
+  signInWithGoogle,
+  signInWithEmailMagicLink,
+  signInWithApple,
+  isAppleAuthAvailable,
+} from "@/lib/authService";
 
 const PARCHMENT    = "hsl(38,45%,93%)";
 const CARD_BG      = "hsl(40,40%,93%)";
@@ -63,6 +70,9 @@ export default function AccountScreen() {
   const { isAuthenticated, authUser, signOut, deleteAccount } = useAuth();
 
   // Guest state
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  const [appleLoading,  setAppleLoading]  = useState(false);
+  const [appleError,    setAppleError]    = useState("");
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError,   setGoogleError]   = useState("");
   const [email,         setEmail]         = useState("");
@@ -70,12 +80,16 @@ export default function AccountScreen() {
   const [emailError,    setEmailError]    = useState("");
   const [emailSent,     setEmailSent]     = useState(false);
 
+  useEffect(() => {
+    isAppleAuthAvailable().then(setAppleAvailable).catch(() => setAppleAvailable(false));
+  }, []);
+
   // Signed-in state
   const [signingOut,    setSigningOut]    = useState(false);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError,   setDeleteError]   = useState("");
 
-  const anyLoading = googleLoading || emailLoading;
+  const anyLoading = appleLoading || googleLoading || emailLoading;
 
   async function handleGoogleSignIn() {
     setGoogleLoading(true);
@@ -111,6 +125,21 @@ export default function AccountScreen() {
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
       setGoogleLoading(false);
+    }
+  }
+
+  async function handleAppleSignIn() {
+    setAppleLoading(true);
+    setAppleError("");
+    try {
+      const result = await signInWithApple();
+      if (result === "cancelled") {
+        setAppleLoading(false);
+      }
+      // "success" — UI refreshes automatically via AuthContext session change.
+    } catch {
+      setAppleError("Apple sign-in failed. Please try again.");
+      setAppleLoading(false);
     }
   }
 
@@ -200,15 +229,50 @@ export default function AccountScreen() {
               Create a free account to back up your names, sync across devices, and never lose your matches.
             </Text>
 
+            {/* Apple button — iOS only, hidden when unavailable */}
+            {appleAvailable && (
+              <>
+                <View
+                  style={[
+                    { borderRadius: 12, overflow: "hidden" },
+                    (googleLoading || emailLoading) && { opacity: 0.6 },
+                  ]}
+                  pointerEvents={(googleLoading || emailLoading) ? "none" : "auto"}
+                >
+                  {appleLoading ? (
+                    <View style={[styles.providerBtn, { borderColor: "#00000033", backgroundColor: "#1a1a1a" }]}>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text style={[styles.providerBtnTextBold, { color: "#fff" }]}>
+                        Connecting to Apple…
+                      </Text>
+                    </View>
+                  ) : (
+                    <AppleAuthentication.AppleAuthenticationButton
+                      buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                      buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                      cornerRadius={12}
+                      style={{ width: "100%", height: 50 }}
+                      onPress={handleAppleSignIn}
+                    />
+                  )}
+                </View>
+                {!!appleError && (
+                  <Text style={[styles.microText, { color: DESTRUCTIVE, textAlign: "center" }]}>
+                    {appleError}
+                  </Text>
+                )}
+              </>
+            )}
+
             {/* Google button */}
             <Pressable
               onPress={handleGoogleSignIn}
-              disabled={googleLoading}
+              disabled={googleLoading || appleLoading}
               style={({ pressed }) => [
                 styles.providerBtn,
                 { borderColor: BORDER_60, backgroundColor: CARD_BG },
-                googleLoading && { opacity: 0.6 },
-                pressed && !googleLoading && { transform: [{ scale: 0.95 }] },
+                (googleLoading || appleLoading) && { opacity: 0.6 },
+                pressed && !googleLoading && !appleLoading && { transform: [{ scale: 0.95 }] },
               ]}
             >
               {googleLoading ? (

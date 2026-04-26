@@ -15,9 +15,16 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Svg, Path } from "react-native-svg";
 
+import * as AppleAuthentication from "expo-apple-authentication";
+
 import { fonts } from "@/constants/fonts";
 import { supabase } from "@/lib/supabase";
-import { signInWithGoogle, signInWithEmailMagicLink } from "@/lib/authService";
+import {
+  signInWithGoogle,
+  signInWithEmailMagicLink,
+  signInWithApple,
+  isAppleAuthAvailable,
+} from "@/lib/authService";
 
 const PARCHMENT = "#ede8dc";
 const CARD_BG   = "#e8e0cf";
@@ -183,12 +190,18 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   const [mode, setMode] = useState<Mode>("choose");
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingProvider, setLoadingProvider] = useState<"google" | null>(null);
+  const [loadingProvider, setLoadingProvider] = useState<"google" | "apple" | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
+  const [appleAvailable, setAppleAvailable] = useState(false);
   // Pre-generated OAuth URL — used as the href on a real <a target="_blank">
   // anchor so the browser handles the navigation natively.  This avoids all
   // popup-blocker / iframe-sandbox issues that JS-driven window.open hits.
   const [googleUrl, setGoogleUrl] = useState<string | null>(null);
+
+  // Check Apple availability once on mount (iOS only; always false on web/Android).
+  useEffect(() => {
+    isAppleAuthAvailable().then(setAppleAvailable).catch(() => setAppleAvailable(false));
+  }, []);
 
   const anyLoading = loading || loadingProvider !== null;
   // The web "Connecting to Google…" state is non-blocking — the user opened
@@ -265,6 +278,24 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
       })
       .catch(() => {
         setErrorMsg("Google sign-in failed. Please try again.");
+        setMode("error");
+        setLoadingProvider(null);
+      });
+  }
+
+  function handleAppleNative() {
+    setLoadingProvider("apple");
+    setErrorMsg("");
+    signInWithApple()
+      .then((result) => {
+        if (result === "cancelled") {
+          setLoadingProvider(null);
+          return;
+        }
+        // "success" — SIGNED_IN auth state change will close the modal.
+      })
+      .catch(() => {
+        setErrorMsg("Apple sign-in failed. Please try again.");
         setMode("error");
         setLoadingProvider(null);
       });
@@ -358,6 +389,33 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
               </View>
 
               <View style={{ gap: 12 }}>
+                {appleAvailable && (
+                  <View
+                    style={[
+                      { borderRadius: 12, overflow: "hidden" },
+                      anyLoading && loadingProvider !== "apple" && { opacity: 0.6 },
+                    ]}
+                    pointerEvents={anyLoading && loadingProvider !== "apple" ? "none" : "auto"}
+                  >
+                    {loadingProvider === "apple" ? (
+                      <View style={[styles.providerBtn, { borderColor: "#00000033", backgroundColor: "#1a1a1a" }]}>
+                        <ActivityIndicator size="small" color="#fff" />
+                        <Text style={[styles.providerBtnTextBold, { color: "#fff" }]}>
+                          Connecting to Apple…
+                        </Text>
+                      </View>
+                    ) : (
+                      <AppleAuthentication.AppleAuthenticationButton
+                        buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                        buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                        cornerRadius={12}
+                        style={{ width: "100%", height: 50 }}
+                        onPress={handleAppleNative}
+                      />
+                    )}
+                  </View>
+                )}
+
                 <GoogleSignInButton
                   href={googleUrl}
                   loading={loadingProvider === "google"}

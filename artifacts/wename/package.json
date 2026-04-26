@@ -12,13 +12,13 @@
     "export:web": "expo export --platform web"
   },
   "devDependencies": {
-    "@react-navigation/bottom-tabs": "^7.15.9",
     "@babel/core": "^7.25.2",
     "@expo-google-fonts/inter": "^0.4.0",
     "@expo/cli": "54.0.23",
     "@expo/ngrok": "^4.1.0",
     "@expo/vector-icons": "^15.0.3",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/bottom-tabs": "^7.15.9",
     "@stardazed/streams-text-encoding": "^1.0.2",
     "@tanstack/react-query": "catalog:",
     "@types/react": "~19.1.10",
@@ -62,6 +62,7 @@
     "@expo-google-fonts/fredoka": "^0.4.1",
     "@expo-google-fonts/patrick-hand": "^0.4.1",
     "@supabase/supabase-js": "^2.104.0",
+    "expo-apple-authentication": "^8.0.8",
     "expo-clipboard": "^8.0.8",
     "expo-print": "^15.0.8",
     "expo-sharing": "^14.0.8",

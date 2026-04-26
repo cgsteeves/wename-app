@@ -21,7 +21,7 @@ import { useAuth } from "@/components/AuthContext";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { supabase } from "@/lib/supabase";
-import type { PartnerInvite } from "@/lib/supabase";
+import type { PartnerInvite, User } from "@/lib/supabase";
 import {
   createInvite,
   getInviteByShortCode,
@@ -125,7 +125,7 @@ export function PartnerConnectModal({ open, onClose }: Props) {
               onClose={onClose}
             />
           ) : (
-            <InviteSheetView userId={user.id} />
+            <InviteSheetView user={user} />
           )}
         </ScrollView>
       </View>
@@ -310,115 +310,109 @@ function MainSheetView({
 }
 
 // ─── Invite view: generate & share link / code ────────────────────────────────
-function InviteSheetView({ userId }: { userId: string }) {
+// Shows the user's permanent invite_code immediately (no loading spinner).
+// In the background, tries to create a partner_invites record for a shareable
+// link. If that fails or times out, only the code is shown (still fully
+// functional — handleJoin in MainSheetView already accepts users.invite_code).
+function InviteSheetView({ user }: { user: User }) {
   const [invite,     setInvite]     = useState<PartnerInvite | null>(null);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  const generate = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await createInvite(userId);
-      setInvite(data);
-    } catch {
-      setError("Failed to create invite. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
+  // Attempt to generate a fresh partner_invites record in the background.
+  // Use a 6-second timeout so we never leave the user waiting.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(() => { cancelled = true; }, 6000);
 
-  useEffect(() => { generate(); }, [generate]);
+    createInvite(user.id)
+      .then((data) => { if (!cancelled) setInvite(data); })
+      .catch(() => {})
+      .finally(() => clearTimeout(timer));
+
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [user.id]);
+
+  // The code shown to the partner — prefer fresh invite short_code, fallback
+  // to the user's permanent invite_code that is always available.
+  const displayCode = invite?.short_code ?? user.invite_code;
+  const shareUrl    = invite ? getInviteUrl(invite.token) : null;
 
   async function copyLink() {
-    if (!invite) return;
-    await Clipboard.setStringAsync(getInviteUrl(invite.token));
+    if (!shareUrl) return;
+    await Clipboard.setStringAsync(shareUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2500);
   }
 
   async function copyCode() {
-    if (!invite) return;
-    await Clipboard.setStringAsync(invite.short_code);
+    await Clipboard.setStringAsync(displayCode);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2500);
   }
 
   async function handleShare() {
-    if (!invite) return;
-    const url  = getInviteUrl(invite.token);
-    const text = "Join me on WeName to find baby names we both love! Tap the link to connect instantly:";
+    const text = "Join me on WeName to find baby names we both love!";
     try {
-      await Share.share({ message: `${text}\n${url}`, url });
+      if (shareUrl) {
+        await Share.share({ message: `${text} Tap to connect instantly:\n${shareUrl}`, url: shareUrl });
+      } else {
+        await Share.share({ message: `${text} Enter my code in the app: ${displayCode}` });
+      }
     } catch {
-      await copyLink();
+      if (shareUrl) await copyLink(); else await copyCode();
     }
   }
-
-  if (loading) {
-    return (
-      <View style={{ alignItems: "center", paddingVertical: 40 }}>
-        <ActivityIndicator color={ROSE_400} size="large" />
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.errorCard}>
-        <Feather name="alert-circle" size={16} color={DESTRUCTIVE} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.errorCardText}>{error}</Text>
-          <Pressable onPress={generate} style={{ marginTop: 6 }}>
-            <Text style={[styles.errorCardText, { textDecorationLine: "underline", fontFamily: fonts.displaySemibold }]}>
-              Try again
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
-
-  if (!invite) return null;
 
   return (
     <>
       <Text style={styles.inviteIntro}>
-        Share this link so your partner can join your baby name list instantly.
+        Share your code or link so your partner can join your baby name list instantly.
       </Text>
 
-      {/* Invite link card */}
-      <View style={styles.inviteCard}>
-        <Text style={styles.sectionLabel}>Invite link</Text>
-        <View style={styles.urlRow}>
-          <Feather name="link-2" size={14} color={MUTED_FG} style={{ flexShrink: 0 }} />
-          <Text style={styles.urlText} numberOfLines={1}>{getInviteUrl(invite.token)}</Text>
+      {/* Invite link card — only shown once the background invite is ready */}
+      {shareUrl && (
+        <View style={styles.inviteCard}>
+          <Text style={styles.sectionLabel}>Invite link</Text>
+          <View style={styles.urlRow}>
+            <Feather name="link-2" size={14} color={MUTED_FG} style={{ flexShrink: 0 }} />
+            <Text style={styles.urlText} numberOfLines={1}>{shareUrl}</Text>
+            <Pressable
+              onPress={copyLink}
+              hitSlop={8}
+              style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.88 : 1 }], marginLeft: 4 })}
+            >
+              <Feather name={copiedLink ? "check" : "copy"} size={16} color={copiedLink ? GRASS : MUTED_FG} />
+            </Pressable>
+          </View>
           <Pressable
-            onPress={copyLink}
-            hitSlop={8}
-            style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.88 : 1 }], marginLeft: 4 })}
+            onPress={handleShare}
+            style={({ pressed }) => [styles.shareBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
           >
-            <Feather name={copiedLink ? "check" : "copy"} size={16} color={copiedLink ? GRASS : MUTED_FG} />
+            <Feather name="share-2" size={16} color="#fff" />
+            <Text style={styles.shareBtnText}>Share Invite Link</Text>
           </Pressable>
         </View>
+      )}
+
+      {/* Share button even without a link */}
+      {!shareUrl && (
         <Pressable
           onPress={handleShare}
           style={({ pressed }) => [styles.shareBtn, { transform: [{ scale: pressed ? 0.97 : 1 }] }]}
         >
           <Feather name="share-2" size={16} color="#fff" />
-          <Text style={styles.shareBtnText}>Share Invite Link</Text>
+          <Text style={styles.shareBtnText}>Share my code</Text>
         </Pressable>
-      </View>
+      )}
 
-      {/* Short code card */}
+      {/* Code card — always visible immediately */}
       <View style={styles.inviteCard}>
-        <Text style={styles.sectionLabel}>Or use this code instead</Text>
-        <Text style={styles.sectionHint}>Your partner can enter this code manually in the app.</Text>
+        <Text style={styles.sectionLabel}>{shareUrl ? "Or use this code instead" : "Your invite code"}</Text>
+        <Text style={styles.sectionHint}>Your partner can enter this code in the app to connect.</Text>
 
         <View style={styles.codeDisplayRow}>
-          <Text style={styles.codeDisplayText}>{invite.short_code}</Text>
+          <Text style={styles.codeDisplayText}>{displayCode}</Text>
           <Pressable
             onPress={copyCode}
             hitSlop={8}
@@ -440,7 +434,9 @@ function InviteSheetView({ userId }: { userId: string }) {
       </View>
 
       <Text style={styles.expiryNote}>
-        This link and code expire in 7 days. Generate a new one anytime.
+        {invite
+          ? "This link and code expire in 7 days. Your permanent code never expires."
+          : "This code never expires — your partner can use it anytime."}
       </Text>
     </>
   );

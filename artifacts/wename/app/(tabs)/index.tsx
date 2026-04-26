@@ -122,6 +122,96 @@ export default function SwipeScreen() {
     }, [names.length, loading, loadNames]),
   );
 
+  // Poll for new partner custom names every 15 seconds.
+  // Uses a timestamp cursor so most polls return 0 rows (cheap).
+  // Name details are only fetched when the partner actually added something new.
+  // New names are appended after the current card — the active swipe is never interrupted.
+  useEffect(() => {
+    if (!partnerId || !userId) return;
+    let lastChecked = new Date().toISOString();
+
+    const poll = async () => {
+      const since = lastChecked;
+      lastChecked = new Date().toISOString();
+      try {
+        // Only look at partner swipes newer than the last check
+        const { data: newSwipes } = await supabase
+          .from("swipes")
+          .select("name_id")
+          .eq("user_id", partnerId)
+          .eq("liked", true)
+          .gt("created_at", since);
+        if (!newSwipes || newSwipes.length === 0) return;
+
+        const nameIds = (newSwipes as Array<{ name_id: string }>).map(
+          (s) => s.name_id,
+        );
+        const gender = userGender ?? "either";
+
+        // Fetch name details — must be user-created (privacy: catalog names are
+        // already in both users' decks via get_swipeable_names)
+        let q = supabase
+          .from("names")
+          .select(
+            "uuid, name, gender, pronunciation, origin, meaning, nickname, rank, created_by_user_id",
+          )
+          .in("uuid", nameIds)
+          .eq("user_created", true);
+        if (gender !== "either") q = q.eq("gender", gender);
+        const { data: nameRows } = await q;
+        if (!nameRows || nameRows.length === 0) return;
+
+        // Filter out names the current user already swiped
+        const { data: mySwipes } = await supabase
+          .from("swipes")
+          .select("name_id")
+          .eq("user_id", userId);
+        const swiped = new Set(
+          (mySwipes ?? []).map((s: { name_id: string }) => s.name_id),
+        );
+
+        const str = (v: unknown): string | null => {
+          const s = v == null ? "" : String(v).trim();
+          return s === "" || s === "\\N" || s === "Unknown" ? null : s;
+        };
+
+        const incoming: Name[] = (nameRows as Array<Record<string, unknown>>)
+          .map((r) => ({
+            id: r.uuid as string,
+            text: r.name as string,
+            gender: r.gender as "boy" | "girl",
+            pronunciation: str(r.pronunciation),
+            origin: str(r.origin),
+            meaning: str(r.meaning),
+            nickname: str(r.nickname),
+            rank: r.rank != null ? Number(r.rank) : null,
+            created_at: "",
+            created_by_user_id: (r.created_by_user_id as string) ?? null,
+          }))
+          .filter((n) => !swiped.has(n.id));
+
+        if (incoming.length === 0) return;
+
+        // Append to deck (deduplicated) — does not reset currentIndex
+        setNames((prev) => {
+          const seen = new Set(prev.map((n) => n.id));
+          const toAdd = incoming.filter((n) => !seen.has(n.id));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+        setPartnerPickIds((prev) => {
+          const next = new Set(prev);
+          incoming.forEach((n) => next.add(n.id));
+          return next;
+        });
+      } catch {
+        // Silent — poll failure must not affect swipe UX
+      }
+    };
+
+    const timer = setInterval(poll, 15_000);
+    return () => clearInterval(timer);
+  }, [partnerId, userId, userGender]);
+
   async function checkForMatch(name: Name): Promise<boolean> {
     if (!user?.partner_id) return false;
     const { data: partnerSwipe } = await supabase

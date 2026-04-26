@@ -44,6 +44,52 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     return newUser;
   }, []);
 
+  // Fetch a user profile by explicit ID.  Used on SIGNED_IN to bypass the
+  // AsyncStorage race condition: finalizeLogin (in AuthContext) updates
+  // USER_ID_KEY asynchronously, so reading it immediately in load() often
+  // returns the old guest ID.  By going straight to the auth session ID we
+  // always land on the correct authenticated profile.
+  // Retries up to `maxRetries` times (500 ms apart) to handle the edge case
+  // where finalizeLogin hasn't finished upserting the profile row yet.
+  const loadById = useCallback(
+    async (userId: string, maxRetries = 5): Promise<void> => {
+      setLoading(true);
+      const safetyTimer = setTimeout(() => setLoading(false), 8000);
+      try {
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+          const { data, error } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", userId)
+            .maybeSingle();
+
+          if (!error && data) {
+            setUser(data as User);
+            return;
+          }
+
+          if (attempt < maxRetries) {
+            // Profile row may not exist yet — finalizeLogin is still running.
+            await new Promise((r) => setTimeout(r, 500));
+          } else {
+            console.warn(
+              "[UserContext] loadById: profile not found after retries for",
+              userId,
+            );
+          }
+        }
+      } catch (e) {
+        console.error("[UserContext] loadById error", e);
+      } finally {
+        clearTimeout(safetyTimer);
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  // General load — reads USER_ID_KEY from storage and falls through to guest
+  // creation if no match is found.  Used on app start and SIGNED_OUT.
   const load = useCallback(async () => {
     setLoading(true);
     const safetyTimer = setTimeout(() => setLoading(false), 8000);
@@ -70,21 +116,30 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     }
   }, [createUser]);
 
+  // On mount: load the profile for whoever is current (guest or authenticated).
   useEffect(() => {
     load();
   }, [load]);
 
-  // React to Supabase auth events so the user profile stays in sync
+  // React to Supabase auth events.
+  //
+  // SIGNED_IN: use the session's user ID directly — do NOT read USER_ID_KEY
+  //            here because finalizeLogin (AuthContext) may not have written
+  //            the new ID yet, causing a stale guest-user load.
+  //
+  // SIGNED_OUT: fall back to load() which will create/find a guest profile.
   useEffect(() => {
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user?.id) {
+        loadById(session.user.id);
+      } else if (event === "SIGNED_OUT") {
         load();
       }
     });
     return () => subscription.unsubscribe();
-  }, [load]);
+  }, [load, loadById]);
 
   const updateUser = useCallback(
     async (updates: Partial<User>) => {

@@ -33,6 +33,7 @@ const boyRowBg = require("../../assets/images/boy-card-bg.jpg");
 const paperTexture = require("../../assets/images/paper-texture.jpg");
 
 import { NameSuggestions } from "@/components/NameSuggestions";
+import { PartnerConnectModal } from "@/components/PartnerConnectModal";
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
@@ -93,6 +94,7 @@ export default function NamesScreen() {
   const [allSwipedNames, setAllSwipedNames] = useState<string[]>([]);
   const [partnerLikedNames, setPartnerLikedNames] = useState<string[]>([]);
   const [discoverGateOpen, setDiscoverGateOpen] = useState(false);
+  const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   const isPremium = true;
@@ -763,7 +765,7 @@ export default function NamesScreen() {
                 styles.connectBtn,
                 { backgroundColor: GRASS, opacity: pressed ? 0.9 : 1 },
               ]}
-              onPress={() => Alert.alert("Connect", "Open Settings to connect with your partner.")}
+              onPress={() => setPartnerModalOpen(true)}
             >
               <Feather name="users" size={16} color="#fff" />
               <Text style={styles.connectBtnText}>Connect with Partner</Text>
@@ -868,6 +870,11 @@ export default function NamesScreen() {
           if (tab === "suggestions") setTab("liked");
         }}
         onUpgrade={() => setDiscoverGateOpen(false)}
+      />
+
+      <PartnerConnectModal
+        open={partnerModalOpen}
+        onClose={() => setPartnerModalOpen(false)}
       />
 
       {!!toast && (

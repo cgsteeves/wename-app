@@ -73,28 +73,58 @@ export async function getSwipeableNames(
   }));
 }
 
+// Fetch custom names the partner added to their picks.
+// Privacy guarantee: two independent conditions must both be true —
+//   1. name_id appears in partner's swipes (liked=true)  → partner-scoped
+//   2. user_created=true in the names table              → never catalog names
+// This ensures a custom name surfaces only for the one user whose partner added it.
 export async function getPartnerCreatedNames(
   partnerId: string,
   gender: string,
 ): Promise<Name[]> {
-  const { data, error } = await supabase.rpc("get_partner_created_names", {
-    p_partner_id: partnerId,
-    p_gender: gender,
-  });
-  if (error || !data) return [];
-  return (data as Array<Record<string, unknown>>).map((row) => ({
-    id: row.uuid as string,
-    text: row.name as string,
-    gender: row.gender as "boy" | "girl",
-    pronunciation: clean(row.pronunciation),
-    origin: clean(row.origin_raw),
-    meaning: clean(row.meaning),
-    nickname: clean(row.nicknames),
-    rank:
-      row.us_rank != null && /^\d+$/.test(String(row.us_rank))
-        ? Number(row.us_rank)
-        : null,
-    created_at: "",
-    created_by_user_id: (row.created_by_user_id as string) ?? null,
-  }));
+  try {
+    // Step 1: get every name_id the partner has liked
+    const { data: swipeRows, error: swipeErr } = await supabase
+      .from("swipes")
+      .select("name_id")
+      .eq("user_id", partnerId)
+      .eq("liked", true);
+
+    if (swipeErr || !swipeRows || swipeRows.length === 0) return [];
+
+    const nameIds = (swipeRows as Array<{ name_id: string }>).map(
+      (r) => r.name_id,
+    );
+
+    // Step 2: fetch those names, but only user-created ones + gender filter
+    let query = supabase
+      .from("names")
+      .select(
+        "uuid, name, gender, pronunciation, origin, meaning, nickname, rank, created_by_user_id",
+      )
+      .in("uuid", nameIds)
+      .eq("user_created", true);
+
+    if (gender !== "either") {
+      query = query.eq("gender", gender);
+    }
+
+    const { data, error } = await query;
+    if (error || !data) return [];
+
+    return (data as Array<Record<string, unknown>>).map((row) => ({
+      id: row.uuid as string,
+      text: row.name as string,
+      gender: row.gender as "boy" | "girl",
+      pronunciation: clean(row.pronunciation),
+      origin: clean(row.origin),
+      meaning: clean(row.meaning),
+      nickname: clean(row.nickname),
+      rank: row.rank != null ? Number(row.rank) : null,
+      created_at: "",
+      created_by_user_id: (row.created_by_user_id as string) ?? null,
+    }));
+  } catch {
+    return [];
+  }
 }

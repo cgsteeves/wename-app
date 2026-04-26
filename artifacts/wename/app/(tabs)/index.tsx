@@ -90,10 +90,13 @@ export default function SwipeScreen() {
         if (all.length === 0 && partner.length === 0) {
           throw new Error("No names available in the selected packs");
         }
-        setPartnerPickIds(new Set(partner.map((n) => n.id)));
+        // Filter partner picks against already-swiped so the user never sees a
+        // duplicate they already acted on (partner picks are not reset by "Start Over").
+        const partnerFiltered = partner.filter((n) => !swiped.has(n.id));
+        setPartnerPickIds(new Set(partnerFiltered.map((n) => n.id)));
         let filtered = includeAlready ? all : all.filter((n) => !swiped.has(n.id));
         if (filtered.length === 0 && !includeAlready) filtered = all;
-        const combined = [...filtered, ...partner];
+        const combined = [...filtered, ...partnerFiltered];
         const shuffled = [...combined].sort(() => Math.random() - 0.5);
         setNames(shuffled);
         setCurrentIndex(0);

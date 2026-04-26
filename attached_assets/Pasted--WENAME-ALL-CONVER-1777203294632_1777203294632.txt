@@ -1,0 +1,568 @@
+================================================================================
+WENAME — ALL CONVERSION POINTS: PREMIUM, ACCOUNT CREATION & PARTNER LINKING
+Complete specification of every touchpoint where users are prompted to upgrade,
+sign up, or connect with a partner — including triggers, UX, messaging, and flow
+================================================================================
+
+This document covers every conversion point in the app. Each entry includes:
+where it is triggered, the exact user action that causes it, what is shown,
+what happens when the user accepts or dismisses, and any edge cases.
+
+================================================================================
+SECTION 1 — PREMIUM UPGRADE CONVERSION POINTS
+================================================================================
+
+The free tier limits are:
+  - 30 swipes per day
+  - 8 likes per day  (a like is also a swipe — both counters increment)
+  - 3 match reveals per day
+
+Premium users (plan_tier = 'premium') bypass ALL limits entirely.
+Limits reset to 0 daily — checked by comparing usage_last_reset_at to today's date.
+
+The PremiumUpgradeModal is the single shared component for all premium gates.
+It is a bottom sheet on mobile, centered on desktop (same pattern as AuthModal).
+Backdrop does NOT close the modal — dismissal requires an explicit button tap.
+
+---
+
+CONVERSION POINT P1: SWIPE LIMIT HIT
+Location: SwipeView — handleSwipe()
+Trigger: User swipes (left or right) and daily_swipe_count >= 30
+
+Mechanism:
+  Before every swipe, checkCanSwipe(liked) is called from useDailyLimits.
+  If swipe_count >= FREE_LIMITS.swipes (30):
+    returns { allowed: false, limitType: 'swipe' }
+  handleSwipe() receives this result and:
+    setUpgradeModalLimitType('swipe')
+    setUpgradeModalOpen(true)
+  The swipe is NOT recorded — no DB write happens.
+
+Modal subtitle shown (limitType='swipe'):
+  "You've used all 30 of your daily swipes.
+  Upgrade to keep discovering names together."
+
+Modal title: "Keep going"
+Modal features listed:
+  - Unlimited daily swipes, likes and matches
+  - Access to themed name packs (Classic, Arabic, Spiritual, and more)
+  - AI name suggestions based on your likes
+
+Primary CTA: "Upgrade to Premium"
+  On press: setUpgradeModalOpen(false) — currently navigates nowhere (not yet wired to payment)
+Secondary: "Come back tomorrow"
+  On press: setUpgradeModalOpen(false)
+
+---
+
+CONVERSION POINT P2: LIKE LIMIT HIT
+Location: SwipeView — handleSwipe() (only when liked=true)
+Trigger: User swipes RIGHT (likes) and daily_like_count >= 8
+
+Mechanism:
+  checkCanSwipe(liked=true) checks like_count >= FREE_LIMITS.likes (8).
+  If blocked: returns { allowed: false, limitType: 'like' }
+  The like is NOT recorded. The swipe IS counted (this is checked in order:
+  swipe limit first, then like limit — so only like is blocked, not pass swipes).
+
+Modal subtitle shown (limitType='like'):
+  "You've liked 8 names today — that's your daily limit.
+  Upgrade to keep liking names together."
+
+Same modal, same CTAs as P1.
+
+---
+
+CONVERSION POINT P3: MATCH REVEAL LIMIT HIT
+Location: SwipeView — checkForMatch()
+Trigger: User's like creates a mutual match AND daily_match_count >= 3
+
+Mechanism:
+  checkForMatch() runs ONLY when liked=true AND user.partner_id is set.
+  It checks if partner has also liked this name.
+  If they have: the match IS saved to the DB regardless of limit.
+    INSERT INTO matches (...) always happens.
+  Then checkCanRevealMatch() is called:
+    If match_count >= FREE_LIMITS.matches (3): returns false
+    If blocked:
+      setUpgradeModalLimitType('match')
+      setUpgradeModalOpen(true)
+    If allowed:
+      setMatchedName(name) — shows the "It's a Match!" celebration overlay
+
+CRITICAL DETAIL: The match record is created in the DB even when blocked.
+The user can see it in their Shared Matches list on the Names tab.
+The premium gate only blocks the REAL-TIME CELEBRATION POPUP — not the match itself.
+
+Modal subtitle shown (limitType='match'):
+  "You've seen 3 new matches today.
+  Upgrade to reveal every match the moment it happens."
+
+Same modal, same CTAs as P1.
+
+---
+
+CONVERSION POINT P4: AI SUGGESTIONS TAB LOCKED
+Location: NamesView — handleDiscoverClick()
+Trigger: User taps the "AI Suggestions" tab when plan_tier !== 'premium'
+
+Mechanism:
+  isPremium = user.plan_tier === 'premium'
+  handleDiscoverClick():
+    if isPremium → setActiveSubTab('suggestions')
+    else → setDiscoverGateOpen(true)
+
+  PremiumUpgradeModal is rendered with:
+    open={discoverGateOpen}
+    limitType="discover"
+
+  onClose:
+    setDiscoverGateOpen(false)
+    setActiveSubTab('liked')  ← returns user to "Your Picks" tab
+
+  onUpgrade:
+    setDiscoverGateOpen(false)  ← currently not wired to payment
+
+VISUAL INDICATOR: The "AI Suggestions" tab button shows a "PRO" badge
+when the user is not premium:
+  Small amber/orange pill below the tab label
+  Style: background hsl(38 85% 48%), color white, 9px font, uppercase, tracking-wide
+
+Modal subtitle shown (limitType='discover'):
+  "Get smarter name suggestions — our AI learns what you like and recommends
+  names with a similar style and vibe."
+
+Tab visual when user IS premium: no PRO badge, tap goes directly to suggestions.
+
+---
+
+CONVERSION POINT P5: SETTINGS → PREMIUM PAGE
+Location: SettingsPage → SettingsHub → PremiumPage
+Trigger: User taps "Premium" row in the Settings hub list
+
+Mechanism:
+  activePage === 'premium' → renders PremiumPage
+  This is a PASSIVE info page, not a modal gate.
+
+PremiumPage when NOT premium:
+  Header card: "Current Plan — Free — basic features"
+  Benefits list card (amber gradient, amber border):
+    - Access to 10,000+ more names
+    - AI name suggestions tailored to you
+    - Unlimited daily swipes and likes
+    - More name filtering — trendy, celeb, traditional, religious, and more
+    - Recommendations based on your current children's names
+  Primary CTA button: "Upgrade to Premium"
+    Full width, amber-to-orange gradient, bold, 16px font
+    On press: NOT YET WIRED (no payment flow implemented)
+  Secondary: "Restore Purchase"
+    bg-card, muted text, border
+    On press: NOT YET WIRED
+  Legal note: "Purchases are processed securely. Subscriptions renew automatically unless cancelled."
+
+PremiumPage when IS premium:
+  Header card: "Current Plan — Premium — all features unlocked"
+  Benefits list (same)
+  Status banner: "You are on Premium" (amber-50 bg, amber star icon, amber-800 text)
+  No upgrade or restore buttons shown
+
+The Settings hub item shows "Premium" as a row navigating here.
+
+---
+
+PREMIUM UPGRADE MODAL: SHARED DESIGN SPEC
+
+Position: fixed, bottom sheet mobile / centered desktop
+z-index: 60 (above all other content including AuthModal at 50)
+Backdrop: black/45, backdrop-blur-sm, does NOT dismiss on click
+
+Background: linear-gradient warm parchment
+  (255,251,235 → 255,245,220 → 255,237,200)
+Paper texture overlay: opacity 0.25
+Radial highlight at top: rgba(255,255,255,0.5)
+
+Icon block: 64x64, amber gradient, border hsl(42 80% 75%)
+  Shows like_sun2.png image (40x40)
+
+Title: "Keep going"
+  font-hand bold, text-2xl, color hsl(25 50% 30%)
+
+Feature list (3 items, amber-tinted cards):
+  Background: rgba(180,140,60,0.07), border hsl(42 60% 78%)
+  Icons: Infinity, Package, Sparkles
+  Text: Fredoka, text-sm, foreground/80
+
+Primary CTA: "Upgrade to Premium"
+  amber-to-orange gradient, white text, Sparkles icon, shadow-md
+  gradient: hsl(38 85% 48%) → hsl(32 80% 44%)
+
+Secondary: "Come back tomorrow"
+  bg-card/60, border-border/50, muted-foreground text
+  Fredoka semibold, text-sm
+
+Close X button: top-right, 32x32 circle, bg-card/80
+
+================================================================================
+SECTION 2 — ACCOUNT CREATION CONVERSION POINTS
+================================================================================
+
+The app uses a "guest-first" model. Every user has a profile immediately.
+Auth prompts appear only at specific friction points, never on app load.
+
+Two auth methods:
+  Method A: Google OAuth → full page redirect → /auth/callback
+  Method B: Email magic link → branded email via SendGrid → /auth/callback
+
+---
+
+CONVERSION POINT A1: SETTINGS → ACCOUNT PAGE (PRIMARY ENTRY POINT)
+Location: SettingsPage → AccountPage
+Trigger: User taps "Account" in the Settings hub
+
+This is the PRIMARY and most prominent auth entry point.
+It is always accessible regardless of what the user is doing.
+It is the ONLY place that is always available for sign-in.
+
+When NOT authenticated:
+  GUEST MODE card:
+    Shield icon (slate-500), 40x40 circle (slate-100)
+    "Guest Mode" — Fredoka bold, text-sm
+    "Names saved on this device only" — text-xs, muted-foreground
+
+    Body: "Create a free account to back up your names, sync across devices,
+    and never lose your matches."
+
+  Google button:
+    bg-card, border-border/60, Google SVG logo + "Continue with Google"
+    On press: signInWithGoogle() → immediate full-page redirect to Google OAuth
+    Loading state: "Connecting to Google…" (animate-pulse)
+    Error state: small red text below button
+
+  Divider: left line + "or" + right line
+
+  Email form (inline in page, no modal):
+    Mail icon inside input, placeholder "Enter your email"
+    Submit button: "Continue with Email" (bg-boy, white)
+    On submit: signInWithEmailMagicLink(email) → shows "Check your inbox" confirmation
+    On success (emailSent=true): replaces form with confirmation text
+      "We sent a sign-in link to {email}"
+
+When IS authenticated:
+  Shows green CheckCircle2 avatar, "Signed In", user's email
+  Body: "Your progress is saved and synced across all your devices."
+  Second card: Email row + "Sign Out" button
+  Danger zone: "Delete Account" button
+
+KEY DIFFERENCE FROM AUTH MODAL: AccountPage embeds auth inline in the page
+(no modal overlay). AuthModal is a separate bottom-sheet component used in
+context-specific moments.
+
+---
+
+CONVERSION POINT A2: FIRST LIKE PARTNER PROMPT → AUTH GATE
+Location: SwipeView → FirstLikePartnerModal → AuthModal
+Trigger: User taps "Invite Partner" inside the FirstLikePartnerModal
+         while NOT authenticated
+
+Context: FirstLikePartnerModal appears once after the user's very first like.
+The key 'first_like_partner_shown_{userId}' in localStorage controls this.
+
+Sequence of events:
+  1. User likes a name for the first time
+  2. localStorage.setItem(FIRST_LIKE_KEY(user.id), '1') — marks as shown
+  3. setShowPartnerModal(true) — opens FirstLikePartnerModal
+
+Inside FirstLikePartnerModal:
+  If user has no partner:
+    "Invite Partner" button shown
+    On press (handleInvite()):
+      If isAuthenticated: closes modal, calls onInvitePartner() → navigates to partner settings
+      If NOT authenticated:
+        setPostAuthRedirect('partner')
+        pendingInviteRef.current = true
+        onShowAuthModal()  → shows AuthModal OVERLAID on the partner modal
+
+AuthModal shown with custom messaging:
+  preHeader: "You're one step away from matching together"
+  title: "Invite your partner & start matching"
+  body: "Create your account to share your link and instantly see your matches together."
+
+AuthModal in this context:
+  Contains Google + Email options (same as always)
+  If user signs in: AuthCallback runs, sets localStorage, redirects to '/?redirect=partner'
+  App.tsx detects redirect=partner:
+    setSettingsInitialPage('partner')
+    setActiveTab('settings')
+    → User lands on the Partner settings page
+
+  If user dismisses AuthModal:
+    pendingInviteRef.current = false
+    onHideAuthModal()
+    FirstLikePartnerModal is still open behind
+
+When user has a partner (hasPartner=true):
+  "Keep Swiping" button shown instead (no auth prompt needed)
+  Tapping it just closes the modal
+
+"Maybe later" button:
+  Closes the FirstLikePartnerModal entirely without any auth prompt
+
+FIRST LIKE MODAL DESIGN:
+  Fixed, full-screen overlay, bg-black/40, backdrop-blur-sm
+  Card: bg-[#fdf6ef], rounded-3xl, p-8, max-w-sm, text-center
+  Heart icon: 64x64 white circle, girl-red fill
+  Title: "Find names together" — font-hand, text-2xl, bold
+  Body: "Invite your partner to swipe on names and discover the ones you both love."
+  "Invite Partner" button: bg-[#c0392b] (dark red), white, rounded-2xl, py-4
+  "Maybe later": muted text-sm, no border, below main button
+
+---
+
+CONVERSION POINT A3: PARTNER PAGE INVITE → AUTH GATE
+Location: Settings → PartnerPage → handleInviteClick()
+Trigger: User taps "Invite Partner" in Partner settings while NOT authenticated
+
+Same pattern as A2 but from Settings:
+  setPostAuthRedirect('partner')
+  pendingInviteRef.current = true
+  setShowAuthModal(true) — shows AuthModal inline above the PartnerPage
+
+AuthModal messaging (same as A2):
+  preHeader: "You're one step away from matching together"
+  title: "Invite your partner & start matching"
+  body: "Create your account to share your link and instantly see your matches together."
+
+After auth:
+  useEffect in PartnerPage watches [isAuthenticated]:
+    if (isAuthenticated && pendingInviteRef.current):
+      pendingInviteRef.current = false
+      setShowAuthModal(false)
+      setSubView('invite')  → navigates to InvitePartnerView within PartnerPage
+
+AMBER NOTICE shown in PartnerPage hero card (before invite button):
+  Shown ONLY when isAuthenticated=false:
+  Lock icon (size 13, amber-600)
+  "A free account is required to invite your partner via link."
+  This pre-informs the user before they even tap the button.
+
+---
+
+POST-AUTH REDIRECT SYSTEM (used by A2 and A3):
+  setPostAuthRedirect('partner') → localStorage.setItem('post_auth_redirect', 'partner')
+  After /auth/callback completes:
+    consumePostAuthRedirect() → reads + deletes from localStorage
+    If value = 'partner': redirects to '/?redirect=partner'
+  App.tsx on load:
+    getRedirectParam() → reads ?redirect= from URL
+    If 'partner': setSettingsInitialPage('partner'), setActiveTab('settings')
+    window.history.replaceState({}, '', '/') — cleans URL
+
+================================================================================
+SECTION 3 — PARTNER LINKING CONVERSION POINTS
+================================================================================
+
+Partner linking creates a bidirectional relationship:
+  users.partner_id = partner.id (set on BOTH rows)
+Matches are computed on-the-fly when both users like the same name.
+
+Two linking methods:
+  Method A: Share link → /join/{token} (requires auth to generate, not to accept)
+  Method B: Enter short code manually (no auth required to accept)
+
+---
+
+CONVERSION POINT PL1: FIRST LIKE PARTNER MODAL (ORGANIC IN-SWIPE PROMPT)
+Location: SwipeView — after user's very first like
+Trigger: liked=true AND localStorage key NOT set for this user
+
+This is the highest-converting partner touchpoint because it appears
+immediately after an emotional moment (first name liked).
+
+Display logic:
+  localStorage.getItem(FIRST_LIKE_KEY(user.id)) === null
+  → setShowPartnerModal(true)
+  → localStorage.setItem(FIRST_LIKE_KEY(user.id), '1')  [only once ever]
+
+Content:
+  Heart icon: 64x64, red, filled
+  Title: "Find names together"
+  Body: "Invite your partner to swipe on names and discover the ones you both love."
+  IF hasPartner: shows "Keep Swiping" button (user already linked)
+  IF NOT hasPartner: shows "Invite Partner" button
+
+On "Invite Partner" (no auth):
+  → Triggers auth gate (see A2)
+On "Invite Partner" (with auth):
+  → Calls onNavigateToPartner() → setSettingsInitialPage('partner'), setActiveTab('settings')
+  → User lands on Partner settings page with InvitePartnerView accessible
+
+This modal only ever shows ONCE per user (localStorage guard).
+It does NOT show if the user already has a partner (hasPartner=true → different button).
+
+---
+
+CONVERSION POINT PL2: SHARED MATCHES TAB — NO PARTNER STATE
+Location: NamesView — Shared Matches tab content area
+Trigger: User taps "Shared Matches" tab AND user.partner_id is null
+
+Display condition: showMatches && !user.partner_id
+
+Content shown in place of match list:
+  Users icon (size 64, text-muted)
+  Heading: "No Partner Yet" — font-hand, text-xl, text-grass
+  Body: "Invite your partner to start finding shared matches together!"
+  "Connect with Partner" button:
+    bg-grass, white text, rounded-2xl, shadow-md
+    Users icon (size 16) + "Connect with Partner"
+    On press: onNavigateToPartner()
+      → setSettingsInitialPage('partner'), setActiveTab('settings')
+      → Partner settings page opens
+
+This is a PASSIVE conversion point — user lands here when they explore the Matches tab.
+No auth required to view this state (guest users see it too).
+
+---
+
+CONVERSION POINT PL3: SETTINGS → PARTNER PAGE (DIRECT NAVIGATION)
+Location: Settings hub → PartnerPage
+Trigger: User taps "Partner" in the Settings list
+
+Partner page when NOT connected (user.partner_id is null):
+
+  HERO CARD:
+    Rose-to-amber gradient background
+    Heart icon: 56x56, white bg, rose-400 filled
+    Title: "Find names together"
+    Body: "Invite your partner to swipe on names and discover the ones you both love."
+    Auth notice (only when guest): Lock icon + "A free account is required to invite..."
+    "Invite Partner" button: rose-500, full-width
+      On press: handleInviteClick()
+        If authenticated → setSubView('invite') → InvitePartnerView
+        If guest → auth gate (see A3)
+
+  JOIN WITH CODE CARD:
+    Title: "Join with code"
+    Sub: "Got a code from your partner? Enter it here."
+    Input: uppercase, monospace, maxLength 8, placeholder "Enter code"
+    "Join" button: bg-boy (blue), Link2 icon
+    On submit (handleJoinWithCode()):
+      Look up code in partner_invites table (modern short_code)
+      If found: call accept_partner_invite RPC → links both users bidirectionally
+      If not found: fall back to users.invite_code (legacy)
+      On success: shows "You're connected!" green confirmation inline
+      On error: shows error message with AlertCircle icon
+
+  NO AUTH REQUIRED to use the code input.
+  Guest users can enter a code and link to a partner.
+
+Partner page when CONNECTED (user.partner_id is set):
+
+  CONNECTED CARD:
+    Rose circle avatar with filled Heart icon
+    Partner's display_name (loaded from DB)
+    "Connected" label (grass color)
+    Partner's baby_gender preference shown
+  
+  Info text: "You and your partner will see matches when you both like the same name."
+  
+  UNLINK PARTNER button:
+    UserMinus icon, destructive colors (red border, red text)
+    On press: calls onRemovePartner() which:
+      - Clears partner_id on BOTH user rows
+      - Deletes ALL matches for this couple
+    NOTE: No confirmation dialog — immediately destructive
+
+---
+
+CONVERSION POINT PL4: INVITE LINK — /join/{token} (EXTERNAL ENTRY)
+Location: App.tsx → JoinView (standalone page)
+Trigger: Someone taps a partner invite link shared outside the app
+
+URL pattern: https://wename.app/join/{48-char-hex-token}
+
+JoinView phases:
+  LOADING: validates token against partner_invites table
+  INVALID: "Link not valid" — expired, used, or malformed
+  CONFIRM: Shows inviter's name + "Join and connect" button
+  JOINING: spinner while RPC runs
+  SUCCESS: "You're connected!" → "Start swiping" → navigates to /
+  ERROR: error message + retry
+
+NO AUTH REQUIRED at any point in the JoinView.
+If the visitor has no localStorage userId, a new guest user is created.
+The accept_partner_invite RPC links them bidirectionally.
+
+On "Start swiping" → window.location.href = '/'
+App loads → new user sees the swipe view with partner already linked.
+
+INVITE GENERATION (InvitePartnerView — only for authenticated users):
+  Generated when user opens Settings → Partner → "Invite Partner"
+  Requires auth (see A3)
+  Creates a partner_invites row:
+    token: 48 hex chars (for the URL)
+    short_code: 8 uppercase alphanumeric chars (for manual entry)
+    expires_at: 7 days from creation
+  Shows both the shareable URL and the short code
+  "Share Invite Link" button uses navigator.share() or clipboard fallback
+  "Copy Code" button copies the 8-char code
+
+---
+
+CONVERSION POINT PL5: POST-AUTH DEEP LINK TO PARTNER PAGE
+Location: App.tsx useEffect on [loading, user, onboarded]
+Trigger: App loads with ?redirect=partner in the URL
+
+This fires after returning from Google OAuth or clicking a magic link,
+when the user had set post-auth redirect to 'partner' before authenticating.
+
+  getRedirectParam() reads ?redirect from URL
+  If 'partner':
+    window.history.replaceState({}, '', '/') — remove query param
+    setSettingsInitialPage('partner')
+    setActiveTab('settings')
+
+Result: User lands directly on the Partner settings page with no extra navigation.
+The PartnerPage will then show InvitePartnerView if the pending invite ref was set.
+
+================================================================================
+SECTION 4 — CONVERSION FUNNEL SUMMARY & RELATIONSHIPS
+================================================================================
+
+PREMIUM CONVERSION FUNNEL:
+  Entry:  Free user swipes/likes/gets matches until hitting a daily limit
+          OR explores Names → AI Suggestions tab
+          OR goes to Settings → Premium
+  Touch:  PremiumUpgradeModal (contextual message per limit type)
+  CTA:    "Upgrade to Premium" → currently not wired to payment
+  Escape: "Come back tomorrow" → dismisses, resets next day
+
+ACCOUNT CREATION FUNNEL:
+  Primary:   Settings → Account → auth form always available
+  Contextual: First like → partner invite → auth gate (highest-value moment)
+  Contextual: Partner page → invite → auth gate
+  Post-auth: /auth/callback → finalizeLogin → guest data merge → partner redirect
+
+  Both contextual funnels use the SAME AuthModal with SAME custom messaging:
+    "You're one step away from matching together"
+    "Invite your partner & start matching"
+
+PARTNER LINKING FUNNEL:
+  Organic:  First like → FirstLikePartnerModal → invite or code entry
+  Browse:   Shared Matches tab → "No Partner Yet" → connect CTA
+  Direct:   Settings → Partner → invite or code entry
+  External: Someone shares a /join/{token} link → JoinView
+
+INTERDEPENDENCIES:
+  - Partner invite link generation REQUIRES auth (needs persistent user ID)
+  - Partner code entry does NOT require auth (works for guests)
+  - Match reveal limit gate only fires if user HAS a partner
+  - FirstLikePartnerModal only fires once (localStorage) regardless of auth state
+  - Post-auth redirect system bridges auth completion to partner linking
+
+METRICS OPPORTUNITIES:
+  - Track modal dismissal vs CTA click rate for each limitType
+  - Track FirstLikePartnerModal conversion (invite tapped vs maybe later)
+  - Track code entry success vs failure rate
+  - Track auth completion rate from partner invite context vs account page
+  - Track /join/ link acceptance rate vs link expiry/invalid rate

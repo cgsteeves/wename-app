@@ -1,0 +1,340 @@
+================================================================================
+WENAME — FREE VS PREMIUM FEATURE SPECIFICATION
+What is available on the free plan, what is locked, exact limits, and how
+every gate is enforced in code and in the database
+================================================================================
+
+This document is the authoritative reference for the free/premium split.
+Read it in full before touching any limit logic, paywall UI, or plan checks.
+
+================================================================================
+PART 1 — THE PLAN MODEL
+================================================================================
+
+The plan is stored on the user row:
+
+  users.plan_tier: string | null
+
+  FREE:    plan_tier is null OR any value other than 'premium'
+  PREMIUM: plan_tier === 'premium'
+
+The check used everywhere in the codebase:
+  const isPremium = user.plan_tier === 'premium'
+
+Premium bypass rule:
+  Every limit-checking function checks isPremium FIRST. If true, it returns
+  allowed immediately and never evaluates any counter or threshold. Premium
+  users are completely outside every enforcement path.
+
+================================================================================
+PART 2 — DAILY USAGE LIMITS (FREE ONLY)
+================================================================================
+
+Three counters live on the user row:
+
+  users.daily_swipe_count    integer   increments on every swipe (like or pass)
+  users.daily_like_count     integer   increments only on right swipes (likes)
+  users.daily_match_count    integer   increments on each match reveal shown
+
+Free tier hard limits (defined in FREE_LIMITS constant in useDailyLimits.ts):
+
+  swipes:  30 per day
+  likes:   8 per day
+  matches: 3 match reveal notifications per day
+
+--- DAILY RESET MECHANICS ---
+
+The reset runs BEFORE every limit check (ensureResetIfNeeded):
+
+  todayLocalDate()          = today as YYYY-MM-DD in the user's local timezone
+  dateFromTimestamp(ts)     = first 10 chars of usage_last_reset_at ISO string
+
+  If they differ, OR if usage_last_reset_at is null:
+    UPDATE users SET
+      daily_swipe_count = 0,
+      daily_like_count  = 0,
+      daily_match_count = 0,
+      usage_last_reset_at = now()
+    updateUser() syncs local React state immediately
+
+  A resetInFlight ref guard prevents double-reset from concurrent calls.
+
+  There is NO server-side scheduled reset job. Resets fire lazily on the
+  user's first action after midnight in their local timezone.
+
+--- SWIPE LIMIT ENFORCEMENT ---
+
+Function: checkCanSwipe(liked: boolean)
+Returns:  { allowed: boolean, limitType: 'swipe' | 'like' | null }
+
+Order of checks:
+  1. isPremium → return { allowed: true, limitType: null }
+  2. ensureResetIfNeeded() — reset counters if new calendar day
+  3. If liked AND daily_like_count >= 8:
+       return { allowed: false, limitType: 'like' }
+  4. If daily_swipe_count >= 30:
+       return { allowed: false, limitType: 'swipe' }
+  5. Increment counters in DB:
+       If liked: increment both daily_swipe_count AND daily_like_count
+       If pass:  increment only daily_swipe_count
+     return { allowed: true, limitType: null }
+
+Called from: SwipeView.handleSwipe(liked)
+  If allowed: swipe proceeds, card advances, DB write happens
+  If blocked: NO swipe is recorded, card does NOT advance,
+              upgradeModalLimitType is set, PremiumUpgradeModal opens
+
+--- MATCH REVEAL LIMIT ENFORCEMENT ---
+
+Function: checkCanRevealMatch()
+Returns:  boolean
+
+Order of checks:
+  1. isPremium → return true
+  2. ensureResetIfNeeded()
+  3. If daily_match_count >= 3: return false
+  4. Increment daily_match_count in DB
+     return true
+
+IMPORTANT: The match row is ALWAYS written to the matches table even when
+this function returns false. What is blocked is the celebration popup, not
+the match itself. The match appears in Shared Matches regardless of the limit.
+
+Called from: SwipeView.checkForMatch()
+  If true:  matchedName state is set → "It's a Match!" overlay shown
+  If false: upgradeModalLimitType = 'match', PremiumUpgradeModal opens
+
+================================================================================
+PART 3 — FREE FEATURES (NO GATE)
+================================================================================
+
+SWIPING
+  - Up to 30 swipes per day (see limits above)
+  - Up to 8 likes per day (see limits above)
+  - Undo last swipe — unlimited, no premium gate
+    Undo deletes the swipe row from the DB and removes any resulting match
+
+NAME CARDS
+  - Full card content shown to all users: name, pronunciation, origin,
+    meaning, nickname, popularity rank
+  - Nothing on the card face is hidden behind a premium gate
+
+YOUR PICKS LIST
+  - View all liked names — fully available
+  - Drag to reorder — fully available (updates swipes.ranking)
+  - Name info overlay (origin, meaning, nickname, rank) — fully available
+  - Delete a name — fully available
+  - Manual name addition — fully available (see Part 5 for how it works)
+  - Share your picks list — fully available
+
+SHARED MATCHES LIST
+  - View all mutual matches — fully available
+    (even matches whose reveal notifications were blocked by the daily limit)
+  - Drag to reorder — fully available (updates matches.ranking)
+  - Finalists pinning (star) — fully available
+  - Manual name addition to matches — fully available (if partner linked)
+  - Share matches list — fully available
+
+PARTNER LINKING
+  - Generate and share an invite link — free (requires auth, not premium)
+  - Accept a partner invite via 8-char code — free
+  - Accept a /join/{token} deep link — free (works before auth)
+
+SETTINGS & ONBOARDING
+  - All settings pages navigable: Profile, Partner, Name Packs, Premium,
+    Account, Support — all free
+  - Full onboarding flow (3 screens) — free
+
+NAME PACKS
+  - "Top 2000" pack (slug: top_2000) — free, always available
+    This is the DEFAULT_PACK_SLUG and the only free pack
+    Contains the 2,000 most popular English baby names
+
+================================================================================
+PART 4 — PREMIUM FEATURES (LOCKED ON FREE)
+================================================================================
+
+--- UNLIMITED SWIPING ---
+
+  PREMIUM: No swipe limit
+    checkCanSwipe() returns allowed:true immediately, counters never checked
+    daily_swipe_count still increments for analytics but is never enforced
+
+  PREMIUM: No like limit
+    Same bypass. daily_like_count increments but never enforced
+
+--- UNLIMITED MATCH REVEALS ---
+
+  PREMIUM: Every mutual match triggers the celebration popup instantly
+    checkCanRevealMatch() returns true immediately
+    No cap on daily match reveal notifications
+
+--- AI SUGGESTIONS TAB ---
+
+  PREMIUM: Full access to the "AI Suggestions" tab in the Names screen
+
+  The tab is the third sub-tab in NamesView, labelled "AI Suggestions"
+  with a Sparkles icon. Free users see a "PRO" badge on this tab at all times.
+
+  FREE gate — how it works:
+    Tapping the AI Suggestions tab calls handleDiscoverClick()
+    If isPremium: setActiveSubTab('suggestions') — tab opens normally
+    If NOT premium: setDiscoverGateOpen(true)
+      → PremiumUpgradeModal renders with limitType='discover'
+      → activeSubTab does NOT change — user stays on their current tab
+      → onClose: modal dismisses, tab stays on 'liked'
+
+  What premium unlocks:
+    - NameSuggestions component renders inside the tab
+    - Powered by OpenAI via the suggest-names Supabase Edge Function
+    - Personalized to the user's liked names, swiped names, partner's likes
+    - Style filters: Classic, Modern, Unique
+    - Streaming responses — names appear as AI generates them
+    - "Add to My Picks" on each suggestion adds it as a liked swipe
+    - Refresh regenerates suggestions excluding already-seen names
+    - Auto-fetches on first load if user has 3 or more liked names
+
+--- PREMIUM NAME PACKS ---
+
+  PREMIUM: Access to all name packs where is_premium = true in name_packs table
+
+  FREE gate — how it works:
+    Tapping a premium pack row in NamePacksPage calls handleToggle(pack)
+    If isPremiumPack(pack) AND NOT isUserPremium(user):
+      onNavigateToPremium() is called — user is sent to the Premium settings page
+      NO modal is shown — it is a direct navigation, not a PremiumUpgradeModal
+    Locked packs show a Lock icon and "Premium" label at all times
+
+  Pack categories (all non-default packs require premium):
+    featured  — amber color theme  (top_2000 free pack lives here)
+    origin    — sky blue           (cultural/geographic packs)
+    style     — rose               (personality-based packs)
+    feeling   — emerald            (mood/quality-based packs)
+
+  Pack selection model: single active pack at a time.
+    Selecting a new pack replaces the current one (setUserPack, not addUserPack).
+    Only one pack can be active simultaneously.
+
+================================================================================
+PART 5 — PREMIUM UPGRADE MODAL SPECIFICATION
+================================================================================
+
+Component: PremiumUpgradeModal
+Props:
+  open: boolean
+  limitType: 'swipe' | 'like' | 'match' | 'discover' | null
+  onClose: () => void
+  onUpgrade: () => void
+
+Title (all cases): "Keep going"
+
+Subtitle text by limitType:
+  'swipe':    "You've used all 30 of your daily swipes. Upgrade to keep
+               discovering names together."
+  'like':     "You've liked 8 names today — that's your daily limit. Upgrade
+               to keep liking names together."
+  'match':    "You've seen 3 new matches today. Upgrade to reveal every match
+               the moment it happens."
+  'discover': "Get smarter name suggestions — our AI learns what you like and
+               recommends names with a similar style and vibe."
+  default:    "You've reached your daily limit. Upgrade to keep discovering
+               names together."
+
+Feature list shown in modal (same for all limitType values):
+  1. Infinity icon  — "Unlimited daily swipes, likes and matches"
+  2. Package icon   — "Access to themed name packs (Classic, Arabic,
+                       Spiritual, and more)"
+  3. Sparkles icon  — "AI name suggestions based on your likes"
+
+Buttons:
+  Primary:   "Upgrade to Premium"  — payment flow NOT YET implemented
+  Secondary: "Come back tomorrow"  — dismisses modal only
+
+Backdrop: does NOT dismiss modal (intentional friction)
+Animation: spring slide-up from bottom
+z-index: 60 (above all other content)
+
+Where each limitType is triggered:
+  'swipe'    → SwipeView.handleSwipe(), when swipe count hits 30
+  'like'     → SwipeView.handleSwipe(), when like count hits 8
+  'match'    → SwipeView.checkForMatch(), after the 3rd match reveal
+  'discover' → NamesView.handleDiscoverClick(), when free user taps AI tab
+
+Name packs gate does NOT use this modal — it uses direct navigation instead.
+
+================================================================================
+PART 6 — PREMIUM SETTINGS PAGE
+================================================================================
+
+Location: Settings → Premium (SettingsHub → PremiumPage)
+Accessible to all users regardless of plan.
+
+When user is FREE:
+  Current plan badge: "Free — basic features"
+  Benefits list displayed (5 items):
+    1. Access to 10,000+ more names
+    2. AI name suggestions tailored to you
+    3. Unlimited daily swipes and likes
+    4. More name filtering — trendy, celeb, traditional, religious, and more
+    5. Recommendations based on your current children's names
+  Buttons:
+    "Upgrade to Premium" (amber gradient CTA)
+    "Restore Purchase"
+  Disclaimer: "Purchases are processed securely. Subscriptions renew
+               automatically unless cancelled."
+
+When user is PREMIUM:
+  Current plan badge: "Premium — all features unlocked"
+  Benefits list still displayed (same 5 items, informational)
+  Button: "You are on Premium" (non-interactive, amber-50 background)
+  No upsell copy shown
+
+================================================================================
+PART 7 — COMPLETE FREE VS PREMIUM COMPARISON TABLE
+================================================================================
+
+FEATURE                                    FREE           PREMIUM
+─────────────────────────────────────────────────────────────────────────────
+Daily swipes                               30 / day       Unlimited
+Daily likes (right swipes)                 8 / day        Unlimited
+Daily match reveal notifications           3 / day        Unlimited
+Match rows saved to DB                     All            All (no difference)
+Match visibility in Shared Matches list    All            All (no difference)
+Undo last swipe                            Yes            Yes
+Name card full details                     Yes            Yes
+Your Picks list (view, reorder, delete)    Full           Full
+Shared Matches list (view, reorder)        Full           Full
+Finalists pinning                          Yes            Yes
+Drag-to-reorder lists                      Yes            Yes
+Share name lists                           Yes            Yes
+Manual name addition to picks              Yes            Yes
+Manual name addition to matches            Yes            Yes
+AI Suggestions tab                         LOCKED         Unlocked
+Name pack: Top 2000 (default)              Yes            Yes
+Name pack: All premium packs               LOCKED         Unlocked (all packs)
+Partner linking (invite link)              Yes (auth)     Yes (auth)
+Partner linking (via code)                 Yes            Yes
+All settings pages                         Full           Full
+Onboarding                                 Full           Full
+
+================================================================================
+PART 8 — FEATURES LISTED IN MARKETING COPY BUT NOT YET IMPLEMENTED
+================================================================================
+
+The PremiumPage benefits list includes two items that do not yet exist in code:
+
+  "More name filtering — trendy, celeb, traditional, religious, and more"
+    No filter UI exists anywhere in the codebase.
+    Listed as aspirational / future work.
+
+  "Recommendations based on your current children's names"
+    The suggest-names Edge Function prompt does not accept existing children's
+    names as context. Not implemented. Listed as aspirational.
+
+  "Access to 10,000+ more names"
+    Partially implemented via premium name packs. The 10,000+ figure reflects
+    the combined size of all premium packs, not a single separate list.
+
+Do NOT gate or enforce these features — they do not exist yet.
+Do NOT remove them from PremiumPage — they are marketing copy for future work.
+================================================================================

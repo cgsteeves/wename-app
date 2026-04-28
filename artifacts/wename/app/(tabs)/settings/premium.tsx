@@ -1,6 +1,14 @@
 import { Feather } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import React from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SubPageHeader } from "@/components/SubPageHeader";
@@ -9,12 +17,32 @@ import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 
-const BENEFITS = [
-  "Access to 10,000+ more names",
-  "AI name suggestions tailored to you",
-  "Unlimited daily swipes and likes",
-  "More name filtering — trendy, celeb, traditional, religious, and more",
-  "Recommendations based on your current children's names",
+const grassBorder = require("../../../assets/images/grass-flower-border.png");
+const butterfly = require("../../../assets/images/butterfly.png");
+
+const GRASS = "#4a7c59";
+const GRASS_LIGHT = "rgba(74,124,89,0.10)";
+const GRASS_BORDER = "rgba(74,124,89,0.25)";
+const TEXT_DARK = "#3e4a3d";
+const TEXT_MID = "#6b7669";
+
+const FEATURES = [
+  {
+    title: "Unlimited Swipes",
+    body: "Swipe on as many names as you want, every day",
+  },
+  {
+    title: "All Name Packs",
+    body: "Unlock Classic, Arabic, Spiritual, and more",
+  },
+  {
+    title: "AI Suggestions",
+    body: "Personalised names based on what you both love",
+  },
+  {
+    title: "Every Match, Instantly",
+    body: "See every match the moment it happens — no daily cap",
+  },
 ];
 
 export default function PremiumScreen() {
@@ -43,8 +71,7 @@ export default function PremiumScreen() {
   async function handleRestore() {
     try {
       const info = await restore();
-      const isNowSubscribed =
-        info?.entitlements?.active?.["premium"] !== undefined;
+      const isNowSubscribed = info?.entitlements?.active?.["premium"] !== undefined;
       if (isNowSubscribed) {
         await updateUser({ plan_tier: "premium" });
       }
@@ -54,65 +81,60 @@ export default function PremiumScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.parchment }}>
+    <View style={{ flex: 1, backgroundColor: "#f5f0e8" }}>
       <SubPageHeader title="Premium" subtitle="Unlock everything" />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90, gap: 16 }}>
-        <View
-          style={[
-            styles.currentPlan,
-            { backgroundColor: colors.card, borderColor: "#fcd34d99" },
-          ]}
-        >
-          <View style={[styles.starBadge, { backgroundColor: "#fef3c7" }]}>
-            <Feather name="star" size={20} color="#d97706" />
+
+      {/* Grass/flower decorative strip */}
+      <View style={styles.grassWrap}>
+        <Image source={grassBorder} style={styles.grassBorder} contentFit="cover" contentPosition="top" />
+        <Image source={butterfly} style={styles.butterfly} contentFit="contain" />
+      </View>
+
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 90, gap: 16 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Current plan status */}
+        <View style={[styles.statusCard, { borderColor: isPremium ? GRASS_BORDER : colors.border + "55" }]}>
+          <View style={[styles.statusIconWrap, { backgroundColor: isPremium ? GRASS_LIGHT : "rgba(0,0,0,0.05)" }]}>
+            {isPremium ? (
+              <Text style={{ fontSize: 20 }}>🌿</Text>
+            ) : (
+              <Feather name="lock" size={18} color={TEXT_MID} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={{ fontFamily: fonts.displayBold, fontSize: 14, color: colors.foreground }}>
-              Current Plan
-            </Text>
-            <Text style={{ fontFamily: fonts.display, fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}>
-              {isPremium ? "Premium — all features unlocked" : "Free — basic features"}
+            <Text style={[styles.statusTitle, { color: TEXT_DARK }]}>Current Plan</Text>
+            <Text style={[styles.statusSub, { color: TEXT_MID }]}>
+              {isPremium ? "Premium — all features unlocked" : "Free — basic features only"}
             </Text>
           </View>
         </View>
 
-        <View
-          style={[
-            styles.benefitsCard,
-            { backgroundColor: "#fffbeb", borderColor: "#fcd34d99" },
-          ]}
-        >
+        {/* Feature list */}
+        <View style={[styles.featuresCard, { borderColor: GRASS_BORDER }]}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <Feather name="zap" size={18} color="#d97706" />
-            <Text style={{ fontFamily: fonts.displayBold, fontSize: 16, color: colors.foreground }}>
-              Premium Benefits
-            </Text>
+            <Text style={{ fontSize: 18 }}>🌿</Text>
+            <Text style={[styles.featuresHeading, { color: TEXT_DARK }]}>Premium Benefits</Text>
           </View>
-          {BENEFITS.map((b) => (
-            <View key={b} style={{ flexDirection: "row", gap: 12, alignItems: "flex-start", marginBottom: 12 }}>
-              <View style={[styles.checkBadge, { backgroundColor: "#fef3c7" }]}>
-                <Feather name="check" size={11} color="#d97706" />
+          {FEATURES.map((f) => (
+            <View key={f.title} style={styles.featureRow}>
+              <View style={[styles.leafDot, { backgroundColor: GRASS_LIGHT }]}>
+                <Text style={{ fontSize: 11 }}>🌿</Text>
               </View>
-              <Text
-                style={{
-                  flex: 1,
-                  fontFamily: fonts.display,
-                  fontSize: 13,
-                  color: colors.foreground + "cc",
-                  lineHeight: 20,
-                }}
-              >
-                {b}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.featureTitle, { color: TEXT_DARK }]}>{f.title}</Text>
+                <Text style={[styles.featureBody, { color: TEXT_MID }]}>{f.body}</Text>
+              </View>
             </View>
           ))}
         </View>
 
         {isPremium ? (
-          <View style={[styles.successRow, { backgroundColor: "#fffbeb", borderColor: "#fcd34d99" }]}>
-            <Feather name="star" size={16} color="#d97706" />
-            <Text style={{ fontFamily: fonts.displayBold, color: "#92400e", fontSize: 14 }}>
-              You are on Premium
+          <View style={[styles.successRow, { backgroundColor: GRASS_LIGHT, borderColor: GRASS_BORDER }]}>
+            <Text style={{ fontSize: 16 }}>🌿</Text>
+            <Text style={[styles.successText, { color: GRASS }]}>
+              You're on Premium — enjoy everything!
             </Text>
           </View>
         ) : (
@@ -122,43 +144,33 @@ export default function PremiumScreen() {
               disabled={isPurchasing || !pkg}
               style={({ pressed }) => [
                 styles.upgradeBtn,
-                { backgroundColor: "#f59e0b", opacity: pressed || isPurchasing ? 0.85 : 1 },
+                { backgroundColor: GRASS, opacity: pressed || isPurchasing ? 0.82 : 1 },
               ]}
             >
               {isPurchasing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <>
-                  <Feather name="zap" size={16} color="#fff" />
-                  <Text style={{ color: "#fff", fontFamily: fonts.displayBold, fontSize: 16 }}>
-                    Upgrade to Premium · {priceString}/mo
-                  </Text>
-                </>
+                <Text style={styles.upgradeBtnText}>
+                  Unlock Premium · {priceString}/mo
+                </Text>
               )}
             </Pressable>
+
             <Pressable
               onPress={handleRestore}
               disabled={isRestoring}
-              style={[styles.restoreBtn, { backgroundColor: colors.card, borderColor: colors.border + "99" }]}
+              style={[styles.restoreBtn, { backgroundColor: colors.card, borderColor: GRASS_BORDER }]}
             >
               {isRestoring ? (
-                <ActivityIndicator color={colors.mutedForeground} size="small" />
+                <ActivityIndicator color={TEXT_MID} size="small" />
               ) : (
-                <Text style={{ color: colors.mutedForeground, fontFamily: fonts.displayMedium, fontSize: 14 }}>
+                <Text style={[styles.restoreBtnText, { color: TEXT_MID }]}>
                   Restore purchase
                 </Text>
               )}
             </Pressable>
-            <Text
-              style={{
-                fontFamily: fonts.display,
-                fontSize: 10,
-                color: colors.mutedForeground,
-                textAlign: "center",
-                paddingHorizontal: 16,
-                lineHeight: 16,
-              }}
-            >
+
+            <Text style={[styles.legal, { color: TEXT_MID }]}>
               Purchases are processed securely. Subscriptions renew automatically unless cancelled.
             </Text>
           </>
@@ -169,41 +181,112 @@ export default function PremiumScreen() {
 }
 
 const styles = StyleSheet.create({
-  currentPlan: {
+  grassWrap: {
+    width: "100%",
+    height: 80,
+    position: "relative",
+    overflow: "hidden",
+  },
+  grassBorder: {
+    width: "100%",
+    height: 80,
+  },
+  butterfly: {
+    position: "absolute",
+    right: 20,
+    top: 10,
+    width: 28,
+    height: 28,
+  },
+  statusCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 16,
     borderRadius: 16,
     borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    marginTop: 4,
   },
-  starBadge: {
-    width: 40,
-    height: 40,
+  statusIconWrap: {
+    width: 42,
+    height: 42,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  benefitsCard: {
+  statusTitle: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 14,
+  },
+  statusSub: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  featuresCard: {
     padding: 20,
     borderRadius: 16,
     borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.65)",
   },
-  checkBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  featuresHeading: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 16,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 14,
+  },
+  leafDot: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 1,
   },
+  featureTitle: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 14,
+    marginBottom: 1,
+  },
+  featureBody: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  successRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 18,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  successText: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 15,
+  },
   upgradeBtn: {
     height: 56,
     borderRadius: 16,
-    flexDirection: "row",
-    gap: 8,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
+  },
+  upgradeBtnText: {
+    color: "#fff",
+    fontFamily: "Fredoka_700Bold",
+    fontSize: 17,
   },
   restoreBtn: {
     height: 48,
@@ -212,13 +295,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  successRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
+  restoreBtnText: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 14,
+  },
+  legal: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 10,
+    textAlign: "center",
+    lineHeight: 16,
+    paddingHorizontal: 16,
   },
 });

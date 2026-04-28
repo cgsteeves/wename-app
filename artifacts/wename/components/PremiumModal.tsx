@@ -1,39 +1,57 @@
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
-import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 
-const sunImg = require("../assets/images/like_sun.png");
-const paperTexture = require("../assets/images/paper-texture.jpg");
+const grassBorder = require("../assets/images/grass-flower-border.png");
+const butterfly = require("../assets/images/butterfly.png");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
 const COPY: Record<NonNullable<LimitType>, string> = {
   swipe:
-    "You've used all 30 of your daily swipes. Upgrade to keep discovering names together.",
+    "You've used all your daily swipes. Upgrade to keep discovering names together.",
   like:
-    "You've liked 8 names today — that's your daily limit. Upgrade to keep liking names together.",
+    "You've hit your daily like limit. Upgrade to keep liking names together.",
   match:
-    "You've seen 3 new matches today. Upgrade to reveal every match the moment it happens.",
+    "You've seen all your new matches today. Upgrade to reveal every match the moment it happens.",
   discover:
-    "Get smarter name suggestions—our AI learns what you like and recommends names with a similar style and vibe.",
+    "Get smarter name suggestions — our AI learns what you like and recommends names with a similar vibe.",
 };
 
-const FEATURES: { icon: keyof typeof Feather.glyphMap; text: string }[] = [
-  { icon: "refresh-cw", text: "Unlimited daily swipes, likes and matches" },
+const FEATURES = [
   {
-    icon: "package",
-    text: "Access to themed name packs (Classic, Arabic, Spiritual, and more)",
+    title: "Unlimited Swipes",
+    body: "Swipe on as many names as you want, every day",
   },
-  { icon: "zap", text: "AI name suggestions based on your likes" },
+  {
+    title: "All Name Packs",
+    body: "Unlock Classic, Arabic, Spiritual, and more",
+  },
+  {
+    title: "AI Suggestions",
+    body: "Personalised names based on what you both love",
+  },
 ];
+
+const GRASS = "#4a7c59";
+const GRASS_LIGHT = "rgba(74,124,89,0.12)";
+const PARCHMENT = "#f5f0e8";
+const TEXT_DARK = "#3e4a3d";
+const TEXT_MID = "#6b7669";
 
 export function PremiumModal({
   open,
@@ -46,7 +64,6 @@ export function PremiumModal({
   onClose: () => void;
   onUpgrade: () => void;
 }) {
-  const colors = useColors();
   const insets = useSafeAreaInsets();
   const { updateUser } = useUser();
   const { purchase, isPurchasing, offerings } = useSubscription();
@@ -72,178 +89,207 @@ export function PremiumModal({
   }
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.sheetWrap}>
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-            <LinearGradient
-              colors={["rgba(255,251,235,0.99)", "rgba(255,245,220,0.98)", "rgba(255,237,200,0.99)"]}
-              style={StyleSheet.absoluteFill}
-            />
-            <Image
-              source={paperTexture}
-              style={[StyleSheet.absoluteFill, { opacity: 0.22 }]}
-              contentFit="cover"
-            />
-            <View style={styles.handle} />
-            <Pressable style={styles.closeBtn} onPress={onClose}>
-              <Feather name="x" size={16} color={colors.mutedForeground} />
-            </Pressable>
+    <Modal visible={open} transparent={false} animationType="slide" onRequestClose={onClose}>
+      <View style={[styles.screen, { backgroundColor: PARCHMENT }]}>
+        {/* Grass/flower header strip */}
+        <Image
+          source={grassBorder}
+          style={styles.grassBorder}
+          contentFit="cover"
+          contentPosition="top"
+        />
 
-            <View style={styles.sunBadge}>
-              <Image source={sunImg} style={styles.sunImg} contentFit="contain" />
-            </View>
+        {/* Close button */}
+        <Pressable
+          style={[styles.closeBtn, { top: 130 + insets.top * 0.5 }]}
+          onPress={onClose}
+          hitSlop={12}
+        >
+          <Feather name="x" size={18} color={TEXT_MID} />
+        </Pressable>
 
-            <Text style={[styles.title, { color: colors.foreground }]}>Keep going</Text>
-            <Text style={[styles.body, { color: colors.mutedForeground }]}>{body}</Text>
+        {/* Butterfly decoration */}
+        <Image
+          source={butterfly}
+          style={[styles.butterfly, { top: 130 }]}
+          contentFit="contain"
+        />
 
-            <View style={styles.features}>
-              {FEATURES.map((f) => (
-                <View key={f.text} style={styles.featureRow}>
-                  <Feather name={f.icon} size={16} color="#a16207" />
-                  <Text style={[styles.featureText, { color: colors.foreground + "cc" }]}>
-                    {f.text}
-                  </Text>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scroll,
+            { paddingBottom: insets.bottom + 32 },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Headline */}
+          <Text style={styles.headline}>
+            You're this close{"\n"}to your baby's name
+          </Text>
+          <Text style={styles.subText}>{body}</Text>
+
+          {/* Feature list */}
+          <View style={styles.features}>
+            {FEATURES.map((f) => (
+              <View key={f.title} style={[styles.featureRow, { backgroundColor: GRASS_LIGHT }]}>
+                <View style={styles.leafDot}>
+                  <Text style={styles.leafEmoji}>🌿</Text>
                 </View>
-              ))}
-            </View>
-
-            <Pressable
-              onPress={handleUpgrade}
-              disabled={isPurchasing || !pkg}
-              style={({ pressed }) => [
-                styles.cta,
-                { opacity: pressed || isPurchasing ? 0.8 : 1 },
-              ]}
-            >
-              <LinearGradient
-                colors={["#f59e0b", "#d97706"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              {isPurchasing ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Feather name="zap" size={16} color="#fff" />
-                  <Text style={styles.ctaText}>
-                    Upgrade to Premium · {priceString}/mo
-                  </Text>
-                </>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={[
-                styles.dismiss,
-                { backgroundColor: "rgba(255,255,255,0.65)", borderColor: colors.border + "55" },
-              ]}
-              onPress={onClose}
-            >
-              <Text style={[styles.dismissText, { color: colors.mutedForeground }]}>
-                Come back tomorrow
-              </Text>
-            </Pressable>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.featureTitle, { color: TEXT_DARK }]}>{f.title}</Text>
+                  <Text style={[styles.featureBody, { color: TEXT_MID }]}>{f.body}</Text>
+                </View>
+              </View>
+            ))}
           </View>
-        </View>
+
+          {/* CTA */}
+          <Pressable
+            onPress={handleUpgrade}
+            disabled={isPurchasing || !pkg}
+            style={({ pressed }) => [
+              styles.cta,
+              { backgroundColor: GRASS, opacity: pressed || isPurchasing ? 0.82 : 1 },
+            ]}
+          >
+            {isPurchasing ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.ctaText}>
+                Unlock Premium · {priceString}/mo
+              </Text>
+            )}
+          </Pressable>
+
+          {/* Restore */}
+          <Pressable style={styles.restore} onPress={onClose}>
+            <Text style={[styles.restoreText, { color: TEXT_MID }]}>
+              Restore purchase
+            </Text>
+          </Pressable>
+
+          <Text style={[styles.legal, { color: TEXT_MID }]}>
+            Purchases are processed securely. Subscriptions renew automatically unless cancelled.
+          </Text>
+        </ScrollView>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  screen: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
   },
-  sheetWrap: { width: "100%", maxWidth: 480, alignSelf: "center" },
-  sheet: {
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    overflow: "hidden",
-  },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(120,90,40,0.25)",
-    alignSelf: "center",
-    marginBottom: 16,
+  grassBorder: {
+    width: "100%",
+    height: 140,
   },
   closeBtn: {
     position: "absolute",
-    top: 14,
-    right: 14,
+    right: 16,
+    zIndex: 10,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.75)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  butterfly: {
+    position: "absolute",
+    right: 56,
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.7)",
-    alignItems: "center",
-    justifyContent: "center",
+    zIndex: 5,
   },
-  sunBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 18,
-    alignSelf: "center",
-    marginBottom: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(252,211,77,0.35)",
+  scroll: {
+    paddingHorizontal: 28,
+    paddingTop: 24,
+    gap: 0,
   },
-  sunImg: { width: 56, height: 56 },
-  title: {
-    fontSize: 26,
-    fontFamily: fonts.hand,
+  headline: {
+    fontFamily: "PatrickHand_400Regular",
+    fontSize: 30,
+    color: "#3e4a3d",
     textAlign: "center",
-    marginBottom: 8,
+    lineHeight: 38,
+    marginBottom: 12,
   },
-  body: {
+  subText: {
+    fontFamily: "Fredoka_500Medium",
     fontSize: 14,
-    fontFamily: fonts.display,
+    color: "#6b7669",
     textAlign: "center",
     lineHeight: 22,
+    marginBottom: 28,
     paddingHorizontal: 8,
-    marginBottom: 22,
   },
-  features: { gap: 10, marginBottom: 24 },
+  features: {
+    gap: 12,
+    marginBottom: 32,
+  },
   featureRow: {
     flexDirection: "row",
-    gap: 12,
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(180,140,60,0.08)",
-    borderWidth: 1,
-    borderColor: "rgba(252,211,77,0.45)",
-  },
-  featureText: { flex: 1, fontFamily: fonts.display, fontSize: 14, lineHeight: 20 },
-  cta: {
-    height: 52,
+    alignItems: "flex-start",
+    gap: 14,
     borderRadius: 14,
-    overflow: "hidden",
-    flexDirection: "row",
-    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  leafDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(74,124,89,0.18)",
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    marginTop: 1,
   },
-  ctaText: { color: "#fff", fontFamily: fonts.displayBold, fontSize: 15 },
-  dismiss: {
-    marginTop: 12,
-    paddingVertical: 14,
-    borderRadius: 14,
-    borderWidth: 1,
+  leafEmoji: {
+    fontSize: 13,
+  },
+  featureTitle: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 15,
+    marginBottom: 2,
+  },
+  featureBody: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  cta: {
+    height: 56,
+    borderRadius: 16,
     alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 3,
   },
-  dismissText: { fontFamily: fonts.displaySemibold, fontSize: 14 },
+  ctaText: {
+    color: "#fff",
+    fontFamily: "Fredoka_700Bold",
+    fontSize: 17,
+  },
+  restore: {
+    alignItems: "center",
+    paddingVertical: 10,
+    marginBottom: 16,
+  },
+  restoreText: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 14,
+  },
+  legal: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 10,
+    textAlign: "center",
+    lineHeight: 16,
+    paddingHorizontal: 16,
+  },
 });

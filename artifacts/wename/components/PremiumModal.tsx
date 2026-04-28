@@ -1,4 +1,3 @@
-import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import React from "react";
 import {
@@ -13,7 +12,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "@/components/UserContext";
-import { fonts } from "@/constants/fonts";
 import { useSubscription } from "@/lib/revenuecat";
 
 const grassBorder = require("../assets/images/grass-flower-border.png");
@@ -66,7 +64,7 @@ export function PremiumModal({
 }) {
   const insets = useSafeAreaInsets();
   const { updateUser } = useUser();
-  const { purchase, isPurchasing, offerings } = useSubscription();
+  const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
 
   const body = limitType
     ? COPY[limitType]
@@ -85,6 +83,20 @@ export function PremiumModal({
     } catch (e: any) {
       if (e?.userCancelled) return;
       console.error("[PremiumModal] purchase error", e);
+    }
+  }
+
+  async function handleRestore() {
+    try {
+      const info = await restore();
+      const isNowSubscribed = info?.entitlements?.active?.["premium"] !== undefined;
+      if (isNowSubscribed) {
+        await updateUser({ plan_tier: "premium" });
+        onClose();
+        onUpgrade();
+      }
+    } catch (e) {
+      console.error("[PremiumModal] restore error", e);
     }
   }
 
@@ -162,10 +174,14 @@ export function PremiumModal({
           </Pressable>
 
           {/* Restore */}
-          <Pressable style={styles.restore} onPress={onClose}>
-            <Text style={[styles.restoreText, { color: TEXT_MID }]}>
-              Restore purchase
-            </Text>
+          <Pressable style={styles.restore} onPress={handleRestore} disabled={isRestoring}>
+            {isRestoring ? (
+              <ActivityIndicator color={TEXT_MID} size="small" />
+            ) : (
+              <Text style={[styles.restoreText, { color: TEXT_MID }]}>
+                Restore purchase
+              </Text>
+            )}
           </Pressable>
 
           <Text style={[styles.legal, { color: TEXT_MID }]}>

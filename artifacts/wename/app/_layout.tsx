@@ -60,6 +60,11 @@ function PlanSyncEffect() {
   const { isSubscribed, isLoading } = useSubscription();
 
   useEffect(() => {
+    // On web the RevenueCat test-store persists simulated purchases in
+    // localStorage, so isSubscribed may be true even for a fresh preview
+    // session. Skip the automatic DB sync on web — real upgrades are handled
+    // by the explicit purchase/restore flows and the webhook in production.
+    if (Platform.OS === "web") return;
     if (!user || isLoading) return;
     const isPremiumInDb = user.plan_tier === "premium";
     if (isSubscribed && !isPremiumInDb) {

@@ -162,9 +162,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const changeSelectedPack = useCallback(
     async (slug: string) => {
       if (!user) return;
-      setSelectedPackSlug(slug);
       try {
         await setUserPack(user.id, slug);
+        setSelectedPackSlug(slug);
       } catch (e) {
         console.error("[UserContext] changeSelectedPack error", e);
       }

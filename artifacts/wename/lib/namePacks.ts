@@ -52,8 +52,9 @@ export async function removeUserPack(userId: string, packSlug: string): Promise<
 export async function getSwipeableNames(
   userId: string,
   gender?: "boy" | "girl" | "either" | null,
+  packSlugsOverride?: string[],
 ): Promise<Name[]> {
-  const selectedPacks = await getUserSelectedPacks(userId);
+  const selectedPacks = packSlugsOverride ?? (await getUserSelectedPacks(userId));
   const { data, error } = await supabase.rpc("get_swipeable_names", {
     pack_slugs: selectedPacks,
     gender_filter: gender ?? null,

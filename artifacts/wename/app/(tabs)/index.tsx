@@ -85,8 +85,9 @@ export default function SwipeScreen() {
           .eq("user_id", userId);
         const swiped = new Set((swipes ?? []).map((s: { name_id: string }) => s.name_id));
         const gender = userGender ?? "either";
+        const packOverride = activePack ? [activePack] : undefined;
         const [all, partner] = await Promise.all([
-          getSwipeableNames(userId, gender),
+          getSwipeableNames(userId, gender, packOverride),
           partnerId
             ? getPartnerCreatedNames(partnerId, gender)
             : Promise.resolve([] as Name[]),

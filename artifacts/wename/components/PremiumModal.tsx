@@ -117,7 +117,7 @@ export function PremiumModal({
           onPress={onClose}
           hitSlop={12}
         >
-          <Feather name="x" size={18} color={TEXT_MID} />
+          <Text style={styles.closeBtnText}>✕</Text>
         </Pressable>
 
         {/* Butterfly decoration */}
@@ -211,6 +211,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.75)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  closeBtnText: {
+    fontSize: 16,
+    color: "#6b7669",
+    lineHeight: 20,
   },
   butterfly: {
     position: "absolute",

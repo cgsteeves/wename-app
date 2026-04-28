@@ -13,7 +13,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
-import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 

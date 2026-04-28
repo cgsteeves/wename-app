@@ -43,6 +43,10 @@ const FEATURES = [
     title: "AI Suggestions",
     body: "Personalised names based on what you both love",
   },
+  {
+    title: "Every Match, Instantly",
+    body: "See every match the moment it happens — no daily cap",
+  },
 ];
 
 const GRASS = "#4a7c59";

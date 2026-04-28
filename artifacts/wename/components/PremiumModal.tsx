@@ -2,11 +2,13 @@ import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
+import { useSubscription } from "@/lib/revenuecat";
 
 const sunImg = require("../assets/images/like_sun.png");
 const paperTexture = require("../assets/images/paper-texture.jpg");
@@ -46,9 +48,28 @@ export function PremiumModal({
 }) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { updateUser } = useUser();
+  const { purchase, isPurchasing, offerings } = useSubscription();
+
   const body = limitType
     ? COPY[limitType]
     : "Unlock unlimited swipes, likes and matches.";
+
+  const pkg = offerings?.current?.availablePackages?.[0];
+  const priceString = pkg?.product?.priceString ?? "$7.99";
+
+  async function handleUpgrade() {
+    if (!pkg) return;
+    try {
+      await purchase(pkg);
+      await updateUser({ plan_tier: "premium" });
+      onClose();
+      onUpgrade();
+    } catch (e: any) {
+      if (e?.userCancelled) return;
+      console.error("[PremiumModal] purchase error", e);
+    }
+  }
 
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
@@ -88,8 +109,12 @@ export function PremiumModal({
             </View>
 
             <Pressable
-              onPress={onUpgrade}
-              style={({ pressed }) => [styles.cta, { opacity: pressed ? 0.9 : 1 }]}
+              onPress={handleUpgrade}
+              disabled={isPurchasing || !pkg}
+              style={({ pressed }) => [
+                styles.cta,
+                { opacity: pressed || isPurchasing ? 0.8 : 1 },
+              ]}
             >
               <LinearGradient
                 colors={["#f59e0b", "#d97706"]}
@@ -97,8 +122,16 @@ export function PremiumModal({
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <Feather name="zap" size={16} color="#fff" />
-              <Text style={styles.ctaText}>Upgrade to Premium</Text>
+              {isPurchasing ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Feather name="zap" size={16} color="#fff" />
+                  <Text style={styles.ctaText}>
+                    Upgrade to Premium · {priceString}/mo
+                  </Text>
+                </>
+              )}
             </Pressable>
 
             <Pressable

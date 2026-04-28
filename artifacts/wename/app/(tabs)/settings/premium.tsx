@@ -1,13 +1,13 @@
 import { Feather } from "@expo/vector-icons";
-import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { PremiumModal } from "@/components/PremiumModal";
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
+import { useSubscription } from "@/lib/revenuecat";
 
 const BENEFITS = [
   "Access to 10,000+ more names",
@@ -20,10 +20,38 @@ const BENEFITS = [
 export default function PremiumScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user } = useUser();
-  const [open, setOpen] = useState(false);
+  const { user, updateUser } = useUser();
+  const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
+
   if (!user) return null;
   const isPremium = user.plan_tier === "premium";
+
+  const pkg = offerings?.current?.availablePackages?.[0];
+  const priceString = pkg?.product?.priceString ?? "$7.99";
+
+  async function handleUpgrade() {
+    if (!pkg) return;
+    try {
+      await purchase(pkg);
+      await updateUser({ plan_tier: "premium" });
+    } catch (e: any) {
+      if (e?.userCancelled) return;
+      console.error("[PremiumScreen] purchase error", e);
+    }
+  }
+
+  async function handleRestore() {
+    try {
+      const info = await restore();
+      const isNowSubscribed =
+        info?.entitlements?.active?.["premium"] !== undefined;
+      if (isNowSubscribed) {
+        await updateUser({ plan_tier: "premium" });
+      }
+    } catch (e) {
+      console.error("[PremiumScreen] restore error", e);
+    }
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.parchment }}>
@@ -90,23 +118,36 @@ export default function PremiumScreen() {
         ) : (
           <>
             <Pressable
-              onPress={() => setOpen(true)}
+              onPress={handleUpgrade}
+              disabled={isPurchasing || !pkg}
               style={({ pressed }) => [
                 styles.upgradeBtn,
-                { backgroundColor: "#f59e0b", opacity: pressed ? 0.92 : 1 },
+                { backgroundColor: "#f59e0b", opacity: pressed || isPurchasing ? 0.85 : 1 },
               ]}
             >
-              <Feather name="zap" size={16} color="#fff" />
-              <Text style={{ color: "#fff", fontFamily: fonts.displayBold, fontSize: 16 }}>
-                Upgrade to Premium
-              </Text>
+              {isPurchasing ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Feather name="zap" size={16} color="#fff" />
+                  <Text style={{ color: "#fff", fontFamily: fonts.displayBold, fontSize: 16 }}>
+                    Upgrade to Premium · {priceString}/mo
+                  </Text>
+                </>
+              )}
             </Pressable>
             <Pressable
+              onPress={handleRestore}
+              disabled={isRestoring}
               style={[styles.restoreBtn, { backgroundColor: colors.card, borderColor: colors.border + "99" }]}
             >
-              <Text style={{ color: colors.mutedForeground, fontFamily: fonts.displayMedium, fontSize: 14 }}>
-                Restore purchase
-              </Text>
+              {isRestoring ? (
+                <ActivityIndicator color={colors.mutedForeground} size="small" />
+              ) : (
+                <Text style={{ color: colors.mutedForeground, fontFamily: fonts.displayMedium, fontSize: 14 }}>
+                  Restore purchase
+                </Text>
+              )}
             </Pressable>
             <Text
               style={{
@@ -123,7 +164,6 @@ export default function PremiumScreen() {
           </>
         )}
       </ScrollView>
-      <PremiumModal open={open} limitType={null} onClose={() => setOpen(false)} onUpgrade={() => setOpen(false)} />
     </View>
   );
 }

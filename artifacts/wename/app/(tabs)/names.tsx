@@ -97,7 +97,7 @@ export default function NamesScreen() {
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const isPremium = true;
+  const isPremium = user?.plan_tier === "premium";
 
   const fetchNamesByIds = useCallback(async (ids: string[]) => {
     if (ids.length === 0)

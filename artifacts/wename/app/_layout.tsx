@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
-import { Platform, Text, TextInput } from "react-native";
+import { Alert, Platform, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -18,8 +18,9 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "@/components/AuthContext";
 import { AuthModal } from "@/components/AuthModal";
-import { UserProvider } from "@/components/UserContext";
+import { UserProvider, useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
+import { initializeRevenueCat, SubscriptionProvider, useSubscription } from "@/lib/revenuecat";
 
 const TextAny = Text as any;
 TextAny.defaultProps = TextAny.defaultProps || {};
@@ -32,6 +33,12 @@ TextInputAny.defaultProps.style = [
 ];
 
 SplashScreen.preventAutoHideAsync();
+
+try {
+  initializeRevenueCat();
+} catch (err: any) {
+  Alert.alert("RevenueCat Unavailable", err?.message ?? "Unknown error");
+}
 
 const queryClient = new QueryClient();
 
@@ -46,6 +53,23 @@ function AuthModalOverlay() {
       preHeader={authModalProps?.preHeader}
     />
   );
+}
+
+function PlanSyncEffect() {
+  const { user, updateUser } = useUser();
+  const { isSubscribed, isLoading } = useSubscription();
+
+  useEffect(() => {
+    if (!user || isLoading) return;
+    const isPremiumInDb = user.plan_tier === "premium";
+    if (isSubscribed && !isPremiumInDb) {
+      updateUser({ plan_tier: "premium" });
+    } else if (!isSubscribed && isPremiumInDb) {
+      updateUser({ plan_tier: null });
+    }
+  }, [isSubscribed, isLoading, user?.id]);
+
+  return null;
 }
 
 export default function RootLayout() {
@@ -107,19 +131,22 @@ export default function RootLayout() {
             <KeyboardProvider>
               <AuthProvider>
                 <UserProvider>
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Screen name="(tabs)" />
-                    <Stack.Screen
-                      name="onboarding"
-                      options={{ animation: "fade" }}
-                    />
-                    <Stack.Screen
-                      name="join/[token]"
-                      options={{ presentation: "modal" }}
-                    />
-                    <Stack.Screen name="auth/callback" />
-                    <Stack.Screen name="delete-account" />
-                  </Stack>
+                  <SubscriptionProvider>
+                    <PlanSyncEffect />
+                    <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Screen name="(tabs)" />
+                      <Stack.Screen
+                        name="onboarding"
+                        options={{ animation: "fade" }}
+                      />
+                      <Stack.Screen
+                        name="join/[token]"
+                        options={{ presentation: "modal" }}
+                      />
+                      <Stack.Screen name="auth/callback" />
+                      <Stack.Screen name="delete-account" />
+                    </Stack>
+                  </SubscriptionProvider>
                 </UserProvider>
                 <AuthModalOverlay />
               </AuthProvider>

@@ -1,4 +1,6 @@
-import { Image } from "expo-image";
+import { Feather } from "@expo/vector-icons";
+import { Image, ImageBackground } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   ActivityIndicator,
@@ -12,33 +14,41 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "@/components/UserContext";
+import { fonts } from "@/constants/fonts";
 import { useSubscription } from "@/lib/revenuecat";
 
 const grassBorder = require("../assets/images/grass-flower-border.png");
 const butterfly = require("../assets/images/butterfly.png");
+const paperTexture = require("../assets/images/paper-texture.jpg");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
-const FEATURES = [
+// Feature rows match the InfoRow pattern from the name cards exactly —
+// Feather icon, uppercase label, value text.
+const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
   {
-    title: "Unlimited everything",
-    body: "No limits on swipes, likes, or match reveals — keep discovering together.",
+    icon: "refresh-cw",
+    label: "UNLIMITED",
+    value: "No limits on swipes, likes, or match reveals — keep discovering together.",
   },
   {
-    title: "Smarter name suggestions",
-    body: "Get AI-powered picks based on what you both love.",
+    icon: "zap",
+    label: "AI SUGGESTIONS",
+    value: "Get AI-powered picks based on what you both love.",
   },
   {
-    title: "Unlock all name packs",
-    body: "Explore thousands more names across styles, cultures, and vibes.",
+    icon: "book-open",
+    label: "ALL NAME PACKS",
+    value: "Explore thousands more names across styles, cultures, and vibes.",
   },
 ];
 
-const GRASS = "#4a7c59";
-const GRASS_LIGHT = "rgba(74,124,89,0.12)";
-const PARCHMENT = "#f5f0e8";
-const TEXT_DARK = "#3e4a3d";
-const TEXT_MID = "#6b7669";
+// Colour tokens — mirrors colors.ts grass / foreground / muted
+const GRASS = "hsl(145,45%,35%)";
+const GRASS_BG = "hsla(145,45%,35%,0.08)";
+const GRASS_BORDER = "hsl(145,45%,60%)";
+const TEXT_DARK = "hsl(25,30%,20%)";
+const TEXT_MID = "hsl(25,12%,48%)";
 
 export function PremiumModal({
   open,
@@ -54,7 +64,6 @@ export function PremiumModal({
   const insets = useSafeAreaInsets();
   const { updateUser } = useUser();
   const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
-
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -88,7 +97,24 @@ export function PremiumModal({
 
   return (
     <Modal visible={open} transparent={false} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.screen, { backgroundColor: PARCHMENT }]}>
+      <View style={styles.screen}>
+        {/* Same green-parchment gradient used in the name card's info sheet */}
+        <LinearGradient
+          colors={[
+            "rgba(219,240,225,0.99)",
+            "rgba(200,228,210,0.97)",
+            "rgba(255,251,235,0.99)",
+          ]}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Paper texture overlay — same opacity as name card (0.18) */}
+        <ImageBackground
+          source={paperTexture}
+          style={StyleSheet.absoluteFill}
+          imageStyle={{ opacity: 0.18 }}
+          contentFit="cover"
+        />
+
         {/* Grass/flower header strip */}
         <Image
           source={grassBorder}
@@ -97,76 +123,82 @@ export function PremiumModal({
           contentPosition="top"
         />
 
-        {/* Close button */}
+        {/* Close X — styled like name card's sheetClose button */}
         <Pressable
-          style={[styles.closeBtn, { top: 130 + insets.top * 0.5 }]}
+          style={[styles.closeBtn, { top: 112 + insets.top * 0.3 }]}
           onPress={onClose}
           hitSlop={12}
         >
-          <Text style={styles.closeBtnText}>✕</Text>
+          <Feather name="x" size={14} color={TEXT_MID} />
         </Pressable>
 
-        {/* Butterfly decoration */}
+        {/* Butterfly accent */}
         <Image
           source={butterfly}
-          style={[styles.butterfly, { top: 130 }]}
+          style={[styles.butterfly, { top: 112 }]}
           contentFit="contain"
         />
 
         <ScrollView
-          contentContainerStyle={[
-            styles.scroll,
-            { paddingBottom: insets.bottom + 32 },
-          ]}
+          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 36 }]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Headline */}
+          {/* PatrickHand italic headline — exactly like the card's "Boy Name" / "Girl Name" label */}
           <Text style={styles.headline}>Keep the momentum going</Text>
+
+          {/* Thin divider — same as labelDivider in NameCard */}
+          <View style={styles.divider} />
+
           <Text style={styles.subText}>
             You're finding names you love — don't slow down now.
           </Text>
 
-          {/* Feature list */}
+          {/* InfoRow-style feature list — mirrors the name card's info sheet rows */}
           <View style={styles.features}>
             {FEATURES.map((f) => (
-              <View key={f.title} style={[styles.featureRow, { backgroundColor: GRASS_LIGHT }]}>
-                <View style={styles.leafDot}>
-                  <Text style={styles.leafEmoji}>🌿</Text>
-                </View>
+              <View key={f.label} style={styles.featureRow}>
+                <Feather
+                  name={f.icon}
+                  size={15}
+                  color={GRASS}
+                  style={styles.featureIcon}
+                />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.featureTitle, { color: TEXT_DARK }]}>{f.title}</Text>
-                  <Text style={[styles.featureBody, { color: TEXT_MID }]}>{f.body}</Text>
+                  <Text style={styles.featureLabel}>{f.label}</Text>
+                  <Text style={[styles.featureValue, { color: TEXT_DARK }]}>{f.value}</Text>
                 </View>
               </View>
             ))}
           </View>
 
-          {/* CTA */}
+          {/* CTA — ActionButton aesthetic: gradient fill, white border, heavy shadow */}
           <Pressable
             onPress={handleUpgrade}
             disabled={isPurchasing || !pkg}
             style={({ pressed }) => [
               styles.cta,
-              { backgroundColor: GRASS, opacity: pressed || isPurchasing ? 0.82 : 1 },
+              { opacity: pressed || isPurchasing ? 0.82 : 1 },
             ]}
           >
+            <LinearGradient
+              colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
             {isPurchasing ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.ctaText}>
-                One-time purchase — {priceString}
-              </Text>
+              <Text style={styles.ctaText}>One-time purchase — {priceString}</Text>
             )}
           </Pressable>
 
-          {/* Restore */}
+          {/* Restore purchase */}
           <Pressable style={styles.restore} onPress={handleRestore} disabled={isRestoring}>
             {isRestoring ? (
               <ActivityIndicator color={TEXT_MID} size="small" />
             ) : (
-              <Text style={[styles.restoreText, { color: TEXT_MID }]}>
-                Restore purchase
-              </Text>
+              <Text style={[styles.restoreText, { color: TEXT_MID }]}>Restore purchase</Text>
             )}
           </Pressable>
 
@@ -180,120 +212,111 @@ export function PremiumModal({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-  },
-  grassBorder: {
-    width: "100%",
-    height: 140,
-  },
+  screen: { flex: 1 },
+  grassBorder: { width: "100%", height: 110 },
   closeBtn: {
     position: "absolute",
     right: 16,
     zIndex: 10,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "rgba(255,255,255,0.75)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  closeBtnText: {
-    fontSize: 16,
-    color: "#6b7669",
-    lineHeight: 20,
-  },
-  butterfly: {
-    position: "absolute",
-    right: 56,
-    width: 32,
-    height: 32,
-    zIndex: 5,
-  },
-  scroll: {
-    paddingHorizontal: 28,
-    paddingTop: 24,
-    gap: 0,
-  },
-  headline: {
-    fontFamily: "PatrickHand_400Regular",
-    fontSize: 30,
-    color: "#3e4a3d",
-    textAlign: "center",
-    lineHeight: 38,
-    marginBottom: 12,
-  },
-  subText: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 14,
-    color: "#6b7669",
-    textAlign: "center",
-    lineHeight: 22,
-    marginBottom: 28,
-    paddingHorizontal: 8,
-  },
-  features: {
-    gap: 12,
-    marginBottom: 32,
-  },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 14,
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  leafDot: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "rgba(74,124,89,0.18)",
+    backgroundColor: "rgba(255,255,255,0.55)",
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 1,
   },
-  leafEmoji: {
-    fontSize: 13,
+  butterfly: {
+    position: "absolute",
+    right: 52,
+    width: 28,
+    height: 28,
+    zIndex: 5,
   },
-  featureTitle: {
-    fontFamily: "Fredoka_600SemiBold",
-    fontSize: 15,
+  scroll: {
+    paddingHorizontal: 24,
+    paddingTop: 22,
+  },
+  headline: {
+    fontFamily: fonts.hand,
+    fontSize: 28,
+    color: GRASS,
+    fontStyle: "italic",
+    textAlign: "center",
+  },
+  divider: {
+    height: 1.5,
+    width: 96,
+    borderRadius: 999,
+    backgroundColor: GRASS,
+    opacity: 0.5,
+    alignSelf: "center",
+    marginTop: 6,
+    marginBottom: 14,
+  },
+  subText: {
+    fontFamily: fonts.display,
+    fontSize: 14,
+    color: TEXT_MID,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 22,
+    paddingHorizontal: 8,
+  },
+  features: { gap: 10, marginBottom: 28 },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: GRASS_BG,
+    borderWidth: 1,
+    borderColor: GRASS_BORDER,
+  },
+  featureIcon: { opacity: 0.65, marginTop: 2 },
+  featureLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    color: GRASS,
+    opacity: 0.65,
     marginBottom: 2,
   },
-  featureBody: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 13,
-    lineHeight: 19,
+  featureValue: {
+    fontFamily: fonts.display,
+    fontSize: 14,
+    opacity: 0.85,
+    lineHeight: 20,
   },
   cta: {
     height: 56,
-    borderRadius: 16,
+    borderRadius: 14,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.38)",
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   ctaText: {
     color: "#fff",
-    fontFamily: "Fredoka_700Bold",
+    fontFamily: fonts.displayBold,
     fontSize: 17,
   },
   restore: {
     alignItems: "center",
     paddingVertical: 10,
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  restoreText: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 14,
-  },
+  restoreText: { fontFamily: fonts.display, fontSize: 14 },
   legal: {
-    fontFamily: "Fredoka_500Medium",
+    fontFamily: fonts.display,
     fontSize: 10,
     textAlign: "center",
     lineHeight: 16,

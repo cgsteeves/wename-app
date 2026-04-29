@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
-import { Image } from "expo-image";
+import { Image, ImageBackground } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
   ActivityIndicator,
@@ -13,30 +14,37 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
+import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 
 const grassBorder = require("../../../assets/images/grass-flower-border.png");
 const butterfly = require("../../../assets/images/butterfly.png");
+const paperTexture = require("../../../assets/images/paper-texture.jpg");
 
-const GRASS = "#4a7c59";
-const GRASS_LIGHT = "rgba(74,124,89,0.10)";
-const GRASS_BORDER = "rgba(74,124,89,0.25)";
-const TEXT_DARK = "#3e4a3d";
-const TEXT_MID = "#6b7669";
+const GRASS = "hsl(145,45%,35%)";
+const GRASS_BG = "hsla(145,45%,35%,0.08)";
+const GRASS_BORDER = "hsl(145,45%,60%)";
+const GRASS_LIGHT_BG = "hsla(145,45%,35%,0.10)";
+const GRASS_BORDER_STRONG = "hsl(145,45%,52%)";
+const TEXT_DARK = "hsl(25,30%,20%)";
+const TEXT_MID = "hsl(25,12%,48%)";
 
-const FEATURES = [
+const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
   {
-    title: "Unlimited everything",
-    body: "No limits on swipes, likes, or match reveals — keep discovering together.",
+    icon: "refresh-cw",
+    label: "UNLIMITED",
+    value: "No limits on swipes, likes, or match reveals — keep discovering together.",
   },
   {
-    title: "Smarter name suggestions",
-    body: "Get AI-powered picks based on what you both love.",
+    icon: "zap",
+    label: "AI SUGGESTIONS",
+    value: "Get AI-powered picks based on what you both love.",
   },
   {
-    title: "Unlock all name packs",
-    body: "Explore thousands more names across styles, cultures, and vibes.",
+    icon: "book-open",
+    label: "ALL NAME PACKS",
+    value: "Explore thousands more names across styles, cultures, and vibes.",
   },
 ];
 
@@ -76,8 +84,24 @@ export default function PremiumScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: "#f5f0e8" }}>
-      <SubPageHeader title="Premium" subtitle="Unlock everything" />
+    <View style={styles.root}>
+      {/* Same green-parchment gradient as the paywall modal / name card info sheet */}
+      <LinearGradient
+        colors={[
+          "rgba(219,240,225,0.99)",
+          "rgba(200,228,210,0.97)",
+          "rgba(255,251,235,0.99)",
+        ]}
+        style={StyleSheet.absoluteFill}
+      />
+      <ImageBackground
+        source={paperTexture}
+        style={StyleSheet.absoluteFill}
+        imageStyle={{ opacity: 0.15 }}
+        contentFit="cover"
+      />
+
+      <SubPageHeader title="Premium" subtitle="Keep the momentum going" />
 
       {/* Grass/flower decorative strip */}
       <View style={styles.grassWrap}>
@@ -86,82 +110,80 @@ export default function PremiumScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 90, gap: 16 }}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 90 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Current plan status */}
-        <View style={[styles.statusCard, { borderColor: isPremium ? GRASS_BORDER : colors.border + "55" }]}>
-          <View style={[styles.statusIconWrap, { backgroundColor: isPremium ? GRASS_LIGHT : "rgba(0,0,0,0.05)" }]}>
+        {/* Plan status card — InfoRow aesthetic */}
+        <View style={[styles.statusCard, { borderColor: isPremium ? GRASS_BORDER_STRONG : colors.border + "55" }]}>
+          <View style={[styles.statusIcon, { backgroundColor: isPremium ? GRASS_LIGHT_BG : "rgba(0,0,0,0.04)" }]}>
             {isPremium ? (
               <Text style={{ fontSize: 20 }}>🌿</Text>
             ) : (
-              <Feather name="lock" size={18} color={TEXT_MID} />
+              <Feather name="lock" size={17} color={TEXT_MID} style={{ opacity: 0.65 }} />
             )}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.statusTitle, { color: TEXT_DARK }]}>Current Plan</Text>
-            <Text style={[styles.statusSub, { color: TEXT_MID }]}>
+            <Text style={[styles.statusLabel, { color: GRASS }]}>CURRENT PLAN</Text>
+            <Text style={[styles.statusValue, { color: TEXT_DARK }]}>
               {isPremium ? "Premium — all features unlocked" : "Free — basic features only"}
             </Text>
           </View>
         </View>
 
-        {/* Feature list */}
+        {/* Features section — PatrickHand italic header + divider + InfoRow items */}
         <View style={[styles.featuresCard, { borderColor: GRASS_BORDER }]}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
-            <Text style={{ fontSize: 18 }}>🌿</Text>
-            <Text style={[styles.featuresHeading, { color: TEXT_DARK }]}>Premium Benefits</Text>
-          </View>
+          <Text style={styles.sectionLabel}>Premium Benefits</Text>
+          <View style={styles.sectionDivider} />
+
           {FEATURES.map((f) => (
-            <View key={f.title} style={styles.featureRow}>
-              <View style={[styles.leafDot, { backgroundColor: GRASS_LIGHT }]}>
-                <Text style={{ fontSize: 11 }}>🌿</Text>
-              </View>
+            <View key={f.label} style={[styles.featureRow, { backgroundColor: GRASS_BG, borderColor: GRASS_BORDER }]}>
+              <Feather name={f.icon} size={15} color={GRASS} style={styles.featureIcon} />
               <View style={{ flex: 1 }}>
-                <Text style={[styles.featureTitle, { color: TEXT_DARK }]}>{f.title}</Text>
-                <Text style={[styles.featureBody, { color: TEXT_MID }]}>{f.body}</Text>
+                <Text style={[styles.featureLabel, { color: GRASS }]}>{f.label}</Text>
+                <Text style={[styles.featureValue, { color: TEXT_DARK }]}>{f.value}</Text>
               </View>
             </View>
           ))}
         </View>
 
         {isPremium ? (
-          <View style={[styles.successRow, { backgroundColor: GRASS_LIGHT, borderColor: GRASS_BORDER }]}>
+          <View style={[styles.successRow, { backgroundColor: GRASS_LIGHT_BG, borderColor: GRASS_BORDER_STRONG }]}>
             <Text style={{ fontSize: 16 }}>🌿</Text>
-            <Text style={[styles.successText, { color: GRASS }]}>
-              You're on Premium — enjoy everything!
-            </Text>
+            <Text style={[styles.successText, { color: GRASS }]}>You're on Premium — enjoy everything!</Text>
           </View>
         ) : (
           <>
+            {/* CTA — ActionButton gradient style */}
             <Pressable
               onPress={handleUpgrade}
               disabled={isPurchasing || !pkg}
               style={({ pressed }) => [
-                styles.upgradeBtn,
-                { backgroundColor: GRASS, opacity: pressed || isPurchasing ? 0.82 : 1 },
+                styles.cta,
+                { opacity: pressed || isPurchasing ? 0.82 : 1 },
               ]}
             >
+              <LinearGradient
+                colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
               {isPurchasing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.upgradeBtnText}>
-                  One-time purchase — {priceString}
-                </Text>
+                <Text style={styles.ctaText}>One-time purchase — {priceString}</Text>
               )}
             </Pressable>
 
             <Pressable
               onPress={handleRestore}
               disabled={isRestoring}
-              style={[styles.restoreBtn, { backgroundColor: colors.card, borderColor: GRASS_BORDER }]}
+              style={[styles.restoreBtn, { backgroundColor: "rgba(255,255,255,0.5)", borderColor: GRASS_BORDER }]}
             >
               {isRestoring ? (
                 <ActivityIndicator color={TEXT_MID} size="small" />
               ) : (
-                <Text style={[styles.restoreBtnText, { color: TEXT_MID }]}>
-                  Restore purchase
-                </Text>
+                <Text style={[styles.restoreText, { color: TEXT_MID }]}>Restore purchase</Text>
               )}
             </Pressable>
 
@@ -176,126 +198,123 @@ export default function PremiumScreen() {
 }
 
 const styles = StyleSheet.create({
-  grassWrap: {
-    width: "100%",
-    height: 80,
-    position: "relative",
-    overflow: "hidden",
-  },
-  grassBorder: {
-    width: "100%",
-    height: 80,
-  },
-  butterfly: {
-    position: "absolute",
-    right: 20,
-    top: 10,
-    width: 28,
-    height: 28,
-  },
+  root: { flex: 1 },
+  grassWrap: { width: "100%", height: 72, overflow: "hidden" },
+  grassBorder: { width: "100%", height: 72 },
+  butterfly: { position: "absolute", right: 18, top: 10, width: 26, height: 26 },
+  scroll: { paddingHorizontal: 20, gap: 14 },
   statusCard: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
-    padding: 16,
-    borderRadius: 16,
+    padding: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    backgroundColor: "rgba(255,255,255,0.7)",
+    backgroundColor: "rgba(255,255,255,0.55)",
     marginTop: 4,
   },
-  statusIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
+  statusIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
-  statusTitle: {
-    fontFamily: "Fredoka_600SemiBold",
-    fontSize: 14,
+  statusLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    opacity: 0.65,
+    marginBottom: 2,
   },
-  statusSub: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 12,
-    marginTop: 2,
+  statusValue: {
+    fontFamily: fonts.display,
+    fontSize: 14,
+    opacity: 0.85,
+    lineHeight: 20,
   },
   featuresCard: {
-    padding: 20,
-    borderRadius: 16,
+    padding: 18,
+    borderRadius: 12,
     borderWidth: 1,
-    backgroundColor: "rgba(255,255,255,0.65)",
+    backgroundColor: "rgba(255,255,255,0.5)",
+    gap: 10,
   },
-  featuresHeading: {
-    fontFamily: "Fredoka_600SemiBold",
-    fontSize: 16,
+  sectionLabel: {
+    fontFamily: fonts.hand,
+    fontSize: 22,
+    color: GRASS,
+    fontStyle: "italic",
+    textAlign: "center",
+  },
+  sectionDivider: {
+    height: 1.5,
+    width: 80,
+    borderRadius: 999,
+    backgroundColor: GRASS,
+    opacity: 0.45,
+    alignSelf: "center",
+    marginBottom: 4,
   },
   featureRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    marginBottom: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
   },
-  leafDot: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 1,
+  featureIcon: { opacity: 0.65, marginTop: 2 },
+  featureLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    letterSpacing: 1.5,
+    opacity: 0.65,
+    marginBottom: 2,
   },
-  featureTitle: {
-    fontFamily: "Fredoka_600SemiBold",
-    fontSize: 14,
-    marginBottom: 1,
-  },
-  featureBody: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 12,
-    lineHeight: 18,
+  featureValue: {
+    fontFamily: fonts.display,
+    fontSize: 13,
+    opacity: 0.85,
+    lineHeight: 19,
   },
   successRow: {
     flexDirection: "row",
     gap: 10,
     paddingVertical: 18,
     paddingHorizontal: 20,
-    borderRadius: 16,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  successText: {
-    fontFamily: "Fredoka_600SemiBold",
-    fontSize: 15,
-  },
-  upgradeBtn: {
+  successText: { fontFamily: fonts.displaySemibold, fontSize: 15 },
+  cta: {
     height: 56,
-    borderRadius: 16,
+    borderRadius: 14,
+    overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.38)",
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
-  upgradeBtnText: {
-    color: "#fff",
-    fontFamily: "Fredoka_700Bold",
-    fontSize: 17,
-  },
+  ctaText: { color: "#fff", fontFamily: fonts.displayBold, fontSize: 17 },
   restoreBtn: {
-    height: 48,
-    borderRadius: 16,
+    height: 46,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  restoreBtnText: {
-    fontFamily: "Fredoka_500Medium",
-    fontSize: 14,
-  },
+  restoreText: { fontFamily: fonts.display, fontSize: 14 },
   legal: {
-    fontFamily: "Fredoka_500Medium",
+    fontFamily: fonts.display,
     fontSize: 10,
     textAlign: "center",
     lineHeight: 16,

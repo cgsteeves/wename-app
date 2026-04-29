@@ -554,12 +554,19 @@ export default function NamesScreen() {
       const shareTitle = tab === "liked" ? "My Baby Name Short List" : "Our Baby Name Shortlist";
       const filename = tab === "liked" ? "My_Baby_Name_Short_List" : "Our_Baby_Name_Shortlist";
       const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58) });
-      // Copy to a named path — iOS/Android display the filename from the URI
-      const namedUri = `${FileSystem.cacheDirectory}${filename}.pdf`;
-      await FileSystem.copyAsync({ from: uri, to: namedUri });
+      // Attempt to copy to a named path so the share sheet shows a readable filename.
+      // If this fails for any reason, fall back to the original URI (PDF still shares, just UUID name).
+      let shareUri = uri;
+      try {
+        const namedUri = `${FileSystem.cacheDirectory}${filename}.pdf`;
+        await FileSystem.copyAsync({ from: uri, to: namedUri });
+        shareUri = namedUri;
+      } catch (_) {
+        // naming failed — proceed with the original URI
+      }
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(namedUri, { mimeType: "application/pdf", dialogTitle: shareTitle });
+        await Sharing.shareAsync(shareUri, { mimeType: "application/pdf", dialogTitle: shareTitle });
       } else {
         await Share.share({ title: shareTitle, message: `${shareTitle}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
       }

@@ -15,7 +15,8 @@
     },
     "ios": {
       "supportsTablet": false,
-      "usesAppleSignIn": true
+      "usesAppleSignIn": true,
+      "bundleIdentifier": "app.wename.mobile"
     },
     "android": {
       "adaptiveIcon": {

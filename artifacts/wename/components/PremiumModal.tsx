@@ -18,8 +18,8 @@ import { fonts } from "@/constants/fonts";
 import { useSubscription } from "@/lib/revenuecat";
 
 const grassBorder = require("../assets/images/grass-flower-border.png");
-const butterfly = require("../assets/images/butterfly.png");
 const paperTexture = require("../assets/images/paper-texture.jpg");
+const girlBg = require("../assets/images/girl-card-bg.jpg");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
@@ -98,21 +98,28 @@ export function PremiumModal({
   return (
     <Modal visible={open} transparent={false} animationType="slide" onRequestClose={onClose}>
       <View style={styles.screen}>
-        {/* Same green-parchment gradient used in the name card's info sheet */}
-        <LinearGradient
-          colors={[
-            "rgba(219,240,225,0.99)",
-            "rgba(200,228,210,0.97)",
-            "rgba(255,251,235,0.99)",
-          ]}
+        {/* Colorful card background — same image used on the swipe cards */}
+        <ImageBackground
+          source={girlBg}
           style={StyleSheet.absoluteFill}
+          contentFit="cover"
         />
-        {/* Paper texture overlay — same opacity as name card (0.18) */}
+        {/* Paper texture overlay */}
         <ImageBackground
           source={paperTexture}
           style={StyleSheet.absoluteFill}
-          imageStyle={{ opacity: 0.18 }}
+          imageStyle={{ opacity: 0.12 }}
           contentFit="cover"
+        />
+        {/* Gradient: let the image breathe at the top, fade to readable parchment below */}
+        <LinearGradient
+          colors={[
+            "rgba(255,248,242,0.05)",
+            "rgba(255,248,242,0.55)",
+            "rgba(255,248,242,0.92)",
+          ]}
+          locations={[0, 0.3, 1]}
+          style={StyleSheet.absoluteFill}
         />
 
         {/* Grass/flower header strip */}
@@ -131,13 +138,6 @@ export function PremiumModal({
         >
           <Feather name="x" size={14} color={TEXT_MID} />
         </Pressable>
-
-        {/* Butterfly accent */}
-        <Image
-          source={butterfly}
-          style={[styles.butterfly, { top: 112 }]}
-          contentFit="contain"
-        />
 
         <ScrollView
           contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 36 }]}
@@ -224,13 +224,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.55)",
     alignItems: "center",
     justifyContent: "center",
-  },
-  butterfly: {
-    position: "absolute",
-    right: 52,
-    width: 28,
-    height: 28,
-    zIndex: 5,
   },
   scroll: {
     paddingHorizontal: 24,

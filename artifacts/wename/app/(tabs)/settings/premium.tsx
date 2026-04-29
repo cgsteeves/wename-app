@@ -19,8 +19,8 @@ import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 
 const grassBorder = require("../../../assets/images/grass-flower-border.png");
-const butterfly = require("../../../assets/images/butterfly.png");
 const paperTexture = require("../../../assets/images/paper-texture.jpg");
+const girlBg = require("../../../assets/images/girl-card-bg.jpg");
 
 const GRASS = "hsl(145,45%,35%)";
 const GRASS_BG = "hsla(145,45%,35%,0.08)";
@@ -85,20 +85,27 @@ export default function PremiumScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Same green-parchment gradient as the paywall modal / name card info sheet */}
-      <LinearGradient
-        colors={[
-          "rgba(219,240,225,0.99)",
-          "rgba(200,228,210,0.97)",
-          "rgba(255,251,235,0.99)",
-        ]}
+      {/* Colorful card background — same image as the swipe cards */}
+      <ImageBackground
+        source={girlBg}
         style={StyleSheet.absoluteFill}
+        contentFit="cover"
       />
       <ImageBackground
         source={paperTexture}
         style={StyleSheet.absoluteFill}
-        imageStyle={{ opacity: 0.15 }}
+        imageStyle={{ opacity: 0.12 }}
         contentFit="cover"
+      />
+      {/* Fade the image to readable parchment in the lower scroll area */}
+      <LinearGradient
+        colors={[
+          "rgba(255,248,242,0.05)",
+          "rgba(255,248,242,0.55)",
+          "rgba(255,248,242,0.92)",
+        ]}
+        locations={[0, 0.3, 1]}
+        style={StyleSheet.absoluteFill}
       />
 
       <SubPageHeader title="Premium" subtitle="Keep the momentum going" />
@@ -106,7 +113,6 @@ export default function PremiumScreen() {
       {/* Grass/flower decorative strip */}
       <View style={styles.grassWrap}>
         <Image source={grassBorder} style={styles.grassBorder} contentFit="cover" contentPosition="top" />
-        <Image source={butterfly} style={styles.butterfly} contentFit="contain" />
       </View>
 
       <ScrollView
@@ -201,7 +207,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   grassWrap: { width: "100%", height: 72, overflow: "hidden" },
   grassBorder: { width: "100%", height: 72 },
-  butterfly: { position: "absolute", right: 18, top: 10, width: 26, height: 26 },
   scroll: { paddingHorizontal: 20, gap: 14 },
   statusCard: {
     flexDirection: "row",

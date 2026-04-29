@@ -19,33 +19,18 @@ const butterfly = require("../assets/images/butterfly.png");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
-const COPY: Record<NonNullable<LimitType>, string> = {
-  swipe:
-    "You've used all your daily swipes. Upgrade to keep discovering names together.",
-  like:
-    "You've hit your daily like limit. Upgrade to keep liking names together.",
-  match:
-    "You've seen all your new matches today. Upgrade to reveal every match the moment it happens.",
-  discover:
-    "Get smarter name suggestions — our AI learns what you like and recommends names with a similar vibe.",
-};
-
 const FEATURES = [
   {
-    title: "Unlimited Swipes",
-    body: "Swipe on as many names as you want, every day",
+    title: "Unlimited everything",
+    body: "No limits on swipes, likes, or match reveals — keep discovering together.",
   },
   {
-    title: "All Name Packs",
-    body: "Unlock Classic, Arabic, Spiritual, and more",
+    title: "Smarter name suggestions",
+    body: "Get AI-powered picks based on what you both love.",
   },
   {
-    title: "AI Suggestions",
-    body: "Personalised names based on what you both love",
-  },
-  {
-    title: "Every Match, Instantly",
-    body: "See every match the moment it happens — no daily cap",
+    title: "Unlock all name packs",
+    body: "Explore thousands more names across styles, cultures, and vibes.",
   },
 ];
 
@@ -70,9 +55,6 @@ export function PremiumModal({
   const { updateUser } = useUser();
   const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
 
-  const body = limitType
-    ? COPY[limitType]
-    : "Unlock unlimited swipes, likes and matches.";
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -139,10 +121,10 @@ export function PremiumModal({
           showsVerticalScrollIndicator={false}
         >
           {/* Headline */}
-          <Text style={styles.headline}>
-            You're this close{"\n"}to your baby's name
+          <Text style={styles.headline}>Keep the momentum going</Text>
+          <Text style={styles.subText}>
+            You're finding names you love — don't slow down now.
           </Text>
-          <Text style={styles.subText}>{body}</Text>
 
           {/* Feature list */}
           <View style={styles.features}>
@@ -172,7 +154,7 @@ export function PremiumModal({
               <ActivityIndicator color="#fff" size="small" />
             ) : (
               <Text style={styles.ctaText}>
-                Unlock Premium · {priceString}/mo
+                One-time purchase — {priceString}
               </Text>
             )}
           </Pressable>
@@ -189,7 +171,7 @@ export function PremiumModal({
           </Pressable>
 
           <Text style={[styles.legal, { color: TEXT_MID }]}>
-            Purchases are processed securely. Subscriptions renew automatically unless cancelled.
+            No subscriptions. Pay once, use forever.
           </Text>
         </ScrollView>
       </View>

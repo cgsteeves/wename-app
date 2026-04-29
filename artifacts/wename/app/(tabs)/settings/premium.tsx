@@ -27,20 +27,16 @@ const TEXT_MID = "#6b7669";
 
 const FEATURES = [
   {
-    title: "Unlimited Swipes",
-    body: "Swipe on as many names as you want, every day",
+    title: "Unlimited everything",
+    body: "No limits on swipes, likes, or match reveals — keep discovering together.",
   },
   {
-    title: "All Name Packs",
-    body: "Unlock Classic, Arabic, Spiritual, and more",
+    title: "Smarter name suggestions",
+    body: "Get AI-powered picks based on what you both love.",
   },
   {
-    title: "AI Suggestions",
-    body: "Personalised names based on what you both love",
-  },
-  {
-    title: "Every Match, Instantly",
-    body: "See every match the moment it happens — no daily cap",
+    title: "Unlock all name packs",
+    body: "Explore thousands more names across styles, cultures, and vibes.",
   },
 ];
 
@@ -150,7 +146,7 @@ export default function PremiumScreen() {
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Text style={styles.upgradeBtnText}>
-                  Unlock Premium · {priceString}/mo
+                  One-time purchase — {priceString}
                 </Text>
               )}
             </Pressable>
@@ -170,7 +166,7 @@ export default function PremiumScreen() {
             </Pressable>
 
             <Text style={[styles.legal, { color: TEXT_MID }]}>
-              Purchases are processed securely. Subscriptions renew automatically unless cancelled.
+              No subscriptions. Pay once, use forever.
             </Text>
           </>
         )}

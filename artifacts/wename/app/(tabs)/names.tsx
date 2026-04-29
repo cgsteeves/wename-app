@@ -550,8 +550,9 @@ export default function NamesScreen() {
         await Share.share({ message: `${title}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
         return;
       }
-      const shareTitle = "See my top baby name picks";
-      const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58) });
+      const shareTitle = tab === "liked" ? "My Baby Name Short List" : "Our Baby Name Shortlist";
+      const filename = tab === "liked" ? "My Baby Name Short List" : "Our Baby Name Shortlist";
+      const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58), filename });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
         await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: shareTitle });

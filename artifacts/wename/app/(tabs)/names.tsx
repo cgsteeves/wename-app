@@ -1,6 +1,7 @@
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import * as FileSystem from "expo-file-system";
 import * as Print from "expo-print";
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
@@ -551,11 +552,14 @@ export default function NamesScreen() {
         return;
       }
       const shareTitle = tab === "liked" ? "My Baby Name Short List" : "Our Baby Name Shortlist";
-      const filename = tab === "liked" ? "My Baby Name Short List" : "Our Baby Name Shortlist";
-      const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58), filename });
+      const filename = tab === "liked" ? "My_Baby_Name_Short_List" : "Our_Baby_Name_Shortlist";
+      const { uri } = await Print.printToFileAsync({ html, width: 390, height: Math.min(1200, 200 + list.length * 58) });
+      // Copy to a named path — iOS/Android display the filename from the URI
+      const namedUri = `${FileSystem.cacheDirectory}${filename}.pdf`;
+      await FileSystem.copyAsync({ from: uri, to: namedUri });
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
-        await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: shareTitle });
+        await Sharing.shareAsync(namedUri, { mimeType: "application/pdf", dialogTitle: shareTitle });
       } else {
         await Share.share({ title: shareTitle, message: `${shareTitle}\n\n${list.map((n, i) => `${i + 1}. ${n.text}`).join("\n")}` });
       }

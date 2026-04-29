@@ -19,6 +19,7 @@
       "bundleIdentifier": "app.wename.mobile"
     },
     "android": {
+      "package": "app.wename.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#f9f1de"

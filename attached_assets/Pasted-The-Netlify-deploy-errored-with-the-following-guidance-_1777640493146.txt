@@ -1,0 +1,76 @@
+The Netlify deploy errored, with the following guidance provided:
+
+**Diagnosis**
+- The build fails during the script workspace type check. In `scripts/src/revenueCatClient.ts`, the catch block accesses `error.data`, but with modern TypeScript the catch variable is inferred as `unknown`, so this direct property access triggers [line 76](#L76) (`TS18046: 'data' is of type 'unknown'`).
+
+**Solution**
+- Narrow or cast the catch value before reading properties. For example:
+  ```ts
+  } catch (error) {
+    if (isAxiosError(error)) {
+      const data = error.response?.data as RevenueCatErrorResponse | undefined;
+      // ...
+    } else if (error instanceof Error) {
+      // fallback handling
+    }
+  }
+  ```
+  or, if you expect a specific shape:
+  ```ts
+  } catch (error) {
+    const err = error as { data?: RevenueCatErrorResponse };
+    if (err.data) { /* ... */ }
+  }
+  ```
+  Ensure all property accesses on `error` occur only after this type refinement. Re-run the build once this adjustment is committed.
+
+The relevant error logs are:
+
+Line 65: > workspace@0.0.0 typecheck /opt/build/repo
+Line 66: > pnpm run typecheck:libs && pnpm -r --filter "./artifacts/**" --filter "./scripts" --if-present run typecheck
+Line 67: > workspace@0.0.0 typecheck:libs /opt/build/repo
+Line 68: > tsc --build
+Line 69: Scope: 4 of 9 workspace projects
+Line 70: artifacts/api-server typecheck$ tsc -p tsconfig.json --noEmit
+Line 71: artifacts/mockup-sandbox typecheck$ tsc -p tsconfig.json --noEmit
+Line 72: artifacts/wename typecheck$ tsc -p tsconfig.json --noEmit
+Line 73: artifacts/api-server typecheck: Done
+Line 74: scripts typecheck$ tsc -p tsconfig.json --noEmit
+Line 75: Failed during stage 'building site': Build script returned non-zero exit code: 2
+Line 76: scripts typecheck: src/revenueCatClient.ts(29,46): error TS18046: 'data' is of type 'unknown'.
+Line 77: scripts typecheck: Failed
+Line 78: /opt/build/repo/scripts:
+Line 79:  ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @workspace/scripts@0.0.0 typecheck: `tsc -p tsconfig.json --noEmit`
+Line 80: Exit status 2
+Line 81:  ELIFECYCLE  Command failed with exit code 2.
+Line 82: ​
+Line 83: "build.command" failed                                        
+Line 84: ────────────────────────────────────────────────────────────────
+Line 85: ​
+Line 86:   Error message
+Line 87:   Command failed with exit code 2: npm run build
+Line 88: ​
+Line 89:   Error location
+Line 90:   In Build command from Netlify app:
+Line 91:   npm run build
+Line 92: ​
+Line 93:   Resolved config
+Line 94:   build:
+Line 95:     command: npm run build
+Line 96:     commandOrigin: ui
+Line 97:     environment:
+Line 98:       - VITE_SUPABASE_ANON_KEY
+Line 99:       - VITE_SUPABASE_URL
+Line 104:       values:
+Line 105:         Content-Type: application/json
+Line 106:   redirects:
+Line 107:     - from: /privacy
+Line 108:       status: 200
+Line 109:       to: /privacy.html
+Line 110:     - from: /support
+Line 111:       status: 200
+Line 112:       to: /support.html
+Line 113:   redirectsOrigin: config
+Line 114: Build failed due to a user error: Build script returned non-zero exit code: 2
+Line 115: Failing build: Failed to build site
+Line 116: Finished processing build request in 23.302s

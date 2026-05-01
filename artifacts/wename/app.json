@@ -16,7 +16,10 @@
     "ios": {
       "supportsTablet": false,
       "usesAppleSignIn": true,
-      "bundleIdentifier": "app.wename.mobile"
+      "bundleIdentifier": "app.wename.mobile",
+      "associatedDomains": [
+        "applinks:wename.app"
+      ]
     },
     "android": {
       "package": "app.wename.mobile",
@@ -32,7 +35,7 @@
       [
         "expo-router",
         {
-          "origin": "https://replit.com/"
+          "origin": "https://wename.app/"
         }
       ],
       "expo-font",

@@ -953,38 +953,39 @@ function TabButton({
       ]}
     >
       {icon}
-      <View style={{ alignItems: "center", flexDirection: "row", gap: 4 }}>
-        <Text
-          numberOfLines={1}
-          style={[
-            styles.tabLabel,
-            { color: active ? accent : MUTED, fontFamily: active ? fonts.displayBold : fonts.displayMedium },
-          ]}
+      <Text
+        numberOfLines={1}
+        style={[
+          styles.tabLabel,
+          { color: active ? accent : MUTED, fontFamily: active ? fonts.displayBold : fonts.displayMedium },
+        ]}
+      >
+        {label}
+      </Text>
+      {proBadge && (
+        <View
+          style={{
+            position: "absolute",
+            top: 5,
+            right: 7,
+            backgroundColor: "hsl(38,85%,48%)",
+            borderRadius: 4,
+            paddingHorizontal: 4,
+            paddingVertical: 1,
+          }}
         >
-          {label}
-        </Text>
-        {proBadge && (
-          <View
+          <Text
             style={{
-              backgroundColor: "hsl(38,85%,48%)",
-              borderRadius: 4,
-              paddingHorizontal: 4,
-              paddingVertical: 1,
+              color: "#fff",
+              fontSize: 9,
+              fontFamily: fonts.displayMedium,
+              letterSpacing: 0.5,
             }}
           >
-            <Text
-              style={{
-                color: "#fff",
-                fontSize: 9,
-                fontFamily: fonts.displayMedium,
-                letterSpacing: 0.5,
-              }}
-            >
-              PRO
-            </Text>
-          </View>
-        )}
-      </View>
+            PRO
+          </Text>
+        </View>
+      )}
     </Pressable>
   );
 }

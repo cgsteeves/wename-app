@@ -1,16 +1,12 @@
 [build]
-  base    = "artifacts/wename"
-  command = "cd ../.. && pnpm install --filter @workspace/wename... && cd artifacts/wename && pnpm run export:web"
-  publish = "dist"
-
-[build.environment]
-  NODE_VERSION = "20"
-  NETLIFY_SKIP_AUTOMATED_INSTALL = "true"
-  EXPO_PUBLIC_SUPABASE_URL = "https://cwpanlrimbccdgzchkdo.supabase.co"
-  EXPO_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48"
-  EXPO_PUBLIC_DOMAIN = "wename.app"
+  publish = "website"
 
 [[redirects]]
-  from   = "/*"
-  to     = "/index.html"
+  from   = "/privacy"
+  to     = "/privacy.html"
+  status = 200
+
+[[redirects]]
+  from   = "/support"
+  to     = "/support.html"
   status = 200

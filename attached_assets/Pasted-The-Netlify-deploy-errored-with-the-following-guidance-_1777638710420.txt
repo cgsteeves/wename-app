@@ -1,0 +1,36 @@
+The Netlify deploy errored, with the following guidance provided:
+
+**Diagnosis**
+
+The build fails during dependency installation because pnpm is running in frozen-lockfile mode and your `pnpm-lock.yaml` is out of sync with `package.json`; specifically, `expo-apple-authentication@^8.0` is listed in `package.json` but not recorded in the lockfile. See [line 23](#L23)-[line 27](#L27).
+
+**Solution**
+
+1. On your development machine, run `pnpm install` (or `pnpm install --no-frozen-lockfile`) so pnpm updates `pnpm-lock.yaml` with the new `expo-apple-authentication` dependency.  
+2. Commit the updated `pnpm-lock.yaml` to the repository and redeploy.
+
+This keeps `package.json` and `pnpm-lock.yaml` aligned, allowing the frozen-lockfile install to succeed on Netlify.
+
+The relevant error logs are:
+
+Line 10: Custom publish path detected. Proceeding with the specified path: 'artifacts/wename/dist'
+Line 11: Custom build command detected. Proceeding with the specified command: 'pnpm run export:web'
+Line 12: Installing dependencies
+Line 13: mise ~/.config/mise/config.toml tools: python@3.14.3
+Line 14: mise ~/.config/mise/config.toml tools: ruby@3.4.8
+Line 15: mise ~/.config/mise/config.toml tools: go@1.26.2
+Line 16: v20.20.2 is already installed.
+Line 17: Now using node v20.20.2 (npm v10.8.2)
+Line 18: Enabling Node.js Corepack
+Line 19: pnpm workspaces detected
+Line 20: Failed during stage 'Install dependencies': dependency_installation script returned non-zero exit code: 1
+Line 21: Installing npm packages using pnpm version 10.30.3
+Line 22: Scope: all 9 workspace projects
+Line 23:  ERR_PNPM_OUTDATED_LOCKFILE  Cannot install with "frozen-lockfile" because pnpm-lock.yaml is not up to date with <ROOT>/artifact
+Line 24: Note that in CI environments this setting is true by default. If you still need to run install in such cases, use "pnpm install 
+Line 25:   Failure reason:
+Line 26:   specifiers in the lockfile don't match specifiers in package.json:
+* 1 dependencies were added: expo-apple-authentication@^8.0
+Line 27: Error during pnpm install
+Line 28: Failing build: Failed to install dependencies
+Line 29: Finished processing build request in 9.936s

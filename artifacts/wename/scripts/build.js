@@ -63,12 +63,17 @@ function getDeploymentDomain() {
     return stripProtocol(process.env.REPLIT_DEV_DOMAIN);
   }
 
+  if (process.env.EXPO_PUBLIC_APP_URL) {
+    return stripProtocol(process.env.EXPO_PUBLIC_APP_URL);
+  }
+
+  // Legacy fallback
   if (process.env.EXPO_PUBLIC_DOMAIN) {
     return stripProtocol(process.env.EXPO_PUBLIC_DOMAIN);
   }
 
   console.error(
-    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_DOMAIN",
+    "ERROR: No deployment domain found. Set REPLIT_INTERNAL_APP_DOMAIN, REPLIT_DEV_DOMAIN, or EXPO_PUBLIC_APP_URL",
   );
   process.exit(1);
 }
@@ -135,9 +140,11 @@ async function startMetro(expoPublicDomain, expoPublicReplId) {
   }
 
   console.log("Starting Metro...");
-  console.log(`Setting EXPO_PUBLIC_DOMAIN=${expoPublicDomain}`);
+  console.log(`Setting EXPO_PUBLIC_APP_URL=https://${expoPublicDomain}`);
   const env = {
     ...process.env,
+    EXPO_PUBLIC_APP_URL: `https://${expoPublicDomain}`,
+    // Legacy — kept for any remaining references in deps
     EXPO_PUBLIC_DOMAIN: expoPublicDomain,
     EXPO_PUBLIC_REPL_ID: expoPublicReplId,
   };

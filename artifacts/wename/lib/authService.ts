@@ -14,8 +14,9 @@ function getOrigin(): string {
   if (typeof window !== "undefined" && window.location?.origin) {
     return window.location.origin;
   }
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  return domain ? `https://${domain}` : "https://wename.app";
+  // Native fallback: use the canonical app URL env var or hard-coded production domain
+  const appUrl = process.env.EXPO_PUBLIC_APP_URL;
+  return appUrl ? appUrl.replace(/\/$/, "") : "https://wename.app";
 }
 
 // ── Manual PKCE for web Google sign-in ─────────────────────────────────────

@@ -1,10 +1,9 @@
 import { supabase, PartnerInvite } from "./supabase";
+import { getAppUrl } from "./url";
 
 // ─── URL helper ──────────────────────────────────────────────────────────────
 export function getInviteUrl(token: string): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN ?? process.env.EXPO_PUBLIC_REPL_ID;
-  if (domain) return `https://${domain}/join/${token}`;
-  return `/join/${token}`;
+  return `${getAppUrl()}/join/${token}`;
 }
 
 // ─── Random hex token (48 chars) ─────────────────────────────────────────────

@@ -46,6 +46,15 @@ const SPRING_BACK = {
 // Minimum exit velocity so a slow drag past the threshold still flies off
 // with conviction (also used when buttons fire fly() with no real velocity).
 const MIN_EXIT_VELOCITY = 1400;
+// Rotation angle (deg) when the card has been displaced one screen-width on
+// X. Direct linear mapping — no clamping — so the rotation trajectory keeps
+// going as the card flies off, instead of freezing at a max angle.
+const ROTATION_PER_SCREEN_W = 22;
+// Virtual pivot offset (px) below the card's geometric center. Rotation
+// hinges from this point, making it feel like the card is being pushed or
+// pulled from the top instead of spinning around its middle. ~40% of the
+// card height puts the pivot in the lower third — natural for a held card.
+const ROT_PIVOT_OFFSET = CARD_H * 0.4;
 
 const boyBg = require("../assets/images/boy-card-bg.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
@@ -247,15 +256,24 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       }
     });
 
-  const rotation = useDerivedValue(() =>
-    interpolate(x.value, [-SCREEN_W * 0.6, 0, SCREEN_W * 0.6], [-18, 0, 18], Extrapolation.CLAMP),
+  // Direct, unclamped linear function of X displacement — rotation keeps
+  // tracking position even as the card flies off-screen, preserving the
+  // organic "trajectory" instead of snapping to a fixed exit angle.
+  const rotation = useDerivedValue(
+    () => (x.value / SCREEN_W) * ROTATION_PER_SCREEN_W,
   );
 
   const cardStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: x.value },
       { translateY: y.value },
+      // Off-center rotation: shift the rotation center down to ROT_PIVOT
+      // before rotating, then shift back. The result is a rotation that
+      // hinges near the card's bottom — top swings left/right like the
+      // card is being pushed at the top while pinned at the bottom.
+      { translateY: -ROT_PIVOT_OFFSET },
       { rotateZ: `${rotation.value}deg` },
+      { translateY: ROT_PIVOT_OFFSET },
     ],
     // Keep the card fully opaque during drag — only fade on actual exit.
     // (Compounding a drag-time dim with the exit fade made the card look
@@ -289,9 +307,17 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     const progress = dragProgress ? dragProgress.value : 0;
     return {
       transform: [
+        // Slide up from a slight inset as the top card moves away.
         { translateY: 14 * (1 - progress) },
-        { scale: 0.95 + 0.05 * progress },
+        // 0.92 → 1.0 over the drag — wider scale range than before so the
+        // background card's "rise" is visibly tied to drag distance.
+        { scale: 0.92 + 0.08 * progress },
       ],
+      // Cross-fade in too: ~78% opacity at rest, fully opaque when the
+      // top card has been pulled past the threshold. The scale + opacity
+      // curves are perfectly synced because both read the same shared
+      // value, so the next card "rises and brightens" as one motion.
+      opacity: 0.78 + 0.22 * progress,
     };
   });
 

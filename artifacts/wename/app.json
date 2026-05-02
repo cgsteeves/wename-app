@@ -35,7 +35,7 @@
       [
         "expo-router",
         {
-          "origin": "https://wename.app/"
+          "origin": "https://wename.app/app/"
         }
       ],
       "expo-font",
@@ -43,7 +43,8 @@
     ],
     "experiments": {
       "typedRoutes": true,
-      "reactCompiler": true
+      "reactCompiler": true,
+      "baseUrl": "/app"
     }
   }
 }

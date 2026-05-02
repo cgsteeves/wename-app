@@ -3,6 +3,7 @@ import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
+  Alert,
   ActivityIndicator,
   Modal,
   Pressable,
@@ -63,10 +64,12 @@ export function PremiumModal({
 }) {
   const insets = useSafeAreaInsets();
   const { updateUser } = useUser();
-  const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
+  const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
+  const isLoadingOfferings = !offerings && !offeringsError;
+  const ctaDisabled = isPurchasing || isLoadingOfferings || !pkg;
 
   async function handleUpgrade() {
     if (!pkg) return;
@@ -77,7 +80,8 @@ export function PremiumModal({
       onUpgrade();
     } catch (e: any) {
       if (e?.userCancelled) return;
-      console.error("[PremiumModal] purchase error", e);
+      const msg = e?.message ?? "Something went wrong. Please try again.";
+      Alert.alert("Purchase Failed", msg);
     }
   }
 
@@ -89,9 +93,12 @@ export function PremiumModal({
         await updateUser({ plan_tier: "premium" });
         onClose();
         onUpgrade();
+      } else {
+        Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
-    } catch (e) {
-      console.error("[PremiumModal] restore error", e);
+    } catch (e: any) {
+      const msg = e?.message ?? "Something went wrong. Please try again.";
+      Alert.alert("Restore Failed", msg);
     }
   }
 
@@ -171,13 +178,20 @@ export function PremiumModal({
             ))}
           </View>
 
+          {/* Offerings error — only shown when loading failed */}
+          {offeringsError && (
+            <Text style={[styles.offeringsError, { color: "#dc2626" }]}>
+              Could not load pricing. Check your connection and try again.
+            </Text>
+          )}
+
           {/* CTA — ActionButton aesthetic: gradient fill, white border, heavy shadow */}
           <Pressable
             onPress={handleUpgrade}
-            disabled={isPurchasing || !pkg}
+            disabled={ctaDisabled}
             style={({ pressed }) => [
               styles.cta,
-              { opacity: pressed || isPurchasing ? 0.82 : 1 },
+              { opacity: ctaDisabled || pressed ? 0.5 : 1 },
             ]}
           >
             <LinearGradient
@@ -186,10 +200,12 @@ export function PremiumModal({
               end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
-            {isPurchasing ? (
+            {isPurchasing || isLoadingOfferings ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={styles.ctaText}>One-time purchase — {priceString}</Text>
+              <Text style={styles.ctaText}>
+                {pkg ? `One-time purchase — ${priceString}` : "Pricing unavailable"}
+              </Text>
             )}
           </Pressable>
 
@@ -301,6 +317,12 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontFamily: fonts.displayBold,
     fontSize: 17,
+  },
+  offeringsError: {
+    fontFamily: fonts.display,
+    fontSize: 12,
+    textAlign: "center",
+    marginBottom: 8,
   },
   restore: {
     alignItems: "center",

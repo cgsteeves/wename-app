@@ -3,6 +3,7 @@ import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
+  Alert,
   ActivityIndicator,
   Pressable,
   ScrollView,
@@ -52,13 +53,15 @@ export default function PremiumScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useUser();
-  const { purchase, restore, isPurchasing, isRestoring, offerings } = useSubscription();
+  const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
 
   if (!user) return null;
   const isPremium = user.plan_tier === "premium";
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
+  const isLoadingOfferings = !offerings && !offeringsError;
+  const ctaDisabled = isPurchasing || isLoadingOfferings || !pkg;
 
   async function handleUpgrade() {
     if (!pkg) return;
@@ -67,7 +70,8 @@ export default function PremiumScreen() {
       await updateUser({ plan_tier: "premium" });
     } catch (e: any) {
       if (e?.userCancelled) return;
-      console.error("[PremiumScreen] purchase error", e);
+      const msg = e?.message ?? "Something went wrong. Please try again.";
+      Alert.alert("Purchase Failed", msg);
     }
   }
 
@@ -77,9 +81,12 @@ export default function PremiumScreen() {
       const isNowSubscribed = info?.entitlements?.active?.["premium"] !== undefined;
       if (isNowSubscribed) {
         await updateUser({ plan_tier: "premium" });
+      } else {
+        Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
-    } catch (e) {
-      console.error("[PremiumScreen] restore error", e);
+    } catch (e: any) {
+      const msg = e?.message ?? "Something went wrong. Please try again.";
+      Alert.alert("Restore Failed", msg);
     }
   }
 
@@ -159,13 +166,20 @@ export default function PremiumScreen() {
           </View>
         ) : (
           <>
+            {/* Offerings error */}
+            {offeringsError && (
+              <Text style={[styles.legal, { color: "#dc2626", marginBottom: 8 }]}>
+                Could not load pricing. Check your connection and try again.
+              </Text>
+            )}
+
             {/* CTA — ActionButton gradient style */}
             <Pressable
               onPress={handleUpgrade}
-              disabled={isPurchasing || !pkg}
+              disabled={ctaDisabled}
               style={({ pressed }) => [
                 styles.cta,
-                { opacity: pressed || isPurchasing ? 0.82 : 1 },
+                { opacity: ctaDisabled || pressed ? 0.5 : 1 },
               ]}
             >
               <LinearGradient
@@ -174,10 +188,12 @@ export default function PremiumScreen() {
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              {isPurchasing ? (
+              {isPurchasing || isLoadingOfferings ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Text style={styles.ctaText}>One-time purchase — {priceString}</Text>
+                <Text style={styles.ctaText}>
+                  {pkg ? `One-time purchase — ${priceString}` : "Pricing unavailable"}
+                </Text>
               )}
             </Pressable>
 

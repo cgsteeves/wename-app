@@ -128,6 +128,9 @@ function useSubscriptionContext() {
   const isSubscribed =
     customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
 
+  const offeringsError = offeringsQuery.error;
+  const customerInfoError = customerInfoQuery.error;
+
   async function purchase(pkg: PurchasesPackage) {
     if (__DEV__) {
       const confirmed = await new Promise<boolean>((resolve) => {
@@ -156,6 +159,8 @@ function useSubscriptionContext() {
     offerings: offeringsQuery.data,
     isSubscribed,
     isLoading: customerInfoQuery.isLoading || offeringsQuery.isLoading,
+    offeringsError,
+    customerInfoError,
     purchase,
     restore: restoreMutation.mutateAsync,
     isPurchasing: purchaseMutation.isPending,

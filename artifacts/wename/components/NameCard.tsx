@@ -237,16 +237,20 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     // it picks up exactly where this one left off.
     const releaseX = x.value;
     const releaseY = y.value;
+    // Clamp tight to "fully off-screen" — once the card's center crosses
+    // the screen edge by ~half a card width, the entire card is invisible.
+    // Beyond that, any further withDecay travel is wasted time during which
+    // the outgoing slot still occupies the tree. Hitting the clamp fires
+    // the completion callback IMMEDIATELY, so the slot frees the moment the
+    // card visually exits — no lingering ghost.
+    const exitClamp = SCREEN_W;
     x.value = withDecay(
       {
         velocity: exitVelocity,
-        deceleration: 0.9985,
-        // Clamp just past the off-screen edge so withDecay's completion
-        // callback fires quickly once the card is fully invisible. Without a
-        // tight clamp, withDecay coasts for ~5s before settling, leaving the
-        // outgoing slot occupied (and blocking memory cleanup) long after
-        // the card is visually gone.
-        clamp: [-SCREEN_W * 1.6, SCREEN_W * 1.6],
+        // Faster decay so velocity loss is noticeable mid-flight (more
+        // physical) and the card reaches the clamp sooner on slow flicks.
+        deceleration: 0.992,
+        clamp: [-exitClamp, exitClamp],
       },
       (finished) => {
         "worklet";
@@ -255,7 +259,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     );
     y.value = withDecay({
       velocity: velocityY,
-      deceleration: 0.9985,
+      deceleration: 0.992,
     });
     // No opacity fade. The card flies off-screen via withDecay's clamp; the
     // user sees a continuous physical motion all the way out, not a card

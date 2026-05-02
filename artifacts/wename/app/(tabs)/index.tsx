@@ -406,10 +406,6 @@ export default function SwipeScreen() {
   }
 
   const undoEnabled = history.length > 0 && currentIndex > 0;
-  const isPremium = user.plan_tier === "premium";
-  const swipeLeft = Math.max(0, FREE_LIMITS.swipes - (user.daily_swipe_count ?? 0));
-  const showLimitBanner = !isPremium && swipeLeft <= Math.ceil(FREE_LIMITS.swipes * 0.2);
-
   return (
     <View
       style={[
@@ -421,20 +417,6 @@ export default function SwipeScreen() {
         },
       ]}
     >
-      {showLimitBanner && (
-        <Pressable
-          style={styles.limitBanner}
-          onPress={() => {
-            setLimitType("swipe");
-            setPremiumOpen(true);
-          }}
-        >
-          <Feather name="zap" size={13} color="#d97706" />
-          <Text style={[styles.limitText, { fontFamily: fonts.displaySemibold }]}>
-            {swipeLeft} swipes left today
-          </Text>
-        </Pressable>
-      )}
 
       <View style={styles.cardArea}>
         {/*
@@ -582,20 +564,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
   },
-  limitBanner: {
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#fffbeb",
-    borderColor: "#fde68a",
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-    marginTop: 4,
-  },
-  limitText: { color: "#b45309", fontSize: 12 },
   actionBar: {
     height: 90,
     flexDirection: "row",

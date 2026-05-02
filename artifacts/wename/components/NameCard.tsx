@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  cancelAnimation,
   Extrapolation,
   interpolate,
   runOnJS,
@@ -20,6 +21,7 @@ import Animated, {
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
+  withDecay,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -32,6 +34,18 @@ const CARD_W = Math.min(SCREEN_W - 32, 440);
 const CARD_H = Math.min(SCREEN_H * 0.78, 720);
 const SWIPE_THRESHOLD = SCREEN_W * 0.27;
 const VELOCITY_THRESHOLD = 600;
+// Snappy underdamped spring — quick response, tiny natural bounce on settle.
+const SPRING_BACK = {
+  damping: 14,
+  stiffness: 240,
+  mass: 0.5,
+  overshootClamping: false,
+  restDisplacementThreshold: 0.5,
+  restSpeedThreshold: 1.5,
+} as const;
+// Minimum exit velocity so a slow drag past the threshold still flies off
+// with conviction (also used when buttons fire fly() with no real velocity).
+const MIN_EXIT_VELOCITY = 1400;
 
 const boyBg = require("../assets/images/boy-card-bg.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
@@ -91,8 +105,18 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
 
   const x = useSharedValue(0);
   const y = useSharedValue(0);
+  // startX/startY snapshot the in-flight animated value when a new touch
+  // begins, so re-grabbing a card mid-spring continues from where it is
+  // instead of teleporting to translationX = 0.
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
   const opacity = useSharedValue(1);
   const committed = useRef(false);
+  // UI-thread mirror of `committed` so the pan gesture worklets can lock
+  // themselves out the instant fly() begins — prevents "ghost card" catches
+  // where the user grabs a card mid-flight after onSwipe has already
+  // advanced the parent's index.
+  const isCommitted = useSharedValue(false);
   const sheetY = useSharedValue(CARD_H);
 
   function openInfo() {
@@ -106,6 +130,9 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   }
 
   const dismissSheetState = () => setInfoOpen(false);
+  const resetCommitted = () => {
+    committed.current = false;
+  };
 
   const sheetPan = Gesture.Pan()
     .enabled(infoOpen)
@@ -129,21 +156,38 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     opacity: interpolate(sheetY.value, [0, CARD_H], [0.35, 0], Extrapolation.CLAMP),
   }));
 
-  function fly(liked: boolean, velocityX = 0) {
+  function fly(liked: boolean, velocityX = 0, velocityY = 0) {
     if (committed.current) return;
     committed.current = true;
+    isCommitted.value = true;
     Haptics.impactAsync(
       liked ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
     );
     const direction = liked ? 1 : -1;
-    const velocityBonus = Math.min(Math.abs(velocityX) / 1000, 1.8);
-    const exitX = direction * SCREEN_W * (1.8 + velocityBonus * 0.6);
-    const durationMs = Math.max(220, 420 - velocityBonus * 100);
-    // Snap the next card to full scale before we start so it is already in
-    // position when React promotes it to "current".
+    // Carry the user's actual flick velocity into the exit, with a floor so
+    // tap-driven exits (heart/X buttons) and slow drags-past-threshold also
+    // leave the screen with momentum. withDecay gives the natural physics-y
+    // ease-out a fixed-duration timing animation can't.
+    const exitVelocity =
+      Math.max(Math.abs(velocityX), MIN_EXIT_VELOCITY) * direction;
+    // Promote the next card to full scale instantly so it's already in
+    // position the moment React swaps it to "current".
     if (dragProgress) dragProgress.value = 1;
-    x.value = withTiming(exitX, { duration: durationMs });
-    opacity.value = withTiming(0, { duration: durationMs });
+    x.value = withDecay({
+      velocity: exitVelocity,
+      deceleration: 0.998,
+      clamp: [-SCREEN_W * 3, SCREEN_W * 3],
+    });
+    y.value = withDecay({
+      velocity: velocityY,
+      deceleration: 0.998,
+    });
+    // Fade quickly — fast flicks fade faster so they don't linger as ghosts.
+    const fadeDuration = Math.max(
+      160,
+      360 - Math.abs(exitVelocity) / 12,
+    );
+    opacity.value = withTiming(0, { duration: fadeDuration });
     // Fire immediately — the parent advances the index right away so the
     // incoming card is ready during the exit animation, not after it.
     onSwipe(liked);
@@ -154,26 +198,52 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   const pan = Gesture.Pan()
     .enabled(!isNext && !infoOpen)
     .onStart(() => {
-      committed.current = false;
+      // Already swiped — ignore further touches on this card. The next
+      // render will replace it; until then it's locked out of interaction.
+      if (isCommitted.value) return;
+      runOnJS(resetCommitted)();
+      // Cancel any in-flight spring/decay so the finger fully owns the card,
+      // and snapshot the current animated position so re-grabbing mid-spring
+      // continues smoothly instead of teleporting.
+      cancelAnimation(x);
+      cancelAnimation(y);
+      startX.value = x.value;
+      startY.value = y.value;
     })
     .onUpdate((e) => {
-      x.value = e.translationX;
-      y.value = e.translationY * 0.3;
+      if (isCommitted.value) return;
+      // Additive: card follows finger from wherever it was when grabbed.
+      x.value = startX.value + e.translationX;
+      // Less Y dampening (0.55× vs 0.3×) for a more direct, less laggy feel.
+      y.value = startY.value + e.translationY * 0.55;
       if (dragProgress) {
-        dragProgress.value = Math.min(Math.abs(e.translationX) / SWIPE_THRESHOLD, 1);
+        dragProgress.value = Math.min(
+          Math.abs(x.value) / SWIPE_THRESHOLD,
+          1,
+        );
       }
     })
     .onEnd((e) => {
+      if (isCommitted.value) return;
       const passed =
-        Math.abs(e.translationX) > SWIPE_THRESHOLD ||
+        Math.abs(x.value) > SWIPE_THRESHOLD ||
         Math.abs(e.velocityX) > VELOCITY_THRESHOLD;
       if (passed) {
-        const liked = e.translationX > 0 || (Math.abs(e.translationX) <= 10 && e.velocityX > 0);
-        runOnJS(fly)(liked, e.velocityX);
+        // Use velocity sign first when it's significant (matches the user's
+        // intent during a flick), fall back to position sign otherwise.
+        const liked =
+          Math.abs(e.velocityX) > VELOCITY_THRESHOLD
+            ? e.velocityX > 0
+            : x.value > 0;
+        runOnJS(fly)(liked, e.velocityX, e.velocityY);
       } else {
-        x.value = withSpring(0, { damping: 18, stiffness: 220 });
-        y.value = withSpring(0, { damping: 18, stiffness: 220 });
-        if (dragProgress) dragProgress.value = withSpring(0, { damping: 18, stiffness: 220 });
+        // Velocity-aware snap-back: a quick release feels physical because
+        // the spring continues the finger's motion before pulling back.
+        x.value = withSpring(0, { ...SPRING_BACK, velocity: e.velocityX });
+        y.value = withSpring(0, { ...SPRING_BACK, velocity: e.velocityY });
+        if (dragProgress) {
+          dragProgress.value = withSpring(0, SPRING_BACK);
+        }
       }
     });
 
@@ -187,14 +257,10 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       { translateY: y.value },
       { rotateZ: `${rotation.value}deg` },
     ],
-    opacity:
-      opacity.value *
-      interpolate(
-        Math.abs(x.value),
-        [0, SWIPE_THRESHOLD * 0.5, SCREEN_W * 0.6],
-        [1, 0.95, 0.55],
-        Extrapolation.CLAMP,
-      ),
+    // Keep the card fully opaque during drag — only fade on actual exit.
+    // (Compounding a drag-time dim with the exit fade made the card look
+    // muddy mid-flick.)
+    opacity: opacity.value,
   }));
 
   const likeOverlayStyle = useAnimatedStyle(() => ({

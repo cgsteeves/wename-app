@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSharedValue, withTiming } from "react-native-reanimated";
+import { useSharedValue, withSpring } from "react-native-reanimated";
 
 import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
 import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
@@ -262,7 +262,13 @@ export default function SwipeScreen() {
     setCurrentIndex((i) => i + 1);
     // Smoothly slide the new next card into its stacked position rather than
     // snapping — eliminates the brief visual gap between swipes.
-    dragProgress.value = withTiming(0, { duration: 250 });
+    // Match the card's snap-back spring so the next-card "settle" feels
+    // like one continuous motion with the outgoing card's flick.
+    dragProgress.value = withSpring(0, {
+      damping: 14,
+      stiffness: 240,
+      mass: 0.5,
+    });
 
     // Check limits after updating UI — if blocked, show the modal but do not
     // roll back the card (the name will reappear on next deck load if not saved).

@@ -1,0 +1,137 @@
+I want to refactor the swipe mechanic, not apply more stacked animation tweaks.
+
+The main issue is at the end of the swipe: after the user swipes a card away, there is a noticeable delay before the next card becomes the active card, even though the next card is already visible underneath. This makes the app feel laggy and disconnected.
+
+Please refactor the swipe system so the visible next card becomes active immediately and seamlessly as part of the swipe lifecycle.
+
+Core problem to solve:
+
+* The next card is visually present underneath the current card.
+* But after the current card is swiped away, there is a delay before the next card actually becomes interactive/active.
+* This creates an awkward pause at the end of the swipe.
+* The user should feel like the underneath card naturally becomes the current card with no waiting period.
+
+Important: do not solve this by just changing animation duration values. The issue appears to be architectural/state-related. Please inspect and refactor how active card state, rendered cards, animation completion, and interaction readiness are coordinated.
+
+Desired behavior:
+
+1. The user drags the top card.
+2. On release, if the swipe passes the threshold, the top card exits off-screen.
+3. During that exit, the next visible card should already be promoted into the active position.
+4. As soon as the outgoing card is visually gone, the next card should already be active and ready to drag.
+5. There should be no dead period where the next card is visible but not active.
+6. The next card should not reload, remount awkwardly, or wait for the outgoing card’s full cleanup before becoming active.
+7. The transition should feel like a continuous queue of cards, not a single card being replaced after a delay.
+
+Please refactor toward a queue-based card model.
+
+Recommended architecture:
+
+* Instead of treating the card UI as one “current card” whose content changes, render a small queue of cards.
+* Render at least the first 2–3 cards from the deck at all times.
+* The top visible card should be draggable.
+* The second card should already be mounted underneath.
+* When the top card is successfully swiped:
+
+  * Mark that specific card as exiting.
+  * Let it animate out independently.
+  * Immediately promote the second card to the active draggable role.
+  * Remove the exited card only after its exit animation completes.
+  * Append/render the next card in the queue behind the newly active card.
+
+The key principle:
+The outgoing card and the active card should be separate card instances. The app should not wait to update a single `currentIndex` and then swap content into the same card.
+
+Avoid this pattern:
+
+```tsx
+currentCard = cards[currentIndex];
+
+onSwipeComplete = async () => {
+  await animateCurrentCardOut();
+  setCurrentIndex(currentIndex + 1);
+  resetMotionValues();
+};
+```
+
+That pattern causes the delay because the next card cannot truly become active until the outgoing animation and state cleanup are done.
+
+Use a pattern more like this:
+
+```tsx
+const [activeIndex, setActiveIndex] = useState(0);
+const [exitingCardId, setExitingCardId] = useState<string | null>(null);
+
+const visibleCards = cards.slice(activeIndex, activeIndex + 3);
+
+function handleSwipe(cardId, direction) {
+  setExitingCardId(cardId);
+
+  // Promote next card immediately from a state perspective
+  setActiveIndex((prev) => prev + 1);
+
+  // The swiped card continues animating out as an exiting layer
+  // and is removed only when its own animation completes.
+}
+```
+
+But adapt this to the actual codebase.
+
+Important implementation details:
+
+* Each card should have a stable unique key/id.
+* Do not key cards only by array index if that causes React to reuse the wrong card.
+* The outgoing card should keep its own visual identity while exiting.
+* The next card should not be forced to wait for the outgoing card’s animation promise before becoming active.
+* Disable dragging only on the exiting card, not globally for the whole stack longer than necessary.
+* The newly promoted card should be draggable as soon as it reaches the top position.
+* Avoid any setTimeout-based delay between exit and activation.
+* Avoid a global `isAnimatingOut` state that blocks the whole stack after the top card has already visually left.
+* If some input lock is needed, keep it extremely short and tied only to the active gesture, not to the full cleanup lifecycle.
+
+Suggested lifecycle:
+
+1. Initial render:
+
+   * Card A is active and draggable.
+   * Card B is visible underneath.
+   * Card C may be pre-rendered behind Card B.
+
+2. User swipes Card A:
+
+   * Card A becomes an exiting overlay.
+   * Card B is immediately promoted to active card state.
+   * Card B animates to the main position.
+   * Card C moves into the secondary stack position.
+   * Card D is added behind the stack if available.
+
+3. Card A finishes exit animation:
+
+   * Card A is removed from the DOM.
+   * No active card state change is needed at this moment, because Card B is already active.
+
+This should remove the delay.
+
+Specific end-of-swipe acceptance criteria:
+
+* When I swipe a card away, the next visible card should become the active card with no noticeable pause.
+* There should not be a moment where the next card is visible but unresponsive.
+* The active card should not wait for the outgoing card to be fully cleaned up before being ready.
+* The card text/name should not flash, reload, or pop.
+* The outgoing card should not become the same DOM element as the incoming card.
+* The next card should feel like it was already there and simply moved forward.
+* Repeated swipes should still work reliably without skipping, duplicating, or showing the wrong names.
+
+Please do not:
+
+* Do not just shorten animation durations.
+* Do not add arbitrary timers.
+* Do not add more layered animation hacks.
+* Do not change the visual design of the card.
+* Do not change unrelated app flows, authentication, paywall, onboarding, data fetching, or navigation.
+* Do not change the swipe thresholds unless absolutely necessary.
+* Do not make the stack more visually dramatic. This is not about adding stacked tweaks. This is about removing the architectural delay at the end of the swipe.
+
+Please first identify the current cause of the delay: for example, whether it is caused by waiting for the exit animation before updating the index, a global `isAnimatingOut` lock, remounting the next card too late, using unstable React keys, or resetting motion values before the next card becomes active.
+
+Then refactor the swipe component around independent card instances and immediate next-card promotion.

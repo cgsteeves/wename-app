@@ -85,13 +85,21 @@ export type NameCardProps = {
   lastName?: string;
   isPartnerPick?: boolean;
   isNext?: boolean;
+  // True when this card has been swiped and is now the exiting layer.
+  // Disables gestures, hides interactive UI, and prevents pointer capture
+  // so the user can immediately interact with the new active card behind.
+  isOutgoing?: boolean;
   canUndo?: boolean;
   dragProgress?: SharedValue<number>;
-  // Fires only AFTER the exit animation has completed and the card is
-  // fully off-screen. The parent advances the index here — never before —
-  // so the user always sees the swiped card complete its flight without
-  // any mid-air content swap or React-driven unmount.
+  // Fires synchronously when the user releases past threshold (or a button
+  // is pressed). The parent advances the active index IMMEDIATELY — the
+  // card stays mounted as the same React instance and seamlessly takes on
+  // `isOutgoing` while its withDecay continues uninterrupted on the UI
+  // thread. There is no waiting period.
   onSwipe: (liked: boolean) => void;
+  // Fires after the withDecay completion — when the card is fully
+  // off-screen — so the parent can drop the outgoing slot from the tree.
+  onExitComplete?: () => void;
   onUndo?: () => void;
 };
 
@@ -108,9 +116,11 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     lastName,
     isPartnerPick,
     isNext,
+    isOutgoing,
     canUndo,
     dragProgress,
     onSwipe,
+    onExitComplete,
     onUndo,
   },
   ref,
@@ -174,12 +184,14 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     opacity: interpolate(sheetY.value, [0, CARD_H], [0.35, 0], Extrapolation.CLAMP),
   }));
 
-  // Held in a ref so the withDecay completion worklet always sees the
-  // latest onSwipe callback (in case props change between fly and finish).
-  const onSwipeRef = useRef(onSwipe);
-  onSwipeRef.current = onSwipe;
-  const fireSwipeComplete = (liked: boolean) => {
-    onSwipeRef.current(liked);
+  // Held in refs so worklets always see the latest callback even when
+  // props change mid-flight (which is exactly what happens here: the
+  // active card calls onSwipe → parent re-renders this same instance with
+  // isOutgoing=true and a different onExitComplete prop).
+  const onExitCompleteRef = useRef(onExitComplete);
+  onExitCompleteRef.current = onExitComplete;
+  const fireExitComplete = () => {
+    onExitCompleteRef.current?.();
   };
 
   function fly(liked: boolean, velocityX = 0, velocityY = 0) {
@@ -197,13 +209,6 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     // intent (liked) so a flick to the right always exits right.
     const exitVelocity =
       Math.max(Math.abs(velocityX), MIN_EXIT_VELOCITY) * direction;
-    // Animate the next card forward in lockstep with the fly-out — by the
-    // time the active card's withDecay finishes and the index advances,
-    // the next card is already visually at the center position, so the
-    // role swap is invisible.
-    if (dragProgress) {
-      dragProgress.value = withTiming(1, { duration: 320 });
-    }
     // Tight clamp = the card's center reaches the screen edge by ~half a
     // card width past it, putting the whole card off-screen. withDecay
     // hits the clamp and fires the completion callback the instant the
@@ -217,23 +222,30 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       },
       (finished) => {
         "worklet";
-        // Fire the parent's onSwipe ONLY after the flight completes. The
-        // parent advances currentIndex here — never earlier — so the
-        // active card stays mounted and visible for its entire trajectory.
-        if (finished) runOnJS(fireSwipeComplete)(liked);
+        // Notify parent the outgoing slot can be dropped. The card has
+        // already been logically promoted (parent advanced index in
+        // onSwipe); this just removes the now-invisible outgoing layer.
+        if (finished) runOnJS(fireExitComplete)();
       },
     );
     y.value = withDecay({
       velocity: velocityY,
       deceleration: 0.992,
     });
-    // Opacity stays at 1 — the card exits via translation, not by fading.
+    // Tell the parent to advance the active index RIGHT NOW. The next
+    // card (already mounted underneath) will be promoted to active in
+    // the same React commit, so it becomes interactive immediately —
+    // no waiting for this withDecay to finish. Because the parent uses
+    // stable per-card keys, this same component instance is preserved
+    // across the re-render — just with `isOutgoing=true` flipped on —
+    // so the withDecay above continues uninterrupted.
+    onSwipe(liked);
   }
 
   useImperativeHandle(ref, () => ({ swipe: (liked: boolean) => fly(liked) }));
 
   const pan = Gesture.Pan()
-    .enabled(!isNext && !infoOpen)
+    .enabled(!isNext && !isOutgoing && !infoOpen)
     .onStart(() => {
       // Already swiped — ignore further touches on this card. The next
       // render will replace it; until then it's locked out of interaction.
@@ -394,7 +406,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         >
           {remaining} names remaining
         </Text>
-        {!isNext && (
+        {!isNext && !isOutgoing && (
           <Pressable
             style={[
               styles.infoChip,
@@ -478,7 +490,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       </View>
 
       {/* Bottom action buttons row inside card */}
-      {!isNext && (
+      {!isNext && !isOutgoing && (
         <View style={styles.actionRow} pointerEvents="box-none">
           <ActionButton onPress={() => fly(false)} size={64}>
             <Text style={styles.passGlyph}>✕</Text>
@@ -493,7 +505,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       )}
 
       {/* Drag overlays — sun image + rotated handwritten text per spec */}
-      {!isNext && (
+      {!isNext && !isOutgoing && (
         <>
           <Animated.View
             style={[styles.dragBadge, styles.dragBadgeRight, likeOverlayStyle]}
@@ -514,29 +526,28 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     </View>
   );
 
-  if (isNext) {
-    return (
-      <Animated.View
-        style={[
-          styles.cardWrap,
-          { width: CARD_W, height: CARD_H, borderColor: colors.border + "66" },
-          nextStackStyle,
-        ]}
-        pointerEvents="none"
-      >
-        {Body}
-      </Animated.View>
-    );
-  }
-
+  // Unified render. The OUTER tree is identical for next / active /
+  // outgoing — only the animated style switches and pointer-events are
+  // tightened on inactive cards. This is critical: keeping the same JSX
+  // shape means React preserves the inner Animated.View native instance
+  // when this card flips role (next → active, or active → outgoing) under
+  // a stable key. No remount, no SharedValue reset, no flash — the
+  // gesture just enables and the style smoothly switches what it reads.
+  // Outgoing cards get pointerEvents="none" so taps fall through to the
+  // newly-promoted active card behind, even while the outgoing card is
+  // still mid-flight off-screen.
+  const inactive = isNext || isOutgoing;
   return (
-    <View style={styles.absoluteCenter} pointerEvents="box-none">
+    <View
+      style={styles.absoluteCenter}
+      pointerEvents={inactive ? "none" : "box-none"}
+    >
       <GestureDetector gesture={pan}>
         <Animated.View
           style={[
             styles.cardWrap,
             { width: CARD_W, height: CARD_H, borderColor: colors.border + "66" },
-            cardStyle,
+            isNext ? nextStackStyle : cardStyle,
           ]}
         >
           {Body}
@@ -544,7 +555,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       </GestureDetector>
 
       {/* In-card info overlay — slides up over card, drag-to-dismiss */}
-      {infoOpen && (
+      {!inactive && infoOpen && (
         <>
           <Animated.View
             pointerEvents="auto"

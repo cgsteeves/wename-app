@@ -56,6 +56,12 @@ export default function SwipeScreen() {
   const cardRef = useRef<NameCardHandle>(null);
   const dragProgress = useSharedValue(0);
   const undoInProgress = useRef(false);
+  // Cards currently flying off-screen. Their React instances stay mounted
+  // (with `isOutgoing=true`) under stable keys so their withDecay
+  // animations continue uninterrupted from the moment of release. Each id
+  // is removed from this set when its own withDecay completion fires.
+  // Using a Set so rapid-fire swipes don't cut each other's flights short.
+  const [outgoingIds, setOutgoingIds] = useState<Set<string>>(new Set());
 
   const limits = useDailyLimits(user, updateUser);
 
@@ -257,16 +263,23 @@ export default function SwipeScreen() {
     const current = names[currentIndex];
     if (!current || !user) return;
 
-    // This callback only fires AFTER the active card's exit animation has
-    // fully completed (NameCard's withDecay completion). By this point the
-    // card is off-screen and the next card has already animated forward to
-    // the center position via dragProgress→1, so advancing the index +
-    // resetting dragProgress to 0 produces no visible swap: the previously-
-    // next card is replaced by a fresh "current" instance at the same
-    // visual position, and a new "next" pops in behind at the stacked
-    // scale. One continuous motion, no snap.
+    // Advance index IMMEDIATELY. Because each NameCard is keyed by its
+    // stable `card.id`, React preserves the previously-active instance in
+    // the outgoing slot (its withDecay keeps running) AND the previously-
+    // next instance in the active slot (its gesture just enables). The
+    // user can grab the new active card the very next frame — no waiting
+    // for the outgoing flight to finish.
+    setOutgoingIds((prev) => {
+      const next = new Set(prev);
+      next.add(current.id);
+      return next;
+    });
     setHistory((p) => [...p, { nameId: current.id, liked }]);
     setCurrentIndex((i) => i + 1);
+    // The previously-next card was scaled up to nearly 1 by dragProgress
+    // during the user's drag; now that it's the active card it uses
+    // cardStyle (no scale dep), and the brand-new card mounting behind
+    // needs to start at scale 0.92, so reset to 0 in the same tick.
     dragProgress.value = 0;
 
     // Check limits after updating UI — if blocked, show the modal but do not
@@ -308,6 +321,14 @@ export default function SwipeScreen() {
     const last = history[history.length - 1];
     setHistory((p) => p.slice(0, -1));
     setCurrentIndex((i) => i - 1);
+    // Cancel any in-flight outgoing for this card so undoing a card mid-
+    // flight doesn't leave a ghost mounted off-screen.
+    setOutgoingIds((prev) => {
+      if (!prev.has(last.nameId)) return prev;
+      const nextSet = new Set(prev);
+      nextSet.delete(last.nameId);
+      return nextSet;
+    });
     dragProgress.value = 0;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
@@ -416,9 +437,19 @@ export default function SwipeScreen() {
       )}
 
       <View style={styles.cardArea}>
-        {next && (
+        {/*
+          Render order, back to front: next → outgoing(s) → active.
+          STABLE per-card keys (card.id) are critical: when a card moves
+          from `next` slot to `active` slot, or from `active` to
+          `outgoing`, React reconciles by key and PRESERVES the same
+          component instance. SharedValues keep their values, withDecay
+          keeps running, gestures just toggle on/off via props. That's
+          what eliminates the dead period at the end of a swipe — the
+          previously-next card IS the new active card, instantly.
+        */}
+        {next && !outgoingIds.has(next.id) && (
           <NameCard
-            key={`next-${next.id}`}
+            key={next.id}
             name={next.text}
             pronunciation={next.pronunciation}
             origin={next.origin}
@@ -434,24 +465,55 @@ export default function SwipeScreen() {
             onSwipe={() => {}}
           />
         )}
-        <NameCard
-          key={current.id}
-          ref={cardRef}
-          name={current.text}
-          pronunciation={current.pronunciation}
-          origin={current.origin}
-          meaning={current.meaning}
-          nickname={current.nickname}
-          rank={current.rank}
-          gender={current.gender}
-          remaining={remaining}
-          lastName={user.baby_last_name ?? undefined}
-          isPartnerPick={partnerPickIds.has(current.id)}
-          canUndo={undoEnabled}
-          dragProgress={dragProgress}
-          onSwipe={handleSwipe}
-          onUndo={handleUndo}
-        />
+        {Array.from(outgoingIds).map((id) => {
+          const card = names.find((n) => n.id === id);
+          if (!card) return null;
+          return (
+            <NameCard
+              key={card.id}
+              name={card.text}
+              pronunciation={card.pronunciation}
+              origin={card.origin}
+              meaning={card.meaning}
+              nickname={card.nickname}
+              rank={card.rank}
+              gender={card.gender}
+              remaining={remaining}
+              lastName={user.baby_last_name ?? undefined}
+              isPartnerPick={partnerPickIds.has(card.id)}
+              isOutgoing
+              onSwipe={() => {}}
+              onExitComplete={() => {
+                setOutgoingIds((prev) => {
+                  if (!prev.has(card.id)) return prev;
+                  const nextSet = new Set(prev);
+                  nextSet.delete(card.id);
+                  return nextSet;
+                });
+              }}
+            />
+          );
+        })}
+        {current && (
+          <NameCard
+            key={current.id}
+            ref={cardRef}
+            name={current.text}
+            pronunciation={current.pronunciation}
+            origin={current.origin}
+            meaning={current.meaning}
+            nickname={current.nickname}
+            rank={current.rank}
+            gender={current.gender}
+            remaining={remaining}
+            lastName={user.baby_last_name ?? undefined}
+            isPartnerPick={partnerPickIds.has(current.id)}
+            canUndo={undoEnabled}
+            dragProgress={dragProgress}
+            onSwipe={handleSwipe}
+            onUndo={handleUndo}
+          />
+        )}
       </View>
 
       <MatchCelebrationModal

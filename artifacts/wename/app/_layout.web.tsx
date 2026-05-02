@@ -11,7 +11,14 @@ import { AuthProvider, useAuth } from "@/components/AuthContext";
 import { AuthModal } from "@/components/AuthModal";
 import { UserProvider, useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
+import { initializeRevenueCat, SubscriptionProvider } from "@/lib/revenuecat";
 import { supabase } from "@/lib/supabase";
+
+try {
+  initializeRevenueCat();
+} catch (err) {
+  console.warn("[RevenueCat] init failed (web)", err);
+}
 
 Font.loadAsync({
   Fredoka_400Regular: require("../assets/fonts/Fredoka_400Regular.ttf"),
@@ -151,11 +158,16 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <ErrorBoundary>
+      <ErrorBoundary
+        onError={(error, stack) => {
+          console.error("[ErrorBoundary]", error?.message, error, stack);
+        }}
+      >
         <QueryClientProvider client={queryClient}>
           <GestureHandlerRootView style={{ flex: 1 }}>
             <AuthProvider>
               <UserProvider>
+                <SubscriptionProvider>
                 <PopupAuthSyncBridge />
                 <Stack screenOptions={{ headerShown: false }}>
                   <Stack.Screen name="(tabs)" />
@@ -171,6 +183,7 @@ export default function RootLayout() {
                   <Stack.Screen name="delete-account" />
                 </Stack>
                 <AuthModalOverlay />
+                </SubscriptionProvider>
               </UserProvider>
             </AuthProvider>
           </GestureHandlerRootView>

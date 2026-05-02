@@ -127,7 +127,14 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
 }
 
 export async function signInWithEmailMagicLink(email: string): Promise<void> {
-  const redirectTo = `${getOrigin()}/auth/callback`;
+  // On native, use the custom URL scheme so iOS/Android can intercept the
+  // redirect and reopen the app. On web, use the current origin (same as
+  // Google OAuth). Using getOrigin() on native returns https://wename.app,
+  // which is NOT a Universal Link for /auth/callback (AASA only covers
+  // /join/*), so the magic link would open Safari and hit the marketing
+  // site instead of the app.
+  const redirectTo =
+    Platform.OS !== "web" ? "wename://auth/callback" : `${getOrigin()}/auth/callback`;
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 

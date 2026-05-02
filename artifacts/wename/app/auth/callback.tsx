@@ -1,9 +1,11 @@
+import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/constants/fonts";
+import { supabase } from "@/lib/supabase";
 
 type Status = "loading" | "success" | "error";
 
@@ -71,19 +73,65 @@ export default function AuthCallback() {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
+  // useURL() covers both cold-start (getInitialURL) and warm-start
+  // (Linking event) deep links. On web it returns the current window URL.
+  // null means "not yet resolved" — we wait before acting.
+  const url = Linking.useURL();
+  const handledRef = useRef(false);
+
   useEffect(() => {
+    // Prevent double-handling if the hook fires multiple times
+    if (handledRef.current) return;
+
     let cancelled = false;
     let safety: ReturnType<typeof setTimeout> | null = null;
 
-    // Native short-circuit: WebBrowser.openAuthSessionAsync intercepts the
-    // deep-link redirect inside the in-app browser session, so this route
-    // should never load on native via the normal sign-in flow. If it does
-    // load (stray deep link, share intent, etc.) just send the user home —
-    // there is no PKCE work to do here on native.
+    // ── NATIVE ─────────────────────────────────────────────────────────────
+    // Magic links redirect to wename://auth/callback#access_token=...
+    // Supabase sends tokens in the hash fragment (implicit flow).
+    // We read them from the URL and call setSession() which fires
+    // onAuthStateChange → finalizeLogin in AuthContext automatically.
     if (Platform.OS !== "web") {
-      router.replace("/");
-      return;
+      // url===null means not yet resolved; wait for the next effect run
+      if (url === null) return;
+
+      handledRef.current = true;
+
+      async function handleNative() {
+        try {
+          const hash = url!.includes("#") ? url!.split("#")[1] : "";
+          const params = new URLSearchParams(hash);
+          const accessToken = params.get("access_token");
+          const refreshToken = params.get("refresh_token");
+
+          if (accessToken && refreshToken) {
+            const { error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (error) throw error;
+          }
+
+          if (!cancelled) {
+            setStatus("success");
+            setTimeout(() => {
+              if (!cancelled) router.replace("/");
+            }, 400);
+          }
+        } catch (e) {
+          if (!cancelled) {
+            setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
+            setStatus("error");
+          }
+        }
+      }
+
+      handleNative();
+      return () => { cancelled = true; };
     }
+
+    // ── WEB ────────────────────────────────────────────────────────────────
+    handledRef.current = true;
 
     const isWebPopup =
       typeof window !== "undefined" &&
@@ -116,20 +164,18 @@ export default function AuthCallback() {
     }
 
     // OUTER SAFETY: if the token exchange hasn't completed in 5 seconds we
-    // surface an error rather than pretend success — pretending would close
-    // the popup and leave the opener tab in a confusing half-signed-in
-    // state.
+    // surface an error rather than pretend success.
     let exchangeCompleted = false;
     safety = setTimeout(() => {
       if (cancelled || exchangeCompleted) return;
-      console.warn("[auth/callback v3] safety timer fired — exchange did not complete");
+      console.warn("[auth/callback] safety timer fired — exchange did not complete");
       setErrorMsg("Sign-in is taking longer than expected. Please close this window and try again.");
       setStatus("error");
     }, 5000);
 
     async function run() {
       try {
-        if (Platform.OS === "web" && typeof window !== "undefined") {
+        if (typeof window !== "undefined") {
           const params = new URLSearchParams(window.location.search);
           const code = params.get("code");
           const errorDesc = params.get("error_description");
@@ -137,7 +183,24 @@ export default function AuthCallback() {
           if (errorDesc) throw new Error(errorDesc);
 
           if (code) {
+            // PKCE flow (Google OAuth)
             await exchangeCodeWeb(code);
+          } else {
+            // Implicit flow (magic link) — tokens in hash fragment
+            const hash = window.location.hash.slice(1);
+            const hashParams = new URLSearchParams(hash);
+            const accessToken = hashParams.get("access_token");
+            const refreshToken = hashParams.get("refresh_token");
+
+            if (accessToken && refreshToken) {
+              // supabase.auth.setSession writes the session to localStorage
+              // and fires onAuthStateChange so the opener tab picks it up.
+              const { error } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              });
+              if (error) throw error;
+            }
           }
         }
 
@@ -146,7 +209,6 @@ export default function AuthCallback() {
         if (safety) clearTimeout(safety);
         setStatus("success");
 
-        // Small delay so the user briefly sees "You're signed in!" before close
         setTimeout(() => {
           if (!cancelled) notifyAndClose();
         }, 400);
@@ -165,7 +227,7 @@ export default function AuthCallback() {
       if (safety) clearTimeout(safety);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [url]);
 
   return (
     <View

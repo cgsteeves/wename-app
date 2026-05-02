@@ -138,7 +138,7 @@ export function PremiumModal({
         </Pressable>
 
         <ScrollView
-          contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 36 }]}
+          contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 36 }]}
           showsVerticalScrollIndicator={false}
         >
           {/* PatrickHand italic headline — exactly like the card's "Boy Name" / "Girl Name" label */}
@@ -233,7 +233,6 @@ const styles = StyleSheet.create({
   },
   scroll: {
     paddingHorizontal: 24,
-    paddingTop: 22,
   },
   headline: {
     fontFamily: fonts.hand,

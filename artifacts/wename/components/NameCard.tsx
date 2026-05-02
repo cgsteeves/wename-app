@@ -139,10 +139,14 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     const velocityBonus = Math.min(Math.abs(velocityX) / 1000, 1.8);
     const exitX = direction * SCREEN_W * (1.8 + velocityBonus * 0.6);
     const durationMs = Math.max(220, 420 - velocityBonus * 100);
+    // Snap the next card to full scale before we start so it is already in
+    // position when React promotes it to "current".
+    if (dragProgress) dragProgress.value = 1;
     x.value = withTiming(exitX, { duration: durationMs });
     opacity.value = withTiming(0, { duration: durationMs });
-    if (dragProgress) dragProgress.value = 1;
-    setTimeout(() => onSwipe(liked), durationMs * 0.55);
+    // Fire immediately — the parent advances the index right away so the
+    // incoming card is ready during the exit animation, not after it.
+    onSwipe(liked);
   }
 
   useImperativeHandle(ref, () => ({ swipe: (liked: boolean) => fly(liked) }));

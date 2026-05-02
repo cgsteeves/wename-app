@@ -4,7 +4,6 @@ import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React, {
   forwardRef,
-  useEffect,
   useImperativeHandle,
   useRef,
   useState,
@@ -241,8 +240,13 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     x.value = withDecay(
       {
         velocity: exitVelocity,
-        deceleration: 0.998,
-        clamp: [-SCREEN_W * 3, SCREEN_W * 3],
+        deceleration: 0.9985,
+        // Clamp just past the off-screen edge so withDecay's completion
+        // callback fires quickly once the card is fully invisible. Without a
+        // tight clamp, withDecay coasts for ~5s before settling, leaving the
+        // outgoing slot occupied (and blocking memory cleanup) long after
+        // the card is visually gone.
+        clamp: [-SCREEN_W * 1.6, SCREEN_W * 1.6],
       },
       (finished) => {
         "worklet";
@@ -251,17 +255,11 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     );
     y.value = withDecay({
       velocity: velocityY,
-      deceleration: 0.998,
+      deceleration: 0.9985,
     });
-    // Fade quickly — fast flicks fade faster so they don't linger as ghosts.
-    const fadeDuration = Math.max(
-      160,
-      360 - Math.abs(exitVelocity) / 12,
-    );
-    opacity.value = withTiming(0, { duration: fadeDuration });
-    // Fire immediately — the parent advances the index AND mounts an
-    // outgoing copy seeded with this exit state so the visible card keeps
-    // flying without ever leaving the tree.
+    // No opacity fade. The card flies off-screen via withDecay's clamp; the
+    // user sees a continuous physical motion all the way out, not a card
+    // that "vanishes" mid-air. Opacity stays 1 for the entire flight.
     if (!suppressOnSwipe) {
       onSwipe(liked, {
         x: releaseX,
@@ -272,23 +270,23 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     }
   }
 
-  // Outgoing cards: as soon as we mount, kick off the same exit animation
-  // using the captured initialExit so the trajectory continues seamlessly
-  // from the original card's release point. We suppress onSwipe (already
-  // fired by the original card) and rely on the withDecay callback to
-  // notify the parent when we've fully settled off-screen.
-  useEffect(() => {
-    if (isOutgoing && initialExit) {
-      fly(
-        initialExit.liked,
-        initialExit.velocityX,
-        initialExit.velocityY,
-        true,
-      );
-    }
-    // Intentionally only on mount — initialExit is captured once.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Outgoing cards: kick off the exit animation IMMEDIATELY during render
+  // (guarded by a ref so it only fires once, even under StrictMode's double
+  // render). useEffect would defer the animation by one frame — that frame
+  // is exactly the perceptible "freeze" between release and motion. Setting
+  // shared values + queueing withDecay during render means the UI thread
+  // already has the animation running when the first paint commits, so the
+  // card's flight is continuous from the user's release.
+  const outgoingTriggered = useRef(false);
+  if (isOutgoing && initialExit && !outgoingTriggered.current) {
+    outgoingTriggered.current = true;
+    fly(
+      initialExit.liked,
+      initialExit.velocityX,
+      initialExit.velocityY,
+      true,
+    );
+  }
 
   useImperativeHandle(ref, () => ({ swipe: (liked: boolean) => fly(liked) }));
 

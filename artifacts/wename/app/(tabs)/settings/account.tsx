@@ -420,7 +420,7 @@ export default function AccountScreen() {
             </View>
 
             {/* Danger zone */}
-            <View style={{ gap: 8 }}>
+            <View style={{ gap: 12 }}>
               <Text style={styles.dangerLabel}>DANGER ZONE</Text>
 
               <Pressable
@@ -605,14 +605,14 @@ const styles = StyleSheet.create({
     color: MUTED_FG,
     letterSpacing: 1.4,
     paddingLeft: 4,
-    marginBottom: 4,
   },
   dangerBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
   },

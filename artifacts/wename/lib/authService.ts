@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as AppleAuthentication from "expo-apple-authentication";
-import * as Linking from "expo-linking";
 import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 
@@ -81,11 +80,12 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     };
   }
 
-  // Native (Expo Go / standalone): use the app scheme as the redirect target
-  // so Supabase deep-links back into the app, not the marketing site. We
-  // open the OAuth URL inside an in-app browser session via expo-web-browser
-  // and complete the PKCE exchange manually with the returned ?code=...
-  const redirectTo = Linking.createURL("/auth/callback");
+  // Native (Expo Go / standalone): use the custom URL scheme directly so
+  // ASWebAuthenticationSession can intercept the redirect. Linking.createURL
+  // is intentionally avoided here — expo-router's `origin` config causes it
+  // to return https://wename.app/auth/callback, which ASWebAuthenticationSession
+  // cannot intercept (it only works with custom schemes, not https://).
+  const redirectTo = "wename://auth/callback";
 
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",

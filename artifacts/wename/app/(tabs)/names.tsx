@@ -1,7 +1,7 @@
 import { Feather, FontAwesome5 } from "@expo/vector-icons";
 import { Image, ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";

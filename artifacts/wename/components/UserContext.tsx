@@ -174,6 +174,36 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     return unsub;
   }, [loadById]);
 
+  // Realtime subscription — watch for remote changes to this user's own row.
+  // Fires when a partner links to us (they write partner_id into our row),
+  // or when any other out-of-app change occurs, so the UI stays in sync
+  // without needing an app restart.
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`user-row-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "users",
+          filter: `id=eq.${user.id}`,
+        },
+        (payload) => {
+          setUser((prev) =>
+            prev ? { ...prev, ...(payload.new as Partial<User>) } : prev,
+          );
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
   const changeSelectedPack = useCallback(
     async (slug: string) => {
       if (!user) return;

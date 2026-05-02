@@ -115,6 +115,40 @@ export default function PartnerScreen() {
   );
 }
 
+// ─── Share code card (reused in MainView and Profile) ─────────────────────────
+function ShareCodeCard({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    await Clipboard.setStringAsync(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  return (
+    <View style={styles.shareCodeCard}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <Text style={styles.shareCodeLabel}>YOUR SHARE CODE</Text>
+        <Text style={styles.shareCodeValue}>{code}</Text>
+        <Text style={styles.shareCodeHint}>
+          Share this with your partner so they can join you.
+        </Text>
+      </View>
+      <Pressable
+        onPress={handleCopy}
+        hitSlop={10}
+        style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.88 : 1 }] })}
+      >
+        <Feather
+          name={copied ? "check" : "copy"}
+          size={18}
+          color={copied ? GRASS : MUTED_FG}
+        />
+      </Pressable>
+    </View>
+  );
+}
+
 // ─── Main view ────────────────────────────────────────────────────────────────
 function MainView({
   user,
@@ -151,6 +185,9 @@ function MainView({
           onInvite={onInvite}
           onUpdate={onUpdate}
         />
+      )}
+      {!!user.invite_code && (
+        <ShareCodeCard code={user.invite_code} />
       )}
     </ScrollView>
   );
@@ -726,5 +763,43 @@ const styles = StyleSheet.create({
   expiryNote: {
     fontFamily: fonts.display, fontSize: 10, color: MUTED_FG,
     textAlign: "center", paddingHorizontal: 16,
+  },
+
+  // Share code card
+  shareCodeCard: {
+    backgroundColor: CARD_BG,
+    borderColor: BORDER_60,
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  shareCodeLabel: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 10,
+    color: MUTED_FG,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  shareCodeValue: {
+    fontFamily: "monospace",
+    fontWeight: "700",
+    fontSize: 20,
+    color: FOREGROUND,
+    letterSpacing: 4,
+    marginTop: 2,
+  },
+  shareCodeHint: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: MUTED_FG,
+    marginTop: 2,
   },
 });

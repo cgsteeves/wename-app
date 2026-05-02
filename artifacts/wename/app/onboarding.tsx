@@ -182,24 +182,29 @@ function PrimaryButton({
   onPress,
   color,
   disabled,
+  compact,
 }: {
   label: string;
   onPress: () => void;
   color: string;
   disabled?: boolean;
+  compact?: boolean;
 }) {
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [
         styles.primaryBtn,
+        compact && styles.primaryBtnCompact,
         {
           backgroundColor: color,
           opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
         },
       ]}
     >
-      <Text style={styles.primaryBtnText}>{label}</Text>
+      <Text style={[styles.primaryBtnText, compact && styles.primaryBtnTextCompact]}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -498,6 +503,7 @@ function PartnerStep({
                 onPress={onJoin}
                 color={colors.accent}
                 disabled={linking || partnerCode.trim().length === 0}
+                compact
               />
             </View>
             {!!codeError && (
@@ -691,11 +697,20 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
+  primaryBtnCompact: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+  },
   primaryBtnText: {
     color: "#fff",
     fontFamily: fonts.displaySemibold,
     fontSize: 16,
     letterSpacing: 0.2,
+  },
+  primaryBtnTextCompact: {
+    fontSize: 14,
+    letterSpacing: 0.1,
   },
   secondaryBtn: {
     paddingVertical: 14,

@@ -810,7 +810,7 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
   },
   cardWrap: {
     borderRadius: 16,

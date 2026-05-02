@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Image, ImageBackground } from "expo-image";
+import { ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
@@ -19,7 +19,6 @@ import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { useSubscription } from "@/lib/revenuecat";
 
-const grassBorder = require("../../../assets/images/grass-flower-border.png");
 const paperTexture = require("../../../assets/images/paper-texture.jpg");
 const girlBg = require("../../../assets/images/girl-card-bg.jpg");
 
@@ -116,11 +115,6 @@ export default function PremiumScreen() {
       />
 
       <SubPageHeader title="Premium" subtitle="Keep the momentum going" />
-
-      {/* Grass/flower decorative strip */}
-      <View style={styles.grassWrap}>
-        <Image source={grassBorder} style={styles.grassBorder} contentFit="cover" contentPosition="top" />
-      </View>
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 90 }]}
@@ -221,8 +215,6 @@ export default function PremiumScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  grassWrap: { width: "100%", height: 72, overflow: "hidden" },
-  grassBorder: { width: "100%", height: 72 },
   scroll: { paddingHorizontal: 20, gap: 14 },
   statusCard: {
     flexDirection: "row",

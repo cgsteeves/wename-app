@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { Image, ImageBackground } from "expo-image";
+import { ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import React from "react";
 import {
@@ -18,7 +18,6 @@ import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useSubscription } from "@/lib/revenuecat";
 
-const grassBorder = require("../assets/images/grass-flower-border.png");
 const paperTexture = require("../assets/images/paper-texture.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
 
@@ -129,17 +128,9 @@ export function PremiumModal({
           style={StyleSheet.absoluteFill}
         />
 
-        {/* Grass/flower header strip */}
-        <Image
-          source={grassBorder}
-          style={styles.grassBorder}
-          contentFit="cover"
-          contentPosition="top"
-        />
-
         {/* Close X — styled like name card's sheetClose button */}
         <Pressable
-          style={[styles.closeBtn, { top: 112 + insets.top * 0.3 }]}
+          style={[styles.closeBtn, { top: insets.top + 12 }]}
           onPress={onClose}
           hitSlop={12}
         >
@@ -229,7 +220,6 @@ export function PremiumModal({
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  grassBorder: { width: "100%", height: 110 },
   closeBtn: {
     position: "absolute",
     right: 16,

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 
 import { getUserSelectedPacks, setUserPack } from "@/lib/namePacks";
+import { onMergeComplete } from "@/lib/mergeEvents";
 import { supabase, User, USER_ID_KEY } from "@/lib/supabase";
 
 type UserContextValue = {
@@ -158,6 +159,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     });
     return () => subscription.unsubscribe();
   }, [load, loadById]);
+
+  // After guest data has been merged into the authenticated account, reload
+  // the user profile so screens re-render and re-fetch their data (swipes,
+  // likes, etc.) against the now-populated auth user ID.
+  useEffect(() => {
+    const unsub = onMergeComplete(() => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session?.user?.id) {
+          loadById(session.user.id);
+        }
+      });
+    });
+    return unsub;
+  }, [loadById]);
 
   const changeSelectedPack = useCallback(
     async (slug: string) => {

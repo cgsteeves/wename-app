@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import * as WebBrowser from "expo-web-browser";
 
 import { supabase, USER_ID_KEY } from "@/lib/supabase";
+import { emitMergeComplete } from "@/lib/mergeEvents";
 
 // Required on iOS so the in-app browser session is properly closed when the
 // app returns to the foreground after the OAuth redirect. Safe no-op on web.
@@ -299,6 +300,9 @@ export async function finalizeLogin(userId: string, email: string): Promise<void
   if (guestUserId && guestUserId !== userId) {
     const { mergeGuestData } = await import("@/lib/guestDataMerge");
     await mergeGuestData(guestUserId, userId);
+    // Signal screens to re-fetch their data now that guest swipes/matches
+    // have been copied to the authenticated user.
+    emitMergeComplete();
   }
 
   await AsyncStorage.setItem(USER_ID_KEY, userId);

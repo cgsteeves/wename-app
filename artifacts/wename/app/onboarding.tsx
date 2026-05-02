@@ -445,7 +445,10 @@ function PartnerStep({
           onPress={handleShare}
           style={({ pressed }) => [
             styles.shareBtn,
-            { borderColor: colors.grass + "55", backgroundColor: colors.grass + "12" },
+            {
+              borderColor: "hsla(145, 45%, 35%, 0.33)",
+              backgroundColor: "hsla(145, 45%, 35%, 0.07)",
+            },
             pressed && { opacity: 0.75 },
           ]}
         >
@@ -679,6 +682,7 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     paddingVertical: 16,
+    paddingHorizontal: 20,
     borderRadius: 14,
     alignItems: "center",
     shadowColor: "#000",

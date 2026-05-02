@@ -53,6 +53,7 @@ export default function SupportScreen() {
           <Row
             icon="lock"
             label="Privacy Policy"
+            url="wename.app/privacy"
             colors={colors}
             onPress={() => router.push("/privacy")}
           />
@@ -60,6 +61,7 @@ export default function SupportScreen() {
           <Row
             icon="file-text"
             label="Terms of Service"
+            url="wename.app/terms"
             colors={colors}
             onPress={() => router.push("/terms")}
           />
@@ -103,20 +105,29 @@ export default function SupportScreen() {
 function Row({
   icon,
   label,
+  url,
   colors,
   onPress,
 }: {
   icon: keyof typeof import("@expo/vector-icons").Feather.glyphMap;
   label: string;
+  url?: string;
   colors: ReturnType<typeof useColors>;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={styles.row}>
+    <Pressable onPress={onPress} style={[styles.row, url ? { height: 60 } : {}]}>
       <Feather name={icon} size={16} color={colors.mutedForeground} />
-      <Text style={{ flex: 1, fontFamily: fonts.displaySemibold, fontSize: 14, color: colors.foreground }}>
-        {label}
-      </Text>
+      <View style={{ flex: 1 }}>
+        <Text style={{ fontFamily: fonts.displaySemibold, fontSize: 14, color: colors.foreground }}>
+          {label}
+        </Text>
+        {url && (
+          <Text style={{ fontFamily: fonts.display, fontSize: 11, color: colors.mutedForeground, marginTop: 1 }}>
+            {url}
+          </Text>
+        )}
+      </View>
       <Feather name="chevron-right" size={18} color={colors.mutedForeground} />
     </Pressable>
   );

@@ -1,0 +1,164 @@
+I need you to fix the swipe card animation. The current implementation has become worse after several attempts, so please approach this carefully and refactor the swipe mechanic rather than layering on small patches.
+
+The goal is to make the swipe feel like a smooth Tinder-style card stack.
+
+Current problem:
+
+* The card transition feels clunky at the end of the swipe.
+* The outgoing card appears to be replaced, snapped, or removed too early.
+* The next card/name sometimes appears abruptly instead of naturally coming forward.
+* The end of the swipe should feel like the user “throws” the card off-screen with momentum, not like the app instantly swaps the card.
+
+Desired behavior:
+
+1. The user drags the top card left or right.
+2. While dragging, the card should follow the finger/mouse smoothly.
+3. The card should rotate slightly based on horizontal drag distance.
+4. A like/dislike overlay can appear based on drag direction, but it should not cause layout shifts.
+5. When the user releases the card:
+
+   * If it has not passed the swipe threshold, it should smoothly spring back to the center.
+   * If it has passed the swipe threshold, it should continue flying fully off-screen in the same direction.
+6. The outgoing card must remain visible until it has fully exited the viewport.
+7. Do not update the active card index until the outgoing card’s exit animation has completed.
+8. The next card should already be visible underneath the active card.
+9. As the outgoing card leaves, the next card should smoothly animate forward into the main card position.
+10. There should be no visible content swap, flicker, snap, or abrupt re-render during the exit animation.
+
+Important implementation requirements:
+
+* Do not immediately call `setCurrentIndex(currentIndex + 1)` when the swipe threshold is met.
+* Only advance to the next card inside the exit animation completion callback.
+* Use a dedicated `isAnimatingOut` state so the app knows when the current card is in the middle of an exit animation.
+* Prevent additional drag/swipe interactions while `isAnimatingOut` is true.
+* Keep the outgoing card mounted in the DOM until its exit animation finishes.
+* Reset motion values only after the index has advanced and the old card is no longer visible.
+* Do not make the card disappear by setting `display: none`, conditionally removing it, or changing its content before the animation finishes.
+* The top card and the next card should be separate visual layers, not the same card with swapped text.
+
+Recommended animation sequence:
+
+* On drag: update x position directly from drag.
+* Rotation should be derived from x, for example `rotate = x / 20`, capped to a reasonable range.
+* On release:
+
+  * If `Math.abs(offset.x)` is below the threshold, animate x, y, and rotate back to 0 using a spring.
+  * If it is above the threshold:
+
+    * Set `isAnimatingOut` to true.
+    * Determine direction: right if offset.x > 0, left if offset.x < 0.
+    * Animate the outgoing card to at least `window.innerWidth * 1.4` or `-window.innerWidth * 1.4`.
+    * Add a small rotation in the same direction, around 18–25 degrees.
+    * Keep opacity at 1 or fade only slightly near the end. Do not fade out too early.
+    * After the animation completes, increment the card index.
+    * Reset card x/y/rotation values to 0.
+    * Set `isAnimatingOut` to false.
+
+Suggested motion settings:
+
+* For snap-back: use a spring with medium stiffness and damping, something like:
+
+  * stiffness: 350–500
+  * damping: 28–40
+* For fly-out: use a tween or spring that feels fast but not abrupt, around:
+
+  * duration: 0.25–0.4 seconds
+  * ease: "easeOut"
+* The card should leave completely off-screen before changing the index.
+
+Card stack behavior:
+
+* Render at least the current card and the next card.
+* The current card should be the top layer.
+* The next card should sit behind it, slightly smaller and slightly lower.
+* Example:
+
+  * Current card: scale 1, y 0, zIndex 2
+  * Next card: scale 0.96–0.98, y 8–16px, zIndex 1
+* While the current card is animating out, animate the next card toward:
+
+  * scale 1
+  * y 0
+* This transition should happen smoothly, not instantly.
+
+State management requirement:
+Please inspect the current swipe component and identify where the active card index is being updated. If it is updated inside the drag release handler before the exit animation completes, change that.
+
+The logic should look conceptually like this:
+
+```tsx
+const [currentIndex, setCurrentIndex] = useState(0);
+const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+
+const x = useMotionValue(0);
+const y = useMotionValue(0);
+const rotate = useTransform(x, [-300, 0, 300], [-18, 0, 18]);
+
+async function handleDragEnd(event, info) {
+  if (isAnimatingOut) return;
+
+  const threshold = 100;
+  const direction = info.offset.x > 0 ? 1 : -1;
+  const shouldSwipe = Math.abs(info.offset.x) > threshold || Math.abs(info.velocity.x) > 500;
+
+  if (!shouldSwipe) {
+    controls.start({
+      x: 0,
+      y: 0,
+      rotate: 0,
+      transition: {
+        type: "spring",
+        stiffness: 450,
+        damping: 35
+      }
+    });
+    return;
+  }
+
+  setIsAnimatingOut(true);
+
+  await controls.start({
+    x: direction * window.innerWidth * 1.4,
+    y: info.offset.y * 0.3,
+    rotate: direction * 22,
+    transition: {
+      duration: 0.32,
+      ease: "easeOut"
+    }
+  });
+
+  setCurrentIndex((prev) => prev + 1);
+
+  controls.set({
+    x: 0,
+    y: 0,
+    rotate: 0
+  });
+
+  setIsAnimatingOut(false);
+}
+```
+
+But please adapt this to the actual codebase and animation library already being used.
+
+Do not:
+
+* Do not update the card text/name during the outgoing animation.
+* Do not remove the outgoing card before it leaves the screen.
+* Do not trigger multiple index increments for one swipe.
+* Do not animate the next card only after the outgoing card disappears.
+* Do not rely on arbitrary timeouts if the animation library provides an `onComplete` or promise-based completion.
+* Do not make broad UI changes outside the swipe/card component.
+* Do not change the app’s design, colors, copy, card content, or data model unless absolutely necessary.
+
+Acceptance criteria:
+
+* A swipe left or right feels like one continuous motion.
+* The outgoing card flies completely off-screen before the next card becomes active.
+* The next card smoothly comes forward from the stack.
+* There is no snap, flicker, sudden text replacement, or card disappearing while still visible.
+* Failed/short swipes smoothly return the card to center.
+* Rapid repeated swipes do not break the index or show duplicate/incorrect names.
+* The implementation is simpler and more predictable than the current version.
+
+Please first locate the swipe/card component and explain briefly what was causing the clunky end transition. Then apply the fix in the smallest safe refactor possible.

@@ -11,11 +11,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useSharedValue, withSpring } from "react-native-reanimated";
+import { useSharedValue } from "react-native-reanimated";
 
 import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
 import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
-import NameCard, { ExitState, NameCardHandle } from "@/components/NameCard";
+import NameCard, { NameCardHandle } from "@/components/NameCard";
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
@@ -56,16 +56,6 @@ export default function SwipeScreen() {
   const cardRef = useRef<NameCardHandle>(null);
   const dragProgress = useSharedValue(0);
   const undoInProgress = useRef(false);
-  // Holds the most recently swiped card while it finishes its physics-based
-  // fly-off. We render it as a third NameCard ("isOutgoing") so the visible
-  // card never leaves the React tree mid-flight — that was the source of the
-  // "swipe → new card" two-event feel. The next card becomes interactive
-  // immediately while this one continues its trajectory.
-  const [outgoing, setOutgoing] = useState<{
-    name: Name;
-    exit: ExitState;
-    liked: boolean;
-  } | null>(null);
 
   const limits = useDailyLimits(user, updateUser);
 
@@ -263,30 +253,21 @@ export default function SwipeScreen() {
     return true;
   }
 
-  async function handleSwipe(liked: boolean, exit?: ExitState) {
+  async function handleSwipe(liked: boolean) {
     const current = names[currentIndex];
     if (!current || !user) return;
 
-    // Snapshot the swiped card into the outgoing slot so it keeps animating
-    // off-screen even after we advance the index. Without this, the React
-    // unmount triggered by the key change would yank the card mid-flight.
-    setOutgoing({
-      name: current,
-      exit: exit ?? { x: 0, y: 0, velocityX: 0, velocityY: 0 },
-      liked,
-    });
-    // Always advance the card first so the UI never stalls.
+    // This callback only fires AFTER the active card's exit animation has
+    // fully completed (NameCard's withDecay completion). By this point the
+    // card is off-screen and the next card has already animated forward to
+    // the center position via dragProgress→1, so advancing the index +
+    // resetting dragProgress to 0 produces no visible swap: the previously-
+    // next card is replaced by a fresh "current" instance at the same
+    // visual position, and a new "next" pops in behind at the stacked
+    // scale. One continuous motion, no snap.
     setHistory((p) => [...p, { nameId: current.id, liked }]);
     setCurrentIndex((i) => i + 1);
-    // Smoothly slide the new next card into its stacked position rather than
-    // snapping — eliminates the brief visual gap between swipes.
-    // Match the card's snap-back spring so the next-card "settle" feels
-    // like one continuous motion with the outgoing card's flick.
-    dragProgress.value = withSpring(0, {
-      damping: 14,
-      stiffness: 240,
-      mass: 0.5,
-    });
+    dragProgress.value = 0;
 
     // Check limits after updating UI — if blocked, show the modal but do not
     // roll back the card (the name will reappear on next deck load if not saved).
@@ -327,9 +308,6 @@ export default function SwipeScreen() {
     const last = history[history.length - 1];
     setHistory((p) => p.slice(0, -1));
     setCurrentIndex((i) => i - 1);
-    // Clear any in-flight outgoing card — undoing while one is still flying
-    // would otherwise leave a ghost off-screen.
-    setOutgoing(null);
     dragProgress.value = 0;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     try {
@@ -471,36 +449,9 @@ export default function SwipeScreen() {
           isPartnerPick={partnerPickIds.has(current.id)}
           canUndo={undoEnabled}
           dragProgress={dragProgress}
-          onSwipe={(liked, exit) => {
-            handleSwipe(liked, exit);
-          }}
+          onSwipe={handleSwipe}
           onUndo={handleUndo}
         />
-        {outgoing && (
-          <NameCard
-            key={`outgoing-${outgoing.name.id}`}
-            name={outgoing.name.text}
-            pronunciation={outgoing.name.pronunciation}
-            origin={outgoing.name.origin}
-            meaning={outgoing.name.meaning}
-            nickname={outgoing.name.nickname}
-            rank={outgoing.name.rank}
-            gender={outgoing.name.gender}
-            remaining={Math.max(0, remaining + 1)}
-            lastName={user.baby_last_name ?? undefined}
-            isPartnerPick={partnerPickIds.has(outgoing.name.id)}
-            isOutgoing
-            initialExit={{
-              x: outgoing.exit.x,
-              y: outgoing.exit.y,
-              velocityX: outgoing.exit.velocityX,
-              velocityY: outgoing.exit.velocityY,
-              liked: outgoing.liked,
-            }}
-            onExitComplete={() => setOutgoing(null)}
-            onSwipe={() => {}}
-          />
-        )}
       </View>
 
       <MatchCelebrationModal

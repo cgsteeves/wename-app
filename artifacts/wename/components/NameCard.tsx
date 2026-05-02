@@ -73,17 +73,6 @@ export interface NameCardHandle {
   swipe: (liked: boolean) => void;
 }
 
-// Captured at the moment the user releases (or a button is pressed) so the
-// outgoing card can continue the trajectory seamlessly from where the
-// original card was, with the same momentum, rather than restarting from
-// (0, 0).
-export type ExitState = {
-  x: number;
-  y: number;
-  velocityX: number;
-  velocityY: number;
-};
-
 export type NameCardProps = {
   name: string;
   pronunciation?: string | null;
@@ -96,19 +85,13 @@ export type NameCardProps = {
   lastName?: string;
   isPartnerPick?: boolean;
   isNext?: boolean;
-  // When true, this card is the outgoing/flying-away copy. It mounts with
-  // initialExit applied to its shared values and immediately re-runs the
-  // exit animation from that position with that velocity, then calls
-  // onExitComplete when settled. Gestures are disabled.
-  isOutgoing?: boolean;
-  initialExit?: ExitState & { liked: boolean };
-  onExitComplete?: () => void;
   canUndo?: boolean;
   dragProgress?: SharedValue<number>;
-  // Second arg only fires when the swipe came from the user (drag or
-  // button) — used by the parent to snapshot exit state for the outgoing
-  // slot. Outgoing cards never call this back (suppressed internally).
-  onSwipe: (liked: boolean, exit?: ExitState) => void;
+  // Fires only AFTER the exit animation has completed and the card is
+  // fully off-screen. The parent advances the index here — never before —
+  // so the user always sees the swiped card complete its flight without
+  // any mid-air content swap or React-driven unmount.
+  onSwipe: (liked: boolean) => void;
   onUndo?: () => void;
 };
 
@@ -125,9 +108,6 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     lastName,
     isPartnerPick,
     isNext,
-    isOutgoing,
-    initialExit,
-    onExitComplete,
     canUndo,
     dragProgress,
     onSwipe,
@@ -141,10 +121,8 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   const nameColor = isBoy ? colors.boy : colors.girlRed;
   const [infoOpen, setInfoOpen] = useState(false);
 
-  // Outgoing cards mount with the user's release position pre-applied so
-  // there's no "snap back to center" frame before the fly-off begins.
-  const x = useSharedValue(isOutgoing && initialExit ? initialExit.x : 0);
-  const y = useSharedValue(isOutgoing && initialExit ? initialExit.y : 0);
+  const x = useSharedValue(0);
+  const y = useSharedValue(0);
   // startX/startY snapshot the in-flight animated value when a new touch
   // begins, so re-grabbing a card mid-spring continues from where it is
   // instead of teleporting to translationX = 0.
@@ -196,106 +174,66 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     opacity: interpolate(sheetY.value, [0, CARD_H], [0.35, 0], Extrapolation.CLAMP),
   }));
 
-  // Held in a ref so the withDecay worklet always sees the current callback
-  // (outgoing cards get this as a prop after mount).
-  const onExitCompleteRef = useRef(onExitComplete);
-  onExitCompleteRef.current = onExitComplete;
-  const fireExitComplete = () => {
-    onExitCompleteRef.current?.();
+  // Held in a ref so the withDecay completion worklet always sees the
+  // latest onSwipe callback (in case props change between fly and finish).
+  const onSwipeRef = useRef(onSwipe);
+  onSwipeRef.current = onSwipe;
+  const fireSwipeComplete = (liked: boolean) => {
+    onSwipeRef.current(liked);
   };
 
-  function fly(
-    liked: boolean,
-    velocityX = 0,
-    velocityY = 0,
-    suppressOnSwipe = false,
-  ) {
+  function fly(liked: boolean, velocityX = 0, velocityY = 0) {
     if (committed.current) return;
     committed.current = true;
     isCommitted.value = true;
-    // Outgoing cards skip the haptic — the original card already fired one
-    // when the user released, so a second tap would feel like a stutter.
-    if (!suppressOnSwipe) {
-      Haptics.impactAsync(
-        liked
-          ? Haptics.ImpactFeedbackStyle.Medium
-          : Haptics.ImpactFeedbackStyle.Light,
-      );
-    }
+    Haptics.impactAsync(
+      liked
+        ? Haptics.ImpactFeedbackStyle.Medium
+        : Haptics.ImpactFeedbackStyle.Light,
+    );
     const direction = liked ? 1 : -1;
-    // Carry the user's actual flick velocity into the exit, with a floor so
-    // tap-driven exits (heart/X buttons) and slow drags-past-threshold also
-    // leave the screen with momentum. withDecay gives the natural physics-y
-    // ease-out a fixed-duration timing animation can't.
+    // Floor velocity so tap-driven exits (heart/X buttons) and slow
+    // drags-past-threshold also leave with conviction. Sign comes from the
+    // intent (liked) so a flick to the right always exits right.
     const exitVelocity =
       Math.max(Math.abs(velocityX), MIN_EXIT_VELOCITY) * direction;
-    // Promote the next card to full scale instantly so it's already in
-    // position the moment React swaps it to "current".
-    if (dragProgress) dragProgress.value = 1;
-    // Snapshot the user's release position BEFORE we overwrite x/y with the
-    // decay animation — the parent uses this to seed the outgoing card so
-    // it picks up exactly where this one left off.
-    const releaseX = x.value;
-    const releaseY = y.value;
-    // Clamp tight to "fully off-screen" — once the card's center crosses
-    // the screen edge by ~half a card width, the entire card is invisible.
-    // Beyond that, any further withDecay travel is wasted time during which
-    // the outgoing slot still occupies the tree. Hitting the clamp fires
-    // the completion callback IMMEDIATELY, so the slot frees the moment the
-    // card visually exits — no lingering ghost.
+    // Animate the next card forward in lockstep with the fly-out — by the
+    // time the active card's withDecay finishes and the index advances,
+    // the next card is already visually at the center position, so the
+    // role swap is invisible.
+    if (dragProgress) {
+      dragProgress.value = withTiming(1, { duration: 320 });
+    }
+    // Tight clamp = the card's center reaches the screen edge by ~half a
+    // card width past it, putting the whole card off-screen. withDecay
+    // hits the clamp and fires the completion callback the instant the
+    // card is fully invisible — no lingering off-screen coast.
     const exitClamp = SCREEN_W;
     x.value = withDecay(
       {
         velocity: exitVelocity,
-        // Faster decay so velocity loss is noticeable mid-flight (more
-        // physical) and the card reaches the clamp sooner on slow flicks.
         deceleration: 0.992,
         clamp: [-exitClamp, exitClamp],
       },
       (finished) => {
         "worklet";
-        if (finished) runOnJS(fireExitComplete)();
+        // Fire the parent's onSwipe ONLY after the flight completes. The
+        // parent advances currentIndex here — never earlier — so the
+        // active card stays mounted and visible for its entire trajectory.
+        if (finished) runOnJS(fireSwipeComplete)(liked);
       },
     );
     y.value = withDecay({
       velocity: velocityY,
       deceleration: 0.992,
     });
-    // No opacity fade. The card flies off-screen via withDecay's clamp; the
-    // user sees a continuous physical motion all the way out, not a card
-    // that "vanishes" mid-air. Opacity stays 1 for the entire flight.
-    if (!suppressOnSwipe) {
-      onSwipe(liked, {
-        x: releaseX,
-        y: releaseY,
-        velocityX,
-        velocityY,
-      });
-    }
-  }
-
-  // Outgoing cards: kick off the exit animation IMMEDIATELY during render
-  // (guarded by a ref so it only fires once, even under StrictMode's double
-  // render). useEffect would defer the animation by one frame — that frame
-  // is exactly the perceptible "freeze" between release and motion. Setting
-  // shared values + queueing withDecay during render means the UI thread
-  // already has the animation running when the first paint commits, so the
-  // card's flight is continuous from the user's release.
-  const outgoingTriggered = useRef(false);
-  if (isOutgoing && initialExit && !outgoingTriggered.current) {
-    outgoingTriggered.current = true;
-    fly(
-      initialExit.liked,
-      initialExit.velocityX,
-      initialExit.velocityY,
-      true,
-    );
+    // Opacity stays at 1 — the card exits via translation, not by fading.
   }
 
   useImperativeHandle(ref, () => ({ swipe: (liked: boolean) => fly(liked) }));
 
   const pan = Gesture.Pan()
-    .enabled(!isNext && !isOutgoing && !infoOpen)
+    .enabled(!isNext && !infoOpen)
     .onStart(() => {
       // Already swiped — ignore further touches on this card. The next
       // render will replace it; until then it's locked out of interaction.
@@ -456,7 +394,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         >
           {remaining} names remaining
         </Text>
-        {!isNext && !isOutgoing && (
+        {!isNext && (
           <Pressable
             style={[
               styles.infoChip,
@@ -540,7 +478,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
       </View>
 
       {/* Bottom action buttons row inside card */}
-      {!isNext && !isOutgoing && (
+      {!isNext && (
         <View style={styles.actionRow} pointerEvents="box-none">
           <ActionButton onPress={() => fly(false)} size={64}>
             <Text style={styles.passGlyph}>✕</Text>

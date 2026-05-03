@@ -221,7 +221,7 @@ export async function authSignOut(): Promise<void> {
   const storageKey = `sb-${projectRef}-auth-token`;
 
   const signOutP = supabase.auth
-    .signOut({ scope: "local" })
+    .signOut()
     .then(() => {})
     .catch(() => {});
   const timeoutP = new Promise<void>((resolve) => setTimeout(resolve, 3_000));

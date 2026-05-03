@@ -56,6 +56,10 @@ export default function SwipeScreen() {
   const cardRef = useRef<NameCardHandle>(null);
   const dragProgress = useSharedValue(0);
   const undoInProgress = useRef(false);
+  // Monotonic counter — incremented each time loadNames starts a fresh load.
+  // Any in-flight Supabase result from an older generation is discarded, so a
+  // slow load kicked off for authUser never overwrites state for a new guest.
+  const loadGenRef = useRef(0);
   // Cards currently flying off-screen. Their React instances stay mounted
   // (with `isOutgoing=true`) under stable keys so their withDecay
   // animations continue uninterrupted from the moment of release. Each id
@@ -81,14 +85,28 @@ export default function SwipeScreen() {
 
   const loadNames = useCallback(
     async (includeAlready = false) => {
-      if (!userId) return;
+      // If there's no user yet (e.g. immediately after sign-out while UserContext
+      // is creating a fresh guest), clear the spinner and bail. Without this,
+      // `loading` stays `true` forever because the finally block never runs.
+      if (!userId) {
+        setLoading(false);
+        return;
+      }
+      const gen = ++loadGenRef.current;
       setLoading(true);
       setError(null);
+      // Safety net: if any Supabase call hangs (common when the auth client is in
+      // a transient bad state right after sign-out), unblock the UI after 10 s.
+      const safetyTimer = setTimeout(() => {
+        if (gen === loadGenRef.current) setLoading(false);
+      }, 10_000);
       try {
         const { data: swipes } = await supabase
           .from("swipes")
           .select("name_id")
           .eq("user_id", userId);
+        // Discard if a newer load has already started (userId changed mid-flight).
+        if (gen !== loadGenRef.current) return;
         const swiped = new Set((swipes ?? []).map((s: { name_id: string }) => s.name_id));
         const gender = userGender ?? "either";
         const packOverride = activePack ? [activePack] : undefined;
@@ -98,6 +116,7 @@ export default function SwipeScreen() {
             ? getPartnerCreatedNames(partnerId, gender)
             : Promise.resolve([] as Name[]),
         ]);
+        if (gen !== loadGenRef.current) return;
         if (all.length === 0 && partner.length === 0) {
           throw new Error("No names available in the selected packs");
         }
@@ -113,10 +132,12 @@ export default function SwipeScreen() {
         setCurrentIndex(0);
         setHistory([]);
       } catch (e) {
+        if (gen !== loadGenRef.current) return;
         console.error("[SwipeScreen] loadNames error", e);
         setError(e instanceof Error ? e.message : "Failed to load names");
       } finally {
-        setLoading(false);
+        clearTimeout(safetyTimer);
+        if (gen === loadGenRef.current) setLoading(false);
       }
     },
     [userId, userGender, partnerId, activePack],

@@ -9,16 +9,40 @@
       "distribution": "internal",
       "ios": {
         "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_czyWUHJReyeUCoNJsndKOifEkDZ",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_IvWaDlCfPxrQAMeUtVhkSRxEnMv",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_xCLKzdnusMQdexRKfGjsMQcEfqh",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://cwpanlrimbccdgzchkdo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48",
+        "EXPO_PUBLIC_APP_URL": "https://wename.app"
       }
     },
     "preview": {
       "distribution": "internal",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_czyWUHJReyeUCoNJsndKOifEkDZ",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_IvWaDlCfPxrQAMeUtVhkSRxEnMv",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_xCLKzdnusMQdexRKfGjsMQcEfqh",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://cwpanlrimbccdgzchkdo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48",
+        "EXPO_PUBLIC_APP_URL": "https://wename.app"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_IOS_API_KEY": "appl_czyWUHJReyeUCoNJsndKOifEkDZ",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY": "goog_IvWaDlCfPxrQAMeUtVhkSRxEnMv",
+        "EXPO_PUBLIC_REVENUECAT_TEST_API_KEY": "test_xCLKzdnusMQdexRKfGjsMQcEfqh",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://cwpanlrimbccdgzchkdo.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN3cGFubHJpbWJjY2RnemNoa2RvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1MjcxODksImV4cCI6MjA5MDEwMzE4OX0.qPBJ_yPXy5f47QlCCC0vTMhosfgQY3a7gFcx8Qg3u48",
+        "EXPO_PUBLIC_APP_URL": "https://wename.app"
+      }
     }
   },
   "submit": {

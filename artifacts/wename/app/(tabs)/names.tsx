@@ -210,12 +210,6 @@ export default function NamesScreen() {
     }
   }, [user, fetchNamesByIds]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadAll();
-    }, [loadAll]),
-  );
-
   const loadSuggestionContext = useCallback(async () => {
     if (!user) return;
     try {
@@ -257,6 +251,13 @@ export default function NamesScreen() {
       console.error("[NamesScreen] loadSuggestionContext error", e);
     }
   }, [user]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadAll();
+      loadSuggestionContext();
+    }, [loadAll, loadSuggestionContext]),
+  );
 
   function showToast(msg: string) {
     setToast(msg);
@@ -626,7 +627,6 @@ export default function NamesScreen() {
           onPress={() => {
             if (isPremium) {
               setTab("suggestions");
-              loadSuggestionContext();
             } else {
               setDiscoverGateOpen(true);
             }
@@ -765,6 +765,22 @@ export default function NamesScreen() {
         showsVerticalScrollIndicator={false}
         scrollEnabled={!isReordering}
       >
+        {/* Always-mounted suggestions panel for premium users.
+            display:"none" hides it without unmounting, so the auto-fetch
+            starts in the background while the user is on other tabs. */}
+        {user && isPremium && (
+          <View style={tab === "suggestions" ? { paddingTop: 4 } : { display: "none" }}>
+            <NameSuggestions
+              user={user}
+              likedNames={liked.map((n) => n.text)}
+              matchedNames={matches.map((n) => n.text)}
+              partnerLikedNames={partnerLikedNames}
+              excludeNames={allSwipedNames.slice(0, 50)}
+              onNameAdded={handleAddFromSuggestion}
+            />
+          </View>
+        )}
+
         {noPartner ? (
           <View style={styles.bigEmpty}>
             <Feather name="users" size={64} color={colors.muted} />
@@ -783,20 +799,7 @@ export default function NamesScreen() {
               <Text style={styles.connectBtnText}>Connect with Partner</Text>
             </Pressable>
           </View>
-        ) : tab === "suggestions" ? (
-          <View style={{ paddingTop: 4 }}>
-            {user && (
-              <NameSuggestions
-                user={user}
-                likedNames={liked.map((n) => n.text)}
-                matchedNames={matches.map((n) => n.text)}
-                partnerLikedNames={partnerLikedNames}
-                excludeNames={allSwipedNames}
-                onNameAdded={handleAddFromSuggestion}
-              />
-            )}
-          </View>
-        ) : loading ? (
+        ) : tab === "suggestions" ? null : loading ? (
           <View style={styles.empty}>
             <ActivityIndicator color={accentColor} />
           </View>

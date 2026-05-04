@@ -54,10 +54,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
     likedNames = [],
     matchedNames = [],
     partnerLikedNames = [],
-    excludeNames = [],
+    excludeNames: rawExclude = [],
     style = null,
     lastName = "",
   } = body;
+
+  // Cap the exclude list to keep the prompt short — 50 names is plenty.
+  const excludeNames = rawExclude.slice(0, 50);
 
   // ── Taste context ────────────────────────────────────────────────────────
   let tasteContext: string;
@@ -105,7 +108,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ? `\nIMPORTANT: Do NOT suggest any of these names (they have already been seen or swiped): ${excludeNames.join(", ")}.`
       : "";
 
-  const prompt = `You are a helpful baby name expert. Suggest 12 unique baby ${gender} names.
+  const prompt = `You are a helpful baby name expert. Suggest 8 unique baby ${gender} names.
 ${tasteContext}${styleContext}${lastNameContext}${excludeContext}
 
 Return ONLY a JSON array of objects, nothing else. Each object must have:
@@ -131,7 +134,7 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 1800,
+        max_tokens: 1200,
         temperature: 0.8,
         stream: true,
       }),

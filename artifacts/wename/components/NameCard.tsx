@@ -347,12 +347,11 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     const progress = dragProgress ? dragProgress.value : 0;
     return {
       transform: [
-        // At rest: push down 22px so the card's bottom peeks ~10px below
-        // the active card's bottom edge, giving a clear "stack" visual.
-        // As the drag progresses the card rises back to its natural position.
-        { translateY: 22 * (1 - progress) },
-        // 0.96 → 1.0: subtle scale difference keeps the peek visible
-        // without making the next card look far away.
+        // At rest: pull up -24px so the top edge peeks ~10px above the
+        // active card's top, giving a clear "stack behind" visual.
+        // As the drag progresses the card drops back to its natural position.
+        { translateY: -24 * (1 - progress) },
+        // 0.96 → 1.0: subtle scale keeps the next card slightly inset.
         { scale: 0.96 + 0.04 * progress },
       ],
       // 0.9 at rest so the peeking edge is clearly visible; fully opaque

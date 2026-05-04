@@ -54,6 +54,7 @@ interface NameItem {
   pronunciation?: string | null;
   recordId: string;
   isManual?: boolean;
+  addedByUserId?: string;
 }
 
 const BOY = "hsl(214,55%,42%)";
@@ -95,6 +96,7 @@ export default function NamesScreen() {
   // AI Suggestions state
   const [allSwipedNames, setAllSwipedNames] = useState<string[]>([]);
   const [partnerLikedNames, setPartnerLikedNames] = useState<string[]>([]);
+  const [partnerDisplayName, setPartnerDisplayName] = useState<string | null>(null);
   const [discoverGateOpen, setDiscoverGateOpen] = useState(false);
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -159,12 +161,12 @@ export default function NamesScreen() {
         user.partner_id
           ? supabase
               .from("matches")
-              .select("id, name_id, created_at, ranking, manually_added")
+              .select("id, name_id, created_at, ranking, manually_added, manually_added_by_user_id")
               .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
               .order("ranking", { ascending: true, nullsFirst: false })
               .order("created_at", { ascending: false })
               .then((r) => r.data ?? [])
-          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null; manually_added: boolean }[]),
+          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null; manually_added: boolean; manually_added_by_user_id: string | null }[]),
         supabase
           .from("finalists")
           .select("id, name_id, ranking, created_at")
@@ -191,9 +193,15 @@ export default function NamesScreen() {
 
       if (user.partner_id) {
         setMatches(
-          (matchData as { id: string; name_id: string; manually_added: boolean }[])
+          (matchData as { id: string; name_id: string; manually_added: boolean; manually_added_by_user_id: string | null }[])
             .filter((m) => nameMap.has(m.name_id))
-            .map((m) => ({ recordId: m.id, id: m.name_id, isManual: m.manually_added, ...nameMap.get(m.name_id)! })),
+            .map((m) => ({
+              recordId: m.id,
+              id: m.name_id,
+              isManual: m.manually_added,
+              addedByUserId: m.manually_added_by_user_id ?? undefined,
+              ...nameMap.get(m.name_id)!,
+            })),
         );
       } else {
         setMatches([]);
@@ -232,11 +240,11 @@ export default function NamesScreen() {
 
       // Partner liked names — for context
       if (user.partner_id) {
-        const { data: partnerSwipes } = await supabase
-          .from("swipes")
-          .select("name_id")
-          .eq("user_id", user.partner_id)
-          .eq("liked", true);
+        const [{ data: partnerUser }, { data: partnerSwipes }] = await Promise.all([
+          supabase.from("users").select("display_name").eq("id", user.partner_id).single(),
+          supabase.from("swipes").select("name_id").eq("user_id", user.partner_id).eq("liked", true),
+        ]);
+        setPartnerDisplayName((partnerUser as { display_name: string | null } | null)?.display_name ?? null);
         const partnerIds = (partnerSwipes ?? []).map((s: { name_id: string }) => s.name_id);
         if (partnerIds.length > 0) {
           const { data: partnerRows } = await supabase
@@ -387,6 +395,7 @@ export default function NamesScreen() {
       gender: newGender,
       rank: null,
       isManual: true,
+      addedByUserId: user.id,
     };
     if (tab === "liked") setLiked((p) => [...p, optimisticItem]);
     else if (tab === "matches") setMatches((p) => [...p, optimisticItem]);
@@ -470,6 +479,7 @@ export default function NamesScreen() {
             user_b_id: b,
             gender: typedGender,
             manually_added: true,
+            manually_added_by_user_id: user.id,
           })
           .select("id")
           .single();
@@ -860,6 +870,8 @@ export default function NamesScreen() {
                       setIsReordering(false);
                       if (from !== to) handleReorder(from, to);
                     }}
+                    currentUserId={user?.id}
+                    partnerName={partnerDisplayName}
                   />
                 ))}
               </View>
@@ -878,6 +890,8 @@ export default function NamesScreen() {
       <NameInfoSheet
         item={infoItem}
         onClose={() => setInfoItem(null)}
+        currentUserId={user?.id}
+        partnerName={partnerDisplayName}
       />
 
       <PremiumModal
@@ -1045,6 +1059,8 @@ function DraggableNameRow({
   onDelete,
   onDragStart,
   onDragEnd,
+  currentUserId,
+  partnerName,
 }: {
   item: NameItem;
   index: number;
@@ -1057,6 +1073,8 @@ function DraggableNameRow({
   onDelete: () => void;
   onDragStart: () => void;
   onDragEnd: (from: number, to: number) => void;
+  currentUserId?: string;
+  partnerName?: string | null;
 }) {
   const isBoy = item.gender !== "girl";
   const accent = isBoy ? BOY : GIRL;
@@ -1175,7 +1193,9 @@ function DraggableNameRow({
                 }}
               >
                 <Text style={{ fontFamily: fonts.display, fontSize: 10, color: accent }}>
-                  Added by you
+                  {item.addedByUserId && item.addedByUserId !== currentUserId
+                    ? `Added by ${partnerName ?? "partner"}`
+                    : "Added by you"}
                 </Text>
               </View>
             )}
@@ -1248,9 +1268,13 @@ function FinalistRow({
 function NameInfoSheet({
   item,
   onClose,
+  currentUserId,
+  partnerName,
 }: {
   item: NameItem | null;
   onClose: () => void;
+  currentUserId?: string;
+  partnerName?: string | null;
 }) {
   const open = !!item;
   const isBoy = !item || item.gender !== "girl";
@@ -1361,7 +1385,9 @@ function NameInfoSheet({
               >
                 <Feather name="edit-2" size={11} color={accent} />
                 <Text style={{ fontFamily: fonts.display, fontSize: 12, color: accent }}>
-                  Manually added by you
+                  {item.addedByUserId && item.addedByUserId !== currentUserId
+                    ? `Manually added by ${partnerName ?? "partner"}`
+                    : "Manually added by you"}
                 </Text>
               </View>
             )}

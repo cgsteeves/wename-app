@@ -1158,22 +1158,23 @@ function DraggableNameRow({
         </GestureDetector>
         <Text style={[styles.rowRank, { color: accent }]}>{rankLabel}</Text>
         <View style={{ flex: 1, paddingLeft: 8 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 }}>
+            <Text style={[styles.rowName, { color: accent, flexShrink: 1 }]} numberOfLines={1}>
               {item.text}
             </Text>
             {item.isManual && (
               <View
                 style={{
-                  backgroundColor: `${accent}18`,
-                  borderColor: `${accent}40`,
+                  flexShrink: 0,
+                  backgroundColor: accentA(accent, 0.12),
+                  borderColor: accentA(accent, 0.35),
                   borderWidth: 1,
                   borderRadius: 4,
-                  paddingHorizontal: 5,
-                  paddingVertical: 1,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
                 }}
               >
-                <Text style={{ fontFamily: fonts.display, fontSize: 9, color: accent, opacity: 0.85 }}>
+                <Text style={{ fontFamily: fonts.display, fontSize: 10, color: accent }}>
                   Added by you
                 </Text>
               </View>
@@ -1350,16 +1351,16 @@ function NameInfoSheet({
                   gap: 6,
                   alignSelf: "center",
                   marginTop: 12,
-                  backgroundColor: `${accent}12`,
-                  borderColor: `${accent}35`,
+                  backgroundColor: accentA(accent, 0.1),
+                  borderColor: accentA(accent, 0.3),
                   borderWidth: 1,
                   borderRadius: 8,
                   paddingHorizontal: 10,
                   paddingVertical: 5,
                 }}
               >
-                <Feather name="edit-2" size={11} color={accent} style={{ opacity: 0.7 }} />
-                <Text style={{ fontFamily: fonts.display, fontSize: 11, color: accent, opacity: 0.8 }}>
+                <Feather name="edit-2" size={11} color={accent} />
+                <Text style={{ fontFamily: fonts.display, fontSize: 12, color: accent }}>
                   Manually added by you
                 </Text>
               </View>

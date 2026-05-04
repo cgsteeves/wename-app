@@ -53,6 +53,7 @@ interface NameItem {
   nickname?: string | null;
   pronunciation?: string | null;
   recordId: string;
+  isManual?: boolean;
 }
 
 const BOY = "hsl(214,55%,42%)";
@@ -149,7 +150,7 @@ export default function NamesScreen() {
       const [swipeData, matchData, finData] = await Promise.all([
         supabase
           .from("swipes")
-          .select("id, name_id, ranking, created_at")
+          .select("id, name_id, ranking, created_at, manually_added")
           .eq("user_id", user.id)
           .eq("liked", true)
           .order("ranking", { ascending: true, nullsFirst: false })
@@ -158,12 +159,12 @@ export default function NamesScreen() {
         user.partner_id
           ? supabase
               .from("matches")
-              .select("id, name_id, created_at, ranking")
+              .select("id, name_id, created_at, ranking, manually_added")
               .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
               .order("ranking", { ascending: true, nullsFirst: false })
               .order("created_at", { ascending: false })
               .then((r) => r.data ?? [])
-          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null }[]),
+          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null; manually_added: boolean }[]),
         supabase
           .from("finalists")
           .select("id, name_id, ranking, created_at")
@@ -183,16 +184,16 @@ export default function NamesScreen() {
       const nameMap = await fetchNamesByIds(allIds);
 
       setLiked(
-        (swipeData as { id: string; name_id: string }[])
+        (swipeData as { id: string; name_id: string; manually_added: boolean }[])
           .filter((s) => nameMap.has(s.name_id))
-          .map((s) => ({ recordId: s.id, id: s.name_id, ...nameMap.get(s.name_id)! })),
+          .map((s) => ({ recordId: s.id, id: s.name_id, isManual: s.manually_added, ...nameMap.get(s.name_id)! })),
       );
 
       if (user.partner_id) {
         setMatches(
-          (matchData as { id: string; name_id: string }[])
+          (matchData as { id: string; name_id: string; manually_added: boolean }[])
             .filter((m) => nameMap.has(m.name_id))
-            .map((m) => ({ recordId: m.id, id: m.name_id, ...nameMap.get(m.name_id)! })),
+            .map((m) => ({ recordId: m.id, id: m.name_id, isManual: m.manually_added, ...nameMap.get(m.name_id)! })),
         );
       } else {
         setMatches([]);
@@ -385,6 +386,7 @@ export default function NamesScreen() {
       text: trimmed,
       gender: newGender,
       rank: null,
+      isManual: true,
     };
     if (tab === "liked") setLiked((p) => [...p, optimisticItem]);
     else if (tab === "matches") setMatches((p) => [...p, optimisticItem]);
@@ -442,7 +444,7 @@ export default function NamesScreen() {
         const { data: swipe, error: swErr } = await supabase
           .from("swipes")
           .upsert(
-            { user_id: user.id, name_id: nameUuid, liked: true },
+            { user_id: user.id, name_id: nameUuid, liked: true, manually_added: true },
             { onConflict: "user_id,name_id" },
           )
           .select("id")
@@ -467,6 +469,7 @@ export default function NamesScreen() {
             user_a_id: a,
             user_b_id: b,
             gender: typedGender,
+            manually_added: true,
           })
           .select("id")
           .single();
@@ -1155,9 +1158,27 @@ function DraggableNameRow({
         </GestureDetector>
         <Text style={[styles.rowRank, { color: accent }]}>{rankLabel}</Text>
         <View style={{ flex: 1, paddingLeft: 8 }}>
-          <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
-            {item.text}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <Text style={[styles.rowName, { color: accent }]} numberOfLines={1}>
+              {item.text}
+            </Text>
+            {item.isManual && (
+              <View
+                style={{
+                  backgroundColor: `${accent}18`,
+                  borderColor: `${accent}40`,
+                  borderWidth: 1,
+                  borderRadius: 4,
+                  paddingHorizontal: 5,
+                  paddingVertical: 1,
+                }}
+              >
+                <Text style={{ fontFamily: fonts.display, fontSize: 9, color: accent, opacity: 0.85 }}>
+                  Added by you
+                </Text>
+              </View>
+            )}
+          </View>
           {showMatchSubtitle && (
             <Text
               style={{
@@ -1320,6 +1341,28 @@ function NameInfoSheet({
               >
                 [{item.pronunciation}]
               </Text>
+            )}
+            {item.isManual && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
+                  alignSelf: "center",
+                  marginTop: 12,
+                  backgroundColor: `${accent}12`,
+                  borderColor: `${accent}35`,
+                  borderWidth: 1,
+                  borderRadius: 8,
+                  paddingHorizontal: 10,
+                  paddingVertical: 5,
+                }}
+              >
+                <Feather name="edit-2" size={11} color={accent} style={{ opacity: 0.7 }} />
+                <Text style={{ fontFamily: fonts.display, fontSize: 11, color: accent, opacity: 0.8 }}>
+                  Manually added by you
+                </Text>
+              </View>
             )}
             <View style={{ marginTop: 20, gap: 10 }}>
               <SheetInfoRow icon="map-pin" label="Origin" value={item.origin} accent={accent} isBoy={isBoy} />

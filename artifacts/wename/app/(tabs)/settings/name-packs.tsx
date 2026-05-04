@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 import { PremiumModal } from "@/components/PremiumModal";
 import { SubPageHeader } from "@/components/SubPageHeader";
@@ -20,7 +20,7 @@ import { NamePack } from "@/lib/supabase";
 
 export default function NamePacksScreen() {
   const colors = useColors();
-  const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { user, changeSelectedPack } = useUser();
   const [packs, setPacks] = useState<NamePack[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
@@ -61,7 +61,7 @@ export default function NamePacksScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.parchment }}>
       <SubPageHeader title="Name Packs" subtitle="Pick your themes" />
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 90, gap: 12 }}>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: tabBarHeight + 16, gap: 12 }}>
         <Text
           style={{
             fontFamily: fonts.display,

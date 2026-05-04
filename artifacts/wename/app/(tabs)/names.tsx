@@ -27,6 +27,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 
 const listBg = require("../../assets/images/list-bg.png");
 const grassBorder = require("../../assets/images/grass-flower-border.png");
@@ -77,6 +78,7 @@ export default function NamesScreen() {
   const colors = useColors();
   const { user } = useUser();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const [tab, setTab] = useState<SubTab>("liked");
   const [liked, setLiked] = useState<NameItem[]>([]);
   const [matches, setMatches] = useState<NameItem[]>([]);
@@ -774,7 +776,7 @@ export default function NamesScreen() {
 
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: insets.bottom + 80 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: tabBarHeight + 24 }}
         showsVerticalScrollIndicator={false}
         scrollEnabled={!isReordering}
       >
@@ -882,7 +884,7 @@ export default function NamesScreen() {
 
       <Image
         source={grassBorder}
-        style={[styles.grassFooter, { bottom: insets.bottom + 50 }]}
+        style={[styles.grassFooter, { bottom: tabBarHeight }]}
         contentFit="cover"
         pointerEvents="none"
       />

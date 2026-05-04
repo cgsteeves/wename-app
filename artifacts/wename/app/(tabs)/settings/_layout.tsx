@@ -11,6 +11,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="premium" />
       <Stack.Screen name="account" />
       <Stack.Screen name="support" />
+      <Stack.Screen name="feedback" />
     </Stack>
   );
 }

@@ -82,6 +82,15 @@ export default function SettingsHub() {
       iconColor: "#0d9488",
       href: "/settings/support",
     },
+    {
+      key: "feedback",
+      label: "Leave Feedback",
+      hint: "Tell us what you think",
+      icon: "message-square",
+      iconBg: "#ede9fe",
+      iconColor: "#7c3aed",
+      href: "/settings/feedback",
+    },
   ];
 
   return (

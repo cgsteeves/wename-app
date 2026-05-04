@@ -128,7 +128,8 @@ export default function NamePacksScreen() {
                       </Text>
                     </View>
                   ) : active ? (
-                    <View style={[styles.activePill, { backgroundColor: colors.grass + "1f" }]}>
+                    <View style={[styles.activePill, { borderColor: "hsla(145,45%,35%,0.45)", backgroundColor: "hsla(145,45%,35%,0.1)" }]}>
+                      <Feather name="check" size={11} color={colors.grass} />
                       <Text style={{ color: colors.grass, fontFamily: fonts.displaySemibold, fontSize: 11 }}>
                         Active
                       </Text>
@@ -188,9 +189,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   activePill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
     borderRadius: 999,
+    borderWidth: 1,
   },
   comingSoon: {
     flexDirection: "row",

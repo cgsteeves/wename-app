@@ -73,9 +73,15 @@ export function NameSuggestions({
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
   const [hasLoaded, setHasLoaded] = useState(false);
   const [shownNames, setShownNames] = useState<Set<string>>(new Set());
+  // Mirror shownNames in a ref so fetchSuggestions can read the latest value
+  // without needing it as a useCallback dependency (avoids infinite re-renders).
+  const shownNamesRef = useRef<Set<string>>(new Set());
   const [streamingDone, setStreamingDone] = useState(false);
   const hasFetchedOnMount = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Keep ref in sync with state so fetchSuggestions always reads the latest set
+  useEffect(() => { shownNamesRef.current = shownNames; }, [shownNames]);
 
   // Cancel any pending retry on unmount
   useEffect(() => () => {
@@ -103,7 +109,7 @@ export function NameSuggestions({
     }
 
     const excludeForRequest = isRefresh
-      ? [...excludeNames, ...Array.from(shownNames)]
+      ? [...excludeNames, ...Array.from(shownNamesRef.current)]
       : [...excludeNames];
 
     const scheduleRetry = () => {

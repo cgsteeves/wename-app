@@ -300,10 +300,14 @@ export async function finalizeLogin(userId: string, email: string): Promise<void
   if (guestUserId && guestUserId !== userId) {
     const { mergeGuestData } = await import("@/lib/guestDataMerge");
     await mergeGuestData(guestUserId, userId);
-    // Signal screens to re-fetch their data now that guest swipes/matches
-    // have been copied to the authenticated user.
-    emitMergeComplete();
   }
 
   await AsyncStorage.setItem(USER_ID_KEY, userId);
+
+  // Always signal completion — UserContext waits for this before calling
+  // loadById so it never races with finalizeLogin's Supabase operations.
+  // Previously this was only emitted when guest data was merged, which left
+  // returning-user sign-ins relying on the SIGNED_IN handler's immediate
+  // loadById call (which caused auth-lock contention with finalizeLogin).
+  emitMergeComplete();
 }

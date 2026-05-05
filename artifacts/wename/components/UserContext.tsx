@@ -50,6 +50,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // skip spurious SIGNED_IN events (e.g. iOS fires one every time the app
   // returns from background — including after the Apple payment sheet closes).
   const currentUserIdRef = useRef<string | null>(null);
+  // Fallback timer set by the SIGNED_IN handler. Cleared when onMergeComplete
+  // fires (meaning finalizeLogin succeeded and the real loadById already ran).
+  const signInFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadPackForUser = useCallback(async (userId: string): Promise<void> => {
     try {
@@ -222,16 +225,23 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   // React to Supabase auth events.
   //
-  // SIGNED_IN: use the session's user ID directly — do NOT read USER_ID_KEY
-  //            here because finalizeLogin (AuthContext) may not have written
-  //            the new ID yet, causing a stale guest-user load.
+  // SIGNED_IN: Do NOT call loadById immediately. AuthContext's finalizeLogin
+  //            runs concurrently and holds the auth lock for multiple Supabase
+  //            operations (SELECT, upsert, guest-data merge). Calling loadById
+  //            at the same time causes lock contention: every query in loadById
+  //            times out waiting for the lock, selectedPackSlug bounces between
+  //            null and the real value, and loadNames keeps re-triggering with
+  //            fresh gen counters so the 10 s safety timer never clears the
+  //            swipe-screen spinner.
   //
-  //            IMPORTANT: iOS fires SIGNED_IN every time the app returns from
-  //            background (e.g. after the Apple payment sheet closes). Skip
-  //            the reload when we already have this user loaded — otherwise
-  //            loadById runs, loadPackForUser stalls on the auth lock, and
-  //            selectedPackSlug temporarily resets to null, which re-triggers
-  //            loadNames in the swipe screen and shows the post-purchase spinner.
+  //            Instead, finalizeLogin (authService.ts) always emits
+  //            mergeComplete when it finishes. The onMergeComplete handler
+  //            below is the real trigger for loadById. A 10 s fallback fires
+  //            here only if finalizeLogin itself fails before emitting.
+  //
+  //            iOS also fires SIGNED_IN on every app-foreground return (e.g.
+  //            Apple payment sheet close). Skip the reload entirely when we
+  //            already have this user — the currentUserIdRef guard covers that.
   //
   // SIGNED_OUT: fall back to load() which will create/find a guest profile.
   useEffect(() => {
@@ -240,20 +250,40 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session?.user?.id) {
         if (currentUserIdRef.current === session.user.id) return;
-        loadById(session.user.id);
+        // Clear any stale fallback from a previous sign-in attempt.
+        if (signInFallbackRef.current) {
+          clearTimeout(signInFallbackRef.current);
+          signInFallbackRef.current = null;
+        }
+        const userId = session.user.id;
+        // Fallback: if finalizeLogin fails and mergeComplete never fires,
+        // load the profile directly after a generous delay.
+        signInFallbackRef.current = setTimeout(() => {
+          signInFallbackRef.current = null;
+          if (currentUserIdRef.current !== userId) loadById(userId);
+        }, 10_000);
       } else if (event === "SIGNED_OUT") {
         currentUserIdRef.current = null;
+        if (signInFallbackRef.current) {
+          clearTimeout(signInFallbackRef.current);
+          signInFallbackRef.current = null;
+        }
         load();
       }
     });
     return () => subscription.unsubscribe();
   }, [load, loadById]);
 
-  // After guest data has been merged into the authenticated account, reload
-  // the user profile so screens re-render and re-fetch their data (swipes,
-  // likes, etc.) against the now-populated auth user ID.
+  // Primary trigger for loadById after sign-in: finalizeLogin (authService.ts)
+  // always emits mergeComplete when it finishes, whether or not guest data was
+  // merged. Cancel the fallback timer from the SIGNED_IN handler since we're
+  // now handling the load ourselves with a clean post-finalize state.
   useEffect(() => {
     const unsub = onMergeComplete(() => {
+      if (signInFallbackRef.current) {
+        clearTimeout(signInFallbackRef.current);
+        signInFallbackRef.current = null;
+      }
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user?.id) {
           loadById(session.user.id);

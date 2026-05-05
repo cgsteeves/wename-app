@@ -76,49 +76,46 @@ export async function getSwipeableNames(
   }));
 }
 
-// Fetch custom names the partner added to their picks.
-// Privacy guarantee: two independent conditions must both be true —
-//   1. name_id appears in partner's swipes (liked=true)  → partner-scoped
-//   2. user_created=true in the names table              → never catalog names
-// This ensures a custom name surfaces only for the one user whose partner added it.
-// Uses a single PostgREST join query instead of two sequential round-trips.
+// Fetch custom names created by the partner so they appear in the current
+// user's swipe deck as soon as the partner adds them — no need for the
+// partner to have swiped them first.
+// Privacy guarantee: only names where created_by_user_id = partnerId are
+// returned, so a custom name surfaces only for the one user whose partner
+// created it. The RPC already excludes user_created names (user_created=false
+// filter), so there is no overlap with catalog names.
 export async function getPartnerCreatedNames(
   partnerId: string,
   gender: string,
 ): Promise<Name[]> {
   try {
     let query = supabase
-      .from("swipes")
+      .from("names")
       .select(
-        "name_id, names!name_id!inner(uuid, name, gender, pronunciation, origin_raw, meaning, nicknames, rank, created_by_user_id)",
+        "uuid, name, gender, pronunciation, origin_raw, meaning, nicknames, rank, created_by_user_id",
       )
-      .eq("user_id", partnerId)
-      .eq("liked", true)
-      .eq("names.user_created", true);
+      .eq("created_by_user_id", partnerId)
+      .eq("user_created", true)
+      .eq("is_active", true);
 
     if (gender !== "either") {
-      query = query.eq("names.gender", gender);
+      query = query.eq("gender", gender);
     }
 
     const { data, error } = await query;
     if (error || !data) return [];
 
-    return (data as Array<Record<string, unknown>>).flatMap((row) => {
-      const n = row.names as Record<string, unknown> | null;
-      if (!n) return [];
-      return [{
-        id: n.uuid as string,
-        text: n.name as string,
-        gender: n.gender as "boy" | "girl",
-        pronunciation: clean(n.pronunciation),
-        origin: clean(n.origin_raw),
-        meaning: clean(n.meaning),
-        nickname: clean(n.nicknames),
-        rank: n.rank != null ? Number(n.rank) : null,
-        created_at: "",
-        created_by_user_id: (n.created_by_user_id as string) ?? null,
-      }];
-    });
+    return (data as Array<Record<string, unknown>>).map((n) => ({
+      id: n.uuid as string,
+      text: n.name as string,
+      gender: n.gender as "boy" | "girl",
+      pronunciation: clean(n.pronunciation),
+      origin: clean(n.origin_raw),
+      meaning: clean(n.meaning),
+      nickname: clean(n.nicknames),
+      rank: n.rank != null ? Number(n.rank) : null,
+      created_at: "",
+      created_by_user_id: (n.created_by_user_id as string) ?? null,
+    }));
   } catch {
     return [];
   }

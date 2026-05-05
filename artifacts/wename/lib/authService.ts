@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as AppleAuthentication from "expo-apple-authentication";
 import { Platform } from "react-native";
+import Purchases from "react-native-purchases";
 import * as WebBrowser from "expo-web-browser";
 
 import { supabase, USER_ID_KEY } from "@/lib/supabase";
@@ -209,6 +210,14 @@ export async function isAppleAuthAvailable(): Promise<boolean> {
 }
 
 export async function authSignOut(): Promise<void> {
+  // Reset RevenueCat back to anonymous so the next user on this device starts
+  // fresh. Fire-and-forget — a failure here must never block sign-out.
+  if (Platform.OS !== "web") {
+    Purchases.logOut().catch((e) =>
+      console.warn("[authService] RevenueCat logOut failed", e),
+    );
+  }
+
   // supabase.auth.signOut() acquires the inProcessLock internally. If a
   // concurrent token-refresh or exchangeCodeForSession is still running (common
   // after Google OAuth), that lock never releases and signOut hangs forever.
@@ -303,6 +312,16 @@ export async function finalizeLogin(userId: string, email: string): Promise<void
   }
 
   await AsyncStorage.setItem(USER_ID_KEY, userId);
+
+  // Identify this user in RevenueCat so purchases are linked to their account
+  // across devices and app reinstalls. logIn is idempotent — calling it again
+  // with the same userId is a no-op. Failures are swallowed so a RevenueCat
+  // outage never blocks sign-in. Not called on web (RC is native-only).
+  if (Platform.OS !== "web") {
+    Purchases.logIn(userId).catch((e) =>
+      console.warn("[authService] RevenueCat logIn failed", e),
+    );
+  }
 
   // Always signal completion — UserContext waits for this before calling
   // loadById so it never races with finalizeLogin's Supabase operations.

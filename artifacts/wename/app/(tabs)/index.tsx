@@ -15,21 +15,23 @@ import { useSharedValue } from "react-native-reanimated";
 
 import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
 import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
+import { PackCompleteModal } from "@/components/PackCompleteModal";
+import { PackSwitcherSheet } from "@/components/PackSwitcherSheet";
 import NameCard, { NameCardHandle } from "@/components/NameCard";
 import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
-import { getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
-import { Name, supabase } from "@/lib/supabase";
+import { getAllPacks, getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
+import { Name, NamePack, supabase } from "@/lib/supabase";
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
 export default function SwipeScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { user, updateUser, selectedPackSlug } = useUser();
+  const { user, updateUser, selectedPackSlug, changeSelectedPack } = useUser();
   const insets = useSafeAreaInsets();
   const { redirect } = useLocalSearchParams<{ redirect?: string }>();
 
@@ -53,6 +55,9 @@ export default function SwipeScreen() {
   const [limitType, setLimitType] = useState<LimitType>(null);
   const [history, setHistory] = useState<{ nameId: string; liked: boolean }[]>([]);
   const [firstLikeOpen, setFirstLikeOpen] = useState(false);
+  const [packCompleteOpen, setPackCompleteOpen] = useState(false);
+  const [packSwitcherOpen, setPackSwitcherOpen] = useState(false);
+  const [allPacks, setAllPacks] = useState<NamePack[]>([]);
   const cardRef = useRef<NameCardHandle>(null);
   const dragProgress = useSharedValue(0);
   const undoInProgress = useRef(false);
@@ -96,6 +101,7 @@ export default function SwipeScreen() {
       const gen = ++loadGenRef.current;
       setLoading(true);
       setError(null);
+      setPackCompleteOpen(false);
       // Safety net: if any Supabase call hangs (common when the auth client is in
       // a transient bad state right after sign-out), unblock the UI after 10 s.
       const safetyTimer = setTimeout(() => {
@@ -119,21 +125,37 @@ export default function SwipeScreen() {
         ]);
         // Discard if a newer load has already started (userId changed mid-flight).
         if (gen !== loadGenRef.current) return;
-        // If the RPC returned nothing (user swiped every name in the pack),
-        // reload with includeAlready=true so the deck recycles automatically.
-        if (all.length === 0 && !includeAlready) {
-          if (gen === loadGenRef.current) loadNames(true);
-          return;
-        }
-        if (all.length === 0 && partner.length === 0) {
-          throw new Error("No names available in the selected packs");
-        }
         // Filter partner picks against already-swiped so the user never sees a
         // duplicate they already acted on (partner picks are not reset by "Start Over").
         const swiped = new Set(
           (swipeResult.data ?? []).map((s: { name_id: string }) => s.name_id),
         );
         const partnerFiltered = partner.filter((n) => !swiped.has(n.id));
+        // If the RPC returned nothing the user has swiped every catalog name in this pack.
+        // Instead of auto-recycling, show the PackCompleteModal. Partner-created names
+        // that haven't been swiped yet are still surfaced first.
+        if (all.length === 0 && !includeAlready) {
+          if (gen !== loadGenRef.current) return;
+          if (partnerFiltered.length === 0) {
+            // Nothing at all — open the completion modal immediately.
+            setPackCompleteOpen(true);
+            setNames([]);
+            setCurrentIndex(0);
+            setHistory([]);
+          } else {
+            // Still have partner-created names — show those; the modal will
+            // appear via the deck-exhaustion effect when they're all swiped.
+            setPartnerPickIds(new Set(partnerFiltered.map((n) => n.id)));
+            const shuffled = [...partnerFiltered].sort(() => Math.random() - 0.5);
+            setNames(shuffled);
+            setCurrentIndex(0);
+            setHistory([]);
+          }
+          return;
+        }
+        if (all.length === 0 && partnerFiltered.length === 0) {
+          throw new Error("No names available in the selected packs");
+        }
         setPartnerPickIds(new Set(partnerFiltered.map((n) => n.id)));
         const combined = [...all, ...partnerFiltered];
         const shuffled = [...combined].sort(() => Math.random() - 0.5);
@@ -153,8 +175,19 @@ export default function SwipeScreen() {
   );
 
   useEffect(() => {
+    getAllPacks().then(setAllPacks).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     loadNames();
   }, [loadNames]);
+
+  // When the user swipes through every card in the deck, show the pack-complete modal.
+  useEffect(() => {
+    if (!loading && !error && names.length > 0 && currentIndex >= names.length) {
+      setPackCompleteOpen(true);
+    }
+  }, [loading, error, names.length, currentIndex]);
 
   useFocusEffect(
     useCallback(() => {
@@ -412,28 +445,13 @@ export default function SwipeScreen() {
   const current = names[currentIndex];
   const next = names[currentIndex + 1] ?? null;
 
-  if (!current) {
-    return (
-      <View
-        style={[
-          styles.center,
-          { backgroundColor: colors.parchment, padding: 24 },
-        ]}
-      >
-        <Feather name="check-circle" size={36} color={colors.grass} />
-        <Text style={[styles.errorTitle, { color: colors.foreground }]}>All done!</Text>
-        <Text style={[styles.errorBody, { color: colors.mutedForeground }]}>
-          You've swiped through every available name.
-        </Text>
-        <Pressable
-          style={[styles.retryBtn, { backgroundColor: colors.primary }]}
-          onPress={() => loadNames(true)}
-        >
-          <Text style={styles.retryBtnText}>Start over</Text>
-        </Pressable>
-      </View>
-    );
-  }
+
+  const activePackName =
+    allPacks.find((p) => p.slug === activePack)?.display_name ??
+    activePack ??
+    "Names";
+  const isPremium = user.plan_tier === "premium";
+
 
   const undoEnabled = history.length > 0 && currentIndex > 0;
   return (
@@ -447,6 +465,35 @@ export default function SwipeScreen() {
         },
       ]}
     >
+
+      {/* Pack header — pack name pill + remaining counter */}
+      <View style={styles.packHeader}>
+        <Pressable
+          onPress={() => setPackSwitcherOpen(true)}
+          style={({ pressed }) => [
+            styles.packPill,
+            {
+              borderColor: colors.grass + "55",
+              backgroundColor: "hsla(145,45%,35%,0.09)",
+              opacity: pressed ? 0.72 : 1,
+            },
+          ]}
+        >
+          <Feather name="layers" size={12} color={colors.grass} />
+          <Text
+            style={[styles.packPillText, { color: colors.grass }]}
+            numberOfLines={1}
+          >
+            {activePackName}
+          </Text>
+          <Feather name="chevron-down" size={11} color={colors.grass} />
+        </Pressable>
+        {names.length > 0 && (
+          <Text style={[styles.remainingText, { color: colors.mutedForeground }]}>
+            {Math.max(0, names.length - currentIndex)} left
+          </Text>
+        )}
+      </View>
 
       <View style={styles.cardArea}>
         {/*
@@ -556,12 +603,61 @@ export default function SwipeScreen() {
         }}
         onClose={() => setFirstLikeOpen(false)}
       />
+
+      <PackCompleteModal
+        open={packCompleteOpen}
+        packName={activePackName}
+        onStartOver={() => {
+          setPackCompleteOpen(false);
+          loadNames(true);
+        }}
+        onSwitchPack={() => {
+          setPackCompleteOpen(false);
+          setPackSwitcherOpen(true);
+        }}
+      />
+
+      <PackSwitcherSheet
+        open={packSwitcherOpen}
+        packs={allPacks}
+        selectedSlug={activePack}
+        isPremium={isPremium}
+        onSelect={(slug) => changeSelectedPack(slug)}
+        onClose={() => setPackSwitcherOpen(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 16 },
+  packHeader: {
+    height: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    marginBottom: 2,
+  },
+  packPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    height: 30,
+    borderRadius: 999,
+    borderWidth: 1,
+    maxWidth: "65%",
+  },
+  packPillText: {
+    fontFamily: "Fredoka_600SemiBold",
+    fontSize: 13,
+    flexShrink: 1,
+  },
+  remainingText: {
+    fontFamily: "Fredoka_500Medium",
+    fontSize: 13,
+  },
   topBar: {
     height: 56,
     flexDirection: "row",

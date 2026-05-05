@@ -129,31 +129,29 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
 }
 
 export async function signInWithEmailMagicLink(email: string): Promise<void> {
-  // On native, use the custom URL scheme so iOS/Android can intercept the
-  // redirect and reopen the app. On web, use the current origin (same as
-  // Google OAuth). Using getOrigin() on native returns https://wename.app,
-  // which is NOT a Universal Link for /auth/callback (AASA only covers
-  // /join/*), so the magic link would open Safari and hit the marketing
-  // site instead of the app.
-  const redirectTo =
+  // On native use the custom URL scheme so iOS/Android can intercept the
+  // redirect and reopen the app directly. The custom scheme is registered in
+  // app.json under "scheme": "wename", which makes iOS launch the app when
+  // any URL starting with wename:// is followed.
+  //
+  // We previously delegated to a custom Edge Function (send-magic-link) but
+  // that function silently fell back to the Supabase project's default redirect
+  // URL whenever the function had a bug or misconfiguration, causing the magic
+  // link to land on the HTTPS web callback in Safari instead of opening the
+  // app. Using supabase.auth.signInWithOtp() guarantees that emailRedirectTo
+  // is forwarded correctly by the SDK.
+  const emailRedirectTo =
     Platform.OS !== "web" ? "wename://auth/callback" : `${getOrigin()}/auth/callback`;
-  const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-  const res = await fetch(`${supabaseUrl}/functions/v1/send-magic-link`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${supabaseAnonKey}`,
-      apikey: supabaseAnonKey,
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo,
+      shouldCreateUser: true,
     },
-    body: JSON.stringify({ email, redirectTo }),
   });
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || "Failed to send sign-in link. Please try again.");
-  }
+  if (error) throw new Error(error.message || "Failed to send sign-in link. Please try again.");
 }
 
 // ── Apple Sign-In (iOS native only) ────────────────────────────────────────

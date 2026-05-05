@@ -87,10 +87,11 @@ export default function AuthCallback() {
     let safety: ReturnType<typeof setTimeout> | null = null;
 
     // ── NATIVE ─────────────────────────────────────────────────────────────
-    // Magic links redirect to wename://auth/callback#access_token=...
-    // Supabase sends tokens in the hash fragment (implicit flow).
-    // We read them from the URL and call setSession() which fires
-    // onAuthStateChange → finalizeLogin in AuthContext automatically.
+    // signInWithOtp() uses the client's PKCE flow — the magic link redirects
+    // to wename://auth/callback?code=XXX. We exchange the code here using the
+    // verifier that supabase.auth stored in AsyncStorage when signInWithOtp
+    // was called. We also keep the legacy implicit-flow path (hash tokens) as
+    // a fallback for any links sent by older code.
     if (Platform.OS !== "web") {
       // url===null means not yet resolved; wait for the next effect run
       if (url === null) return;
@@ -99,12 +100,30 @@ export default function AuthCallback() {
 
       async function handleNative() {
         try {
-          const hash = url!.includes("#") ? url!.split("#")[1] : "";
-          const params = new URLSearchParams(hash);
-          const accessToken = params.get("access_token");
-          const refreshToken = params.get("refresh_token");
+          const urlStr = url!;
 
-          if (accessToken && refreshToken) {
+          // Parse query string and hash manually — new URL() chokes on
+          // custom schemes like wename:// on some RN environments.
+          const qIdx = urlStr.indexOf("?");
+          const hIdx = urlStr.indexOf("#");
+          const queryStr =
+            qIdx >= 0 ? urlStr.slice(qIdx + 1, hIdx >= 0 ? hIdx : undefined) : "";
+          const hashStr = hIdx >= 0 ? urlStr.slice(hIdx + 1) : "";
+
+          const queryParams = new URLSearchParams(queryStr);
+          const hashParams  = new URLSearchParams(hashStr);
+
+          const code         = queryParams.get("code");
+          const accessToken  = hashParams.get("access_token");
+          const refreshToken = hashParams.get("refresh_token");
+
+          if (code) {
+            // PKCE flow — supabase.auth.signInWithOtp() stores the verifier
+            // in AsyncStorage; exchangeCodeForSession reads it automatically.
+            const { error } = await supabase.auth.exchangeCodeForSession(code);
+            if (error) throw error;
+          } else if (accessToken && refreshToken) {
+            // Implicit flow fallback (legacy magic links / Google OAuth)
             const { error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,

@@ -520,10 +520,16 @@ export default function SwipeScreen() {
             pack: {activePack ?? "null"}
           </Text>
           <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-            uid: {user.id.slice(-6)}
+            uid: …{user.id.slice(-6)}
           </Text>
           <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
             premium: {isPremiumUser ? "yes" : "no"}
+          </Text>
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            names: {names.length}
+          </Text>
+          <Text style={[styles.debugLine, { color: colors.destructive }]}>
+            err: {error}
           </Text>
         </View>
 

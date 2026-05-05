@@ -105,104 +105,123 @@ export default function NamesScreen() {
 
   const isPremium = user?.plan_tier === "premium";
 
-  const fetchNamesByIds = useCallback(async (ids: string[]) => {
-    if (ids.length === 0)
-      return new Map<string, Omit<NameItem, "recordId" | "id">>();
-    const { data, error } = await supabase
-      .from("names")
-      .select("uuid, name, gender, us_rank, origin_raw, meaning, nicknames, pronunciation")
-      .in("uuid", ids);
-    if (error) {
-      console.error("[NamesScreen] fetchNamesByIds error", error);
-    }
-    const cleanField = (val: string | null | undefined): string | null => {
-      if (val == null || val === "\\N" || val === "" || val.trim() === "\\N") return null;
-      return val;
+  // Shared helpers for mapping an embedded `names` row to NameItem fields.
+  // The `names!name_id(...)` PostgREST syntax joins name detail in the same
+  // query, removing the separate fetchNamesByIds round trip entirely.
+  // Supabase SDK types the embedded relation as an array even for to-one FKs,
+  // so EmbeddedName is typed as an array and we take [0].
+  const NAME_COLS =
+    "name, gender, us_rank, origin_raw, meaning, nicknames, pronunciation";
+
+  type EmbeddedNameRow = {
+    name: string;
+    gender: string;
+    us_rank: unknown;
+    origin_raw: string | null;
+    meaning: string | null;
+    nicknames: string | null;
+    pronunciation: string | null;
+  };
+  type EmbeddedName = EmbeddedNameRow[] | null;
+
+  const cleanField = (val: string | null | undefined): string | null => {
+    if (val == null || val === "\\N" || val === "" || val.trim() === "\\N")
+      return null;
+    return val;
+  };
+
+  const embeddedToFields = (ns: EmbeddedName) => {
+    const n = ns?.[0] ?? null;
+    if (!n) return null;
+    return {
+      text: n.name,
+      gender: n.gender,
+      rank:
+        n.us_rank != null && /^\d+$/.test(String(n.us_rank))
+          ? Number(n.us_rank)
+          : null,
+      origin: cleanField(n.origin_raw),
+      meaning: cleanField(n.meaning),
+      nickname: cleanField(n.nicknames),
+      pronunciation: cleanField(n.pronunciation),
     };
-    return new Map(
-      (data ?? []).map((n: {
-        uuid: string;
-        name: string;
-        gender: string;
-        us_rank: unknown;
-        origin_raw: string | null;
-        meaning: string | null;
-        nicknames: string | null;
-        pronunciation: string | null;
-      }) => [
-        n.uuid,
-        {
-          text: n.name,
-          gender: n.gender,
-          rank:
-            n.us_rank != null && /^\d+$/.test(String(n.us_rank))
-              ? Number(n.us_rank)
-              : null,
-          origin: cleanField(n.origin_raw),
-          meaning: cleanField(n.meaning),
-          nickname: cleanField(n.nicknames),
-          pronunciation: cleanField(n.pronunciation),
-        },
-      ]),
-    );
-  }, []);
+  };
 
   const loadAll = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
+      // Each query now embeds name details via a FK join so there is no
+      // separate fetchNamesByIds round trip — one Promise.all covers all data.
+      // `names` is typed as an array because the Supabase SDK uses that shape
+      // for embedded resources; embeddedToFields takes [0].
+      type SwipeRow = {
+        id: string;
+        name_id: string;
+        ranking: number | null;
+        created_at: string;
+        manually_added: boolean;
+        names: EmbeddedNameRow[];
+      };
+      type MatchRow = SwipeRow & {
+        manually_added_by_user_id: string | null;
+      };
+      type FinalistRow = {
+        id: string;
+        name_id: string;
+        ranking: number | null;
+        created_at: string;
+        names: EmbeddedNameRow[];
+      };
+
       const [swipeData, matchData, finData] = await Promise.all([
         supabase
           .from("swipes")
-          .select("id, name_id, ranking, created_at, manually_added")
+          .select(`id, name_id, ranking, created_at, manually_added, names!name_id(${NAME_COLS})`)
           .eq("user_id", user.id)
           .eq("liked", true)
           .order("ranking", { ascending: true, nullsFirst: false })
           .order("created_at", { ascending: false })
-          .then((r) => r.data ?? []),
+          .then((r) => (r.data ?? []) as SwipeRow[]),
         user.partner_id
           ? supabase
               .from("matches")
-              .select("id, name_id, created_at, ranking, manually_added, manually_added_by_user_id")
+              .select(`id, name_id, created_at, ranking, manually_added, manually_added_by_user_id, names!name_id(${NAME_COLS})`)
               .or(`user_a_id.eq.${user.id},user_b_id.eq.${user.id}`)
               .order("ranking", { ascending: true, nullsFirst: false })
               .order("created_at", { ascending: false })
-              .then((r) => r.data ?? [])
-          : Promise.resolve([] as { id: string; name_id: string; created_at: string; ranking: number | null; manually_added: boolean; manually_added_by_user_id: string | null }[]),
+              .then((r) => (r.data ?? []) as MatchRow[])
+          : Promise.resolve([] as MatchRow[]),
         supabase
           .from("finalists")
-          .select("id, name_id, ranking, created_at")
+          .select(`id, name_id, ranking, created_at, names!name_id(${NAME_COLS})`)
           .eq("user_id", user.id)
           .order("ranking", { ascending: true, nullsFirst: false })
           .order("created_at", { ascending: false })
-          .then((r) => r.data ?? []),
+          .then((r) => (r.data ?? []) as FinalistRow[]),
       ]);
 
-      const allIds = [
-        ...new Set([
-          ...(swipeData as { name_id: string }[]).map((s) => s.name_id),
-          ...(matchData as { name_id: string }[]).map((m) => m.name_id),
-          ...(finData as { name_id: string }[]).map((f) => f.name_id),
-        ]),
-      ];
-      const nameMap = await fetchNamesByIds(allIds);
-
       setLiked(
-        (swipeData as { id: string; name_id: string; manually_added: boolean }[])
-          .filter((s) => nameMap.has(s.name_id))
-          .map((s) => ({ recordId: s.id, id: s.name_id, isManual: s.manually_added, ...nameMap.get(s.name_id)! })),
+        swipeData
+          .filter((s) => s.names !== null)
+          .map((s) => ({
+            recordId: s.id,
+            id: s.name_id,
+            isManual: s.manually_added,
+            ...embeddedToFields(s.names)!,
+          })),
       );
 
       if (user.partner_id) {
         setMatches(
-          (matchData as { id: string; name_id: string; manually_added: boolean; manually_added_by_user_id: string | null }[])
-            .filter((m) => nameMap.has(m.name_id))
+          matchData
+            .filter((m) => m.names !== null)
             .map((m) => ({
               recordId: m.id,
               id: m.name_id,
               isManual: m.manually_added,
               addedByUserId: m.manually_added_by_user_id ?? undefined,
-              ...nameMap.get(m.name_id)!,
+              ...embeddedToFields(m.names)!,
             })),
         );
       } else {
@@ -210,53 +229,64 @@ export default function NamesScreen() {
       }
 
       setFinalists(
-        (finData as { id: string; name_id: string }[])
-          .filter((f) => nameMap.has(f.name_id))
-          .map((f) => ({ recordId: f.id, id: f.name_id, ...nameMap.get(f.name_id)! })),
+        finData
+          .filter((f) => f.names !== null)
+          .map((f) => ({
+            recordId: f.id,
+            id: f.name_id,
+            ...embeddedToFields(f.names)!,
+          })),
       );
     } catch (e) {
       console.error("[NamesScreen] load error", e);
     } finally {
       setLoading(false);
     }
-  }, [user, fetchNamesByIds]);
+  }, [user]);
 
   const loadSuggestionContext = useCallback(async () => {
     if (!user) return;
     try {
-      // All swiped names (liked + passed) — for excludeNames
-      const { data: allSwipes } = await supabase
-        .from("swipes")
-        .select("name_id")
-        .eq("user_id", user.id);
-      const swipedIds = (allSwipes ?? []).map((s: { name_id: string }) => s.name_id);
-      if (swipedIds.length > 0) {
-        const { data: swipedRows } = await supabase
-          .from("names")
-          .select("name")
-          .in("uuid", swipedIds);
-        setAllSwipedNames((swipedRows ?? []).map((n: { name: string }) => n.name));
-      } else {
-        setAllSwipedNames([]);
-      }
+      // All three fetches run in parallel. Embedded selects (names!name_id)
+      // mean each query returns name text directly — no chained round trips.
+      // SDK types the embedded resource as an array even for to-one FKs.
+      type SwipeNameRow = { names: { name: string }[] };
 
-      // Partner liked names — for context
+      const [mySwipes, partnerUserRow, partnerSwipes] = await Promise.all([
+        supabase
+          .from("swipes")
+          .select("names!name_id(name)")
+          .eq("user_id", user.id)
+          .then((r) => (r.data ?? []) as SwipeNameRow[]),
+        user.partner_id
+          ? supabase
+              .from("users")
+              .select("display_name")
+              .eq("id", user.partner_id)
+              .single()
+              .then((r) => r.data as { display_name: string | null } | null)
+          : Promise.resolve(null),
+        user.partner_id
+          ? supabase
+              .from("swipes")
+              .select("names!name_id(name)")
+              .eq("user_id", user.partner_id)
+              .eq("liked", true)
+              .then((r) => (r.data ?? []) as SwipeNameRow[])
+          : Promise.resolve([] as SwipeNameRow[]),
+      ]);
+
+      setAllSwipedNames(
+        mySwipes.map((r) => r.names[0]?.name).filter((n): n is string => n != null),
+      );
+
       if (user.partner_id) {
-        const [{ data: partnerUser }, { data: partnerSwipes }] = await Promise.all([
-          supabase.from("users").select("display_name").eq("id", user.partner_id).single(),
-          supabase.from("swipes").select("name_id").eq("user_id", user.partner_id).eq("liked", true),
-        ]);
-        setPartnerDisplayName((partnerUser as { display_name: string | null } | null)?.display_name ?? null);
-        const partnerIds = (partnerSwipes ?? []).map((s: { name_id: string }) => s.name_id);
-        if (partnerIds.length > 0) {
-          const { data: partnerRows } = await supabase
-            .from("names")
-            .select("name")
-            .in("uuid", partnerIds);
-          setPartnerLikedNames((partnerRows ?? []).map((n: { name: string }) => n.name));
-        } else {
-          setPartnerLikedNames([]);
-        }
+        setPartnerDisplayName(partnerUserRow?.display_name ?? null);
+        setPartnerLikedNames(
+          partnerSwipes
+            .map((r) => r.names[0]?.name)
+            .filter((n): n is string => n != null),
+        );
       }
     } catch (e) {
       console.error("[NamesScreen] loadSuggestionContext error", e);

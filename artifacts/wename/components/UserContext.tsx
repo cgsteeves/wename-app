@@ -34,7 +34,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string | null>(null);
 
-  const loadPackForUser = useCallback(async (userId: string) => {
+  const loadPackForUser = useCallback(async (userId: string): Promise<void> => {
     try {
       const slugs = await getUserSelectedPacks(userId);
       setSelectedPackSlug(slugs[0] ?? null);
@@ -78,8 +78,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             .maybeSingle();
 
           if (!error && data) {
+            // Load pack in parallel with setting user state — both are ready together
+            await loadPackForUser((data as User).id);
             setUser(data as User);
-            loadPackForUser((data as User).id);
             return;
           }
 
@@ -105,27 +106,27 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
 
   // General load — reads USER_ID_KEY from storage and falls through to guest
   // creation if no match is found.  Used on app start and SIGNED_OUT.
+  // User profile + pack selection are fetched in parallel so the swipe screen
+  // always has selectedPackSlug ready when loading completes.
   const load = useCallback(async () => {
     setLoading(true);
     const safetyTimer = setTimeout(() => setLoading(false), 8000);
     try {
       const stored = await AsyncStorage.getItem(USER_ID_KEY);
       if (stored) {
-        const { data, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", stored)
-          .maybeSingle();
+        const [{ data, error }] = await Promise.all([
+          supabase.from("users").select("*").eq("id", stored).maybeSingle(),
+          loadPackForUser(stored),
+        ]);
         if (!error && data) {
           setUser(data as User);
-          loadPackForUser((data as User).id);
           return;
         }
       }
       const created = await createUser();
       if (created) {
         setUser(created);
-        loadPackForUser(created.id);
+        await loadPackForUser(created.id);
       }
     } catch (e) {
       console.error("[UserContext] load error", e);

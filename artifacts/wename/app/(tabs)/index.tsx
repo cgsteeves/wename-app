@@ -101,32 +101,40 @@ export default function SwipeScreen() {
         if (gen === loadGenRef.current) setLoading(false);
       }, 10_000);
       try {
-        const { data: swipes } = await supabase
-          .from("swipes")
-          .select("name_id")
-          .eq("user_id", userId);
-        // Discard if a newer load has already started (userId changed mid-flight).
-        if (gen !== loadGenRef.current) return;
-        const swiped = new Set((swipes ?? []).map((s: { name_id: string }) => s.name_id));
         const gender = userGender ?? "either";
         const packOverride = activePack ? [activePack] : undefined;
-        const [all, partner] = await Promise.all([
-          getSwipeableNames(userId, gender, packOverride),
+        // The RPC excludes already-swiped names server-side when !includeAlready,
+        // eliminating the separate swipes pre-fetch that used to block this step.
+        // Partner swipes are fetched in parallel only when a partner exists.
+        const [all, partner, swipeResult] = await Promise.all([
+          getSwipeableNames(userId, gender, packOverride, !includeAlready),
           partnerId
             ? getPartnerCreatedNames(partnerId, gender)
             : Promise.resolve([] as Name[]),
+          // Only fetch swipes when needed to filter partner-created names
+          partnerId
+            ? supabase.from("swipes").select("name_id").eq("user_id", userId)
+            : Promise.resolve({ data: null as { name_id: string }[] | null }),
         ]);
+        // Discard if a newer load has already started (userId changed mid-flight).
         if (gen !== loadGenRef.current) return;
+        // If the RPC returned nothing (user swiped every name in the pack),
+        // reload with includeAlready=true so the deck recycles automatically.
+        if (all.length === 0 && !includeAlready) {
+          if (gen === loadGenRef.current) loadNames(true);
+          return;
+        }
         if (all.length === 0 && partner.length === 0) {
           throw new Error("No names available in the selected packs");
         }
         // Filter partner picks against already-swiped so the user never sees a
         // duplicate they already acted on (partner picks are not reset by "Start Over").
+        const swiped = new Set(
+          (swipeResult.data ?? []).map((s: { name_id: string }) => s.name_id),
+        );
         const partnerFiltered = partner.filter((n) => !swiped.has(n.id));
         setPartnerPickIds(new Set(partnerFiltered.map((n) => n.id)));
-        let filtered = includeAlready ? all : all.filter((n) => !swiped.has(n.id));
-        if (filtered.length === 0 && !includeAlready) filtered = all;
-        const combined = [...filtered, ...partnerFiltered];
+        const combined = [...all, ...partnerFiltered];
         const shuffled = [...combined].sort(() => Math.random() - 0.5);
         setNames(shuffled);
         setCurrentIndex(0);

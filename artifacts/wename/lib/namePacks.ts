@@ -53,11 +53,13 @@ export async function getSwipeableNames(
   userId: string,
   gender?: "boy" | "girl" | "either" | null,
   packSlugsOverride?: string[],
+  excludeAlreadySwiped = false,
 ): Promise<Name[]> {
   const selectedPacks = packSlugsOverride ?? (await getUserSelectedPacks(userId));
   const { data, error } = await supabase.rpc("get_swipeable_names", {
     pack_slugs: selectedPacks,
     gender_filter: gender ?? null,
+    p_user_id: excludeAlreadySwiped ? userId : null,
   });
   if (error) throw error;
   if (!data || data.length === 0) return [];
@@ -79,52 +81,44 @@ export async function getSwipeableNames(
 //   1. name_id appears in partner's swipes (liked=true)  → partner-scoped
 //   2. user_created=true in the names table              → never catalog names
 // This ensures a custom name surfaces only for the one user whose partner added it.
+// Uses a single PostgREST join query instead of two sequential round-trips.
 export async function getPartnerCreatedNames(
   partnerId: string,
   gender: string,
 ): Promise<Name[]> {
   try {
-    // Step 1: get every name_id the partner has liked
-    const { data: swipeRows, error: swipeErr } = await supabase
-      .from("swipes")
-      .select("name_id")
-      .eq("user_id", partnerId)
-      .eq("liked", true);
-
-    if (swipeErr || !swipeRows || swipeRows.length === 0) return [];
-
-    const nameIds = (swipeRows as Array<{ name_id: string }>).map(
-      (r) => r.name_id,
-    );
-
-    // Step 2: fetch those names, but only user-created ones + gender filter
     let query = supabase
-      .from("names")
+      .from("swipes")
       .select(
-        "uuid, name, gender, pronunciation, origin, meaning, nickname, rank, created_by_user_id",
+        "name_id, names!name_id!inner(uuid, name, gender, pronunciation, origin_raw, meaning, nicknames, rank, created_by_user_id)",
       )
-      .in("uuid", nameIds)
-      .eq("user_created", true);
+      .eq("user_id", partnerId)
+      .eq("liked", true)
+      .eq("names.user_created", true);
 
     if (gender !== "either") {
-      query = query.eq("gender", gender);
+      query = query.eq("names.gender", gender);
     }
 
     const { data, error } = await query;
     if (error || !data) return [];
 
-    return (data as Array<Record<string, unknown>>).map((row) => ({
-      id: row.uuid as string,
-      text: row.name as string,
-      gender: row.gender as "boy" | "girl",
-      pronunciation: clean(row.pronunciation),
-      origin: clean(row.origin),
-      meaning: clean(row.meaning),
-      nickname: clean(row.nickname),
-      rank: row.rank != null ? Number(row.rank) : null,
-      created_at: "",
-      created_by_user_id: (row.created_by_user_id as string) ?? null,
-    }));
+    return (data as Array<Record<string, unknown>>).flatMap((row) => {
+      const n = row.names as Record<string, unknown> | null;
+      if (!n) return [];
+      return [{
+        id: n.uuid as string,
+        text: n.name as string,
+        gender: n.gender as "boy" | "girl",
+        pronunciation: clean(n.pronunciation),
+        origin: clean(n.origin_raw),
+        meaning: clean(n.meaning),
+        nickname: clean(n.nicknames),
+        rank: n.rank != null ? Number(n.rank) : null,
+        created_at: "",
+        created_by_user_id: (n.created_by_user_id as string) ?? null,
+      }];
+    });
   } catch {
     return [];
   }

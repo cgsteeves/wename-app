@@ -28,7 +28,7 @@ export default function SupportScreen() {
             icon="mail"
             label="Contact Support"
             colors={colors}
-            onPress={() => Linking.openURL("mailto:hello@wename.app")}
+            onPress={() => Linking.openURL("mailto:wenameapp@gmail.com")}
           />
         </View>
 

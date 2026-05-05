@@ -127,18 +127,29 @@ export default function SwipeScreen() {
         // getSwipeableNames to call getUserSelectedPacks internally — a raw
         // Supabase query with no timeout that can hang on a stalled auth lock.
         const packOverride = activePack ? [activePack] : [DEFAULT_PACK_SLUG];
+        // Hard 5 s timeout on the entire names-fetch. If getSwipeableNames or
+        // the swipes query hangs (e.g. stalled auth lock after Apple Sign-In),
+        // we reject immediately so the catch block sets an error and the
+        // useFocusEffect !error guard stops the infinite-retry loop.
+        const NAMES_TIMEOUT_MS = 5_000;
+        const timeoutReject = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Names took too long to load — tap Retry")), NAMES_TIMEOUT_MS),
+        );
         // The RPC excludes already-swiped names server-side when !includeAlready,
         // eliminating the separate swipes pre-fetch that used to block this step.
         // Partner swipes are fetched in parallel only when a partner exists.
-        const [all, partner, swipeResult] = await Promise.all([
-          getSwipeableNames(userId, gender, packOverride, !includeAlready),
-          partnerId
-            ? getPartnerCreatedNames(partnerId, gender)
-            : Promise.resolve([] as Name[]),
-          // Only fetch swipes when needed to filter partner-created names
-          partnerId
-            ? supabase.from("swipes").select("name_id").eq("user_id", userId)
-            : Promise.resolve({ data: null as { name_id: string }[] | null }),
+        const [all, partner, swipeResult] = await Promise.race([
+          Promise.all([
+            getSwipeableNames(userId, gender, packOverride, !includeAlready),
+            partnerId
+              ? getPartnerCreatedNames(partnerId, gender)
+              : Promise.resolve([] as Name[]),
+            // Only fetch swipes when needed to filter partner-created names
+            partnerId
+              ? supabase.from("swipes").select("name_id").eq("user_id", userId)
+              : Promise.resolve({ data: null as { name_id: string }[] | null }),
+          ]),
+          timeoutReject,
         ]);
         // Discard if a newer load has already started (userId changed mid-flight).
         if (gen !== loadGenRef.current) return;
@@ -211,10 +222,14 @@ export default function SwipeScreen() {
   useFocusEffect(
     useCallback(() => {
       isFocusedRef.current = true;
-      // refresh on focus only if we're empty
-      if (names.length === 0 && !namesLoading) loadNames();
+      // Refresh on focus only if empty AND not already loading AND no error.
+      // The !error guard is critical: without it, when the 5s timeout fires and
+      // sets namesLoading=false with names=[], this callback re-triggers loadNames
+      // on every dep change, creating an infinite retry loop. Once error is set
+      // the user must explicitly tap Retry to re-attempt.
+      if (names.length === 0 && !namesLoading && !error) loadNames();
       return () => { isFocusedRef.current = false; };
-    }, [names.length, namesLoading, loadNames]),
+    }, [names.length, namesLoading, error, loadNames]),
   );
 
   // Poll for new partner custom names every 15 seconds.
@@ -476,6 +491,9 @@ export default function SwipeScreen() {
         step={step}
         userIdSuffix={user?.id?.slice(-6) ?? undefined}
         packSlug={selectedPackSlug}
+        isPremium={user?.plan_tier === "premium"}
+        namesCount={names.length}
+        errorMsg={error ?? undefined}
         onRetry={handleRetry}
         onSignOut={handleSignOut}
         onReset={handleReset}
@@ -483,6 +501,7 @@ export default function SwipeScreen() {
     );
   }
   if (error) {
+    const isPremiumUser = user.plan_tier === "premium";
     return (
       <View
         style={[
@@ -491,13 +510,39 @@ export default function SwipeScreen() {
         ]}
       >
         <Feather name="alert-triangle" size={32} color={colors.destructive} />
-        <Text style={[styles.errorTitle, { color: colors.foreground }]}>Oops</Text>
+        <Text style={[styles.errorTitle, { color: colors.foreground }]}>
+          Couldn't load names
+        </Text>
         <Text style={[styles.errorBody, { color: colors.mutedForeground }]}>{error}</Text>
+
+        <View style={[styles.debugBox, { borderColor: colors.border }]}>
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            pack: {activePack ?? "null"}
+          </Text>
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            uid: {user.id.slice(-6)}
+          </Text>
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            premium: {isPremiumUser ? "yes" : "no"}
+          </Text>
+        </View>
+
         <Pressable
           style={[styles.retryBtn, { backgroundColor: colors.primary }]}
           onPress={() => loadNames()}
         >
-          <Text style={styles.retryBtnText}>Try again</Text>
+          <Text style={styles.retryBtnText}>Retry</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.retryBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, marginTop: 8 }]}
+          onPress={async () => {
+            await changeSelectedPack(DEFAULT_PACK_SLUG);
+            loadNames();
+          }}
+        >
+          <Text style={[styles.retryBtnText, { color: colors.foreground }]}>
+            Reset pack to default
+          </Text>
         </Pressable>
       </View>
     );
@@ -746,4 +791,14 @@ const styles = StyleSheet.create({
   errorBody: { fontSize: 14, textAlign: "center", marginBottom: 16 },
   retryBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12 },
   retryBtnText: { color: "#fff", fontWeight: "700" },
+  debugBox: {
+    alignSelf: "stretch",
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 2,
+    marginBottom: 8,
+  },
+  debugLine: { fontSize: 12 },
 });

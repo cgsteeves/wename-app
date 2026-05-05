@@ -18,6 +18,9 @@ type Props = {
   /** Short user-id suffix for diagnostics — safe to display */
   userIdSuffix?: string;
   packSlug?: string | null;
+  isPremium?: boolean;
+  namesCount?: number;
+  errorMsg?: string;
   onRetry: () => void;
   onSignOut: () => void;
   onReset: () => void;
@@ -29,6 +32,9 @@ export function DebugLoadingScreen({
   step,
   userIdSuffix,
   packSlug,
+  isPremium,
+  namesCount,
+  errorMsg,
   onRetry,
   onSignOut,
   onReset,
@@ -80,18 +86,27 @@ export function DebugLoadingScreen({
         <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
           step: {step}
         </Text>
-        {userIdSuffix ? (
-          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-            uid: …{userIdSuffix}
-          </Text>
-        ) : (
-          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-            uid: none
-          </Text>
-        )}
+        <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+          uid: {userIdSuffix ? `…${userIdSuffix}` : "none"}
+        </Text>
         <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
           pack: {packSlug ?? "null"}
         </Text>
+        {isPremium !== undefined && (
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            premium: {isPremium ? "yes" : "no"}
+          </Text>
+        )}
+        {namesCount !== undefined && (
+          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
+            names: {namesCount}
+          </Text>
+        )}
+        {errorMsg !== undefined && (
+          <Text style={[styles.debugLine, { color: colors.destructive }]}>
+            err: {errorMsg}
+          </Text>
+        )}
       </View>
 
       {(isTimedOut || isFailed) && (

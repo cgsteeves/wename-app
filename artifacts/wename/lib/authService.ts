@@ -147,7 +147,16 @@ export async function signInWithEmailMagicLink(email: string): Promise<void> {
     const supabaseUrl    = process.env.EXPO_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-    const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+    // GoTrue's /auth/v1/otp endpoint takes the redirect URL as a query
+    // parameter (?redirect_to=…), NOT inside the JSON body. Putting it in
+    // the body (e.g. as options.emailRedirectTo) is a JS SDK abstraction and
+    // is silently ignored by the server, which then falls back to the project's
+    // default site URL. Omitting code_challenge / code_challenge_method forces
+    // implicit flow — the link redirects with #access_token=…&refresh_token=…
+    // in the hash fragment, which the native callback handles via setSession().
+    const otpUrl = `${supabaseUrl}/auth/v1/otp?redirect_to=${encodeURIComponent(emailRedirectTo)}`;
+
+    const res = await fetch(otpUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -159,7 +168,6 @@ export async function signInWithEmailMagicLink(email: string): Promise<void> {
         create_user: true,
         data: {},
         gotrue_meta_security: {},
-        options: { emailRedirectTo },
       }),
     });
 

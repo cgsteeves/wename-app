@@ -67,10 +67,14 @@ function PlanSyncEffect() {
     if (Platform.OS === "web") return;
     if (!user || isLoading) return;
     const isPremiumInDb = user.plan_tier === "premium";
+    // Only auto-upgrade — never auto-downgrade here.
+    // After a purchase the customerInfo refetch is async; if isSubscribed is
+    // still false when this effect fires (race condition), auto-downgrading
+    // would silently revert the plan_tier the purchase flow just wrote.
+    // Cancellation downgrades are handled by the RevenueCat webhook in
+    // production, not by client-side polling.
     if (isSubscribed && !isPremiumInDb) {
       updateUser({ plan_tier: "premium" });
-    } else if (!isSubscribed && isPremiumInDb) {
-      updateUser({ plan_tier: null });
     }
   }, [isSubscribed, isLoading, user?.id]);
 

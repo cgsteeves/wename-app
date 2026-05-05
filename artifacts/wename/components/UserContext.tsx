@@ -4,6 +4,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
 } from "react";
 
@@ -45,6 +46,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string | null>(null);
+  // Tracks the currently-loaded user ID so the onAuthStateChange handler can
+  // skip spurious SIGNED_IN events (e.g. iOS fires one every time the app
+  // returns from background — including after the Apple payment sheet closes).
+  const currentUserIdRef = useRef<string | null>(null);
 
   const loadPackForUser = useCallback(async (userId: string): Promise<void> => {
     try {
@@ -98,9 +103,15 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
           );
 
           if (queryResult && !queryResult.error && queryResult.data) {
-            // Load pack in parallel with setting user state — both are ready together
-            await loadPackForUser((queryResult.data as User).id);
-            setUser(queryResult.data as User);
+            const loadedUser = queryResult.data as User;
+            currentUserIdRef.current = loadedUser.id;
+            setUser(loadedUser);
+            // Fire-and-forget — do NOT await before setUser. Awaiting
+            // loadPackForUser blocks setUser, and if the pack query hangs
+            // (auth lock stall post-purchase) it resets selectedPackSlug to
+            // null, changes activePack, and triggers a full loadNames reload
+            // in the swipe screen — exactly the post-purchase spinner bug.
+            loadPackForUser(loadedUser.id).catch(() => {});
             return;
           }
 
@@ -136,8 +147,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         );
         if (upsertResult && !upsertResult.error && upsertResult.data) {
           await AsyncStorage.setItem(USER_ID_KEY, userId);
-          await loadPackForUser(userId);
-          setUser(upsertResult.data as User);
+          const upsertedUser = upsertResult.data as User;
+          currentUserIdRef.current = upsertedUser.id;
+          setUser(upsertedUser);
+          loadPackForUser(userId).catch(() => {});
           return;
         }
         console.error(
@@ -175,7 +188,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         // whole startup spinner.
         loadPackForUser(stored).catch(() => {});
         if (queryResult && !queryResult.error && queryResult.data) {
-          setUser(queryResult.data as User);
+          const loadedUser = queryResult.data as User;
+          currentUserIdRef.current = loadedUser.id;
+          setUser(loadedUser);
           return;
         }
         // Stored ID didn't resolve (deleted user, network failure, or
@@ -183,8 +198,9 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       }
       const created = await createUser();
       if (created) {
+        currentUserIdRef.current = created.id;
         setUser(created);
-        await loadPackForUser(created.id);
+        loadPackForUser(created.id).catch(() => {});
         return;
       }
       // Both stored lookup AND createUser failed — surface a retry UI
@@ -210,14 +226,23 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   //            here because finalizeLogin (AuthContext) may not have written
   //            the new ID yet, causing a stale guest-user load.
   //
+  //            IMPORTANT: iOS fires SIGNED_IN every time the app returns from
+  //            background (e.g. after the Apple payment sheet closes). Skip
+  //            the reload when we already have this user loaded — otherwise
+  //            loadById runs, loadPackForUser stalls on the auth lock, and
+  //            selectedPackSlug temporarily resets to null, which re-triggers
+  //            loadNames in the swipe screen and shows the post-purchase spinner.
+  //
   // SIGNED_OUT: fall back to load() which will create/find a guest profile.
   useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_IN" && session?.user?.id) {
+        if (currentUserIdRef.current === session.user.id) return;
         loadById(session.user.id);
       } else if (event === "SIGNED_OUT") {
+        currentUserIdRef.current = null;
         load();
       }
     });
@@ -290,12 +315,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const updateUser = useCallback(
     async (updates: Partial<User>) => {
       if (!user) return;
-      const { data, error } = await supabase
-        .from("users")
-        .update(updates)
-        .eq("id", user.id)
-        .select()
-        .single();
+      const result = await withTimeout(
+        supabase
+          .from("users")
+          .update(updates)
+          .eq("id", user.id)
+          .select()
+          .single(),
+        5000,
+      );
+      if (!result) {
+        console.error("[UserContext] updateUser timed out");
+        return;
+      }
+      const { data, error } = result;
       if (error) {
         console.error("[UserContext] updateUser error", error);
         return;

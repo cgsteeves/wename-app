@@ -72,6 +72,7 @@ export default function SwipeScreen() {
   const firstLikeKey = user ? `first_like_partner_shown_${user.id}` : "";
   const maybeShowFirstLike = useCallback(async () => {
     if (!user || !firstLikeKey) return;
+    if (user.partner_id) return;
     const seen = await AsyncStorage.getItem(firstLikeKey);
     if (seen) return;
     await AsyncStorage.setItem(firstLikeKey, "1");

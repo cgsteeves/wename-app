@@ -15,7 +15,6 @@ export type LoadingStep =
 
 type Props = {
   step: LoadingStep | string;
-  /** Short user-id suffix for diagnostics — safe to display */
   userIdSuffix?: string;
   packSlug?: string | null;
   isPremium?: boolean;
@@ -30,11 +29,6 @@ const TIMEOUT_SECONDS = 8;
 
 export function DebugLoadingScreen({
   step,
-  userIdSuffix,
-  packSlug,
-  isPremium,
-  namesCount,
-  errorMsg,
   onRetry,
   onSignOut,
   onReset,
@@ -77,37 +71,6 @@ export function DebugLoadingScreen({
         {step}
         {!isFailed && "…"}
       </Text>
-
-      <Text style={[styles.elapsed, { color: colors.mutedForeground }]}>
-        {elapsed}s
-      </Text>
-
-      <View style={[styles.debugBox, { borderColor: colors.border }]}>
-        <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-          step: {step}
-        </Text>
-        <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-          uid: {userIdSuffix ? `…${userIdSuffix}` : "none"}
-        </Text>
-        <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-          pack: {packSlug ?? "null"}
-        </Text>
-        {isPremium !== undefined && (
-          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-            premium: {isPremium ? "yes" : "no"}
-          </Text>
-        )}
-        {namesCount !== undefined && (
-          <Text style={[styles.debugLine, { color: colors.mutedForeground }]}>
-            names: {namesCount}
-          </Text>
-        )}
-        {errorMsg !== undefined && (
-          <Text style={[styles.debugLine, { color: colors.destructive }]}>
-            err: {errorMsg}
-          </Text>
-        )}
-      </View>
 
       {(isTimedOut || isFailed) && (
         <View style={styles.recovery}>
@@ -163,23 +126,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displaySemibold,
     fontSize: 16,
     textAlign: "center",
-  },
-  elapsed: {
-    fontFamily: fonts.display,
-    fontSize: 13,
-  },
-  debugBox: {
-    marginTop: 8,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    gap: 2,
-    alignSelf: "stretch",
-  },
-  debugLine: {
-    fontFamily: fonts.display,
-    fontSize: 12,
   },
   recovery: {
     marginTop: 20,

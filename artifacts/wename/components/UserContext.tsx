@@ -14,6 +14,7 @@ import { supabase, User, USER_ID_KEY } from "@/lib/supabase";
 type UserContextValue = {
   user: User | null;
   loading: boolean;
+  loadError: boolean;
   selectedPackSlug: string | null;
   changeSelectedPack: (slug: string) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
@@ -29,9 +30,20 @@ function generateInviteCode(): string {
   return Math.random().toString(36).substring(2, 10).toUpperCase();
 }
 
+// Race a promise against a timeout. If the timeout fires first, resolves with
+// `null`. Used to keep startup network calls from hanging indefinitely on a
+// flaky cellular connection or a stuck Supabase auth lock.
+async function withTimeout<T>(p: PromiseLike<T>, ms: number): Promise<T | null> {
+  return Promise.race<T | null>([
+    Promise.resolve(p),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ]);
+}
+
 export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string | null>(null);
 
   const loadPackForUser = useCallback(async (userId: string): Promise<void> => {
@@ -44,11 +56,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const createUser = useCallback(async (): Promise<User | null> => {
-    const { data, error } = await supabase
-      .from("users")
-      .insert({ invite_code: generateInviteCode() })
-      .select()
-      .single();
+    const result = await withTimeout(
+      supabase
+        .from("users")
+        .insert({ invite_code: generateInviteCode() })
+        .select()
+        .single(),
+      8000,
+    );
+    if (!result) {
+      console.error("[UserContext] createUser timed out");
+      return null;
+    }
+    const { data, error } = result;
     if (error) {
       console.error("[UserContext] createUser error", error);
       return null;
@@ -68,19 +88,19 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const loadById = useCallback(
     async (userId: string, maxRetries = 5): Promise<void> => {
       setLoading(true);
+      setLoadError(false);
       const safetyTimer = setTimeout(() => setLoading(false), 8000);
       try {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-          const { data, error } = await supabase
-            .from("users")
-            .select("*")
-            .eq("id", userId)
-            .maybeSingle();
+          const queryResult = await withTimeout(
+            supabase.from("users").select("*").eq("id", userId).maybeSingle(),
+            5000,
+          );
 
-          if (!error && data) {
+          if (queryResult && !queryResult.error && queryResult.data) {
             // Load pack in parallel with setting user state — both are ready together
-            await loadPackForUser((data as User).id);
-            setUser(data as User);
+            await loadPackForUser((queryResult.data as User).id);
+            setUser(queryResult.data as User);
             return;
           }
 
@@ -94,8 +114,40 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             );
           }
         }
+
+        // Fallback: profile row never appeared (e.g. finalizeLogin failed
+        // silently in a previous session). Since we have an authenticated
+        // session for this userId, RLS allows us to upsert our own row.
+        // Without this the user would be stuck on an endless spinner.
+        console.warn(
+          "[UserContext] loadById: upserting fallback profile for",
+          userId,
+        );
+        const upsertResult = await withTimeout(
+          supabase
+            .from("users")
+            .upsert(
+              { id: userId, invite_code: generateInviteCode() },
+              { onConflict: "id", ignoreDuplicates: false },
+            )
+            .select()
+            .single(),
+          8000,
+        );
+        if (upsertResult && !upsertResult.error && upsertResult.data) {
+          await AsyncStorage.setItem(USER_ID_KEY, userId);
+          await loadPackForUser(userId);
+          setUser(upsertResult.data as User);
+          return;
+        }
+        console.error(
+          "[UserContext] loadById: fallback upsert failed",
+          upsertResult?.error,
+        );
+        setLoadError(true);
       } catch (e) {
         console.error("[UserContext] loadById error", e);
+        setLoadError(true);
       } finally {
         clearTimeout(safetyTimer);
         setLoading(false);
@@ -110,26 +162,37 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // always has selectedPackSlug ready when loading completes.
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     const safetyTimer = setTimeout(() => setLoading(false), 8000);
     try {
       const stored = await AsyncStorage.getItem(USER_ID_KEY);
       if (stored) {
-        const [{ data, error }] = await Promise.all([
+        const queryResult = await withTimeout(
           supabase.from("users").select("*").eq("id", stored).maybeSingle(),
-          loadPackForUser(stored),
-        ]);
-        if (!error && data) {
-          setUser(data as User);
+          5000,
+        );
+        // Pack load is fire-and-forget — failures here must not block the
+        // whole startup spinner.
+        loadPackForUser(stored).catch(() => {});
+        if (queryResult && !queryResult.error && queryResult.data) {
+          setUser(queryResult.data as User);
           return;
         }
+        // Stored ID didn't resolve (deleted user, network failure, or
+        // query timeout). Fall through to creating a fresh guest profile.
       }
       const created = await createUser();
       if (created) {
         setUser(created);
         await loadPackForUser(created.id);
+        return;
       }
+      // Both stored lookup AND createUser failed — surface a retry UI
+      // instead of leaving the user staring at a silent spinner.
+      setLoadError(true);
     } catch (e) {
       console.error("[UserContext] load error", e);
+      setLoadError(true);
     } finally {
       clearTimeout(safetyTimer);
       setLoading(false);
@@ -291,6 +354,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         loading,
+        loadError,
         selectedPackSlug,
         changeSelectedPack,
         updateUser,

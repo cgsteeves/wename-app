@@ -10,12 +10,13 @@ import React, {
 
 import { getUserSelectedPacks, setUserPack } from "@/lib/namePacks";
 import { onMergeComplete } from "@/lib/mergeEvents";
-import { supabase, User, USER_ID_KEY } from "@/lib/supabase";
+import { supabase, User, USER_ID_KEY, DEFAULT_PACK_SLUG } from "@/lib/supabase";
 
 type UserContextValue = {
   user: User | null;
   loading: boolean;
   loadError: boolean;
+  packLoading: boolean;
   selectedPackSlug: string | null;
   changeSelectedPack: (slug: string) => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
@@ -45,6 +46,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [packLoading, setPackLoading] = useState(false);
   const [selectedPackSlug, setSelectedPackSlug] = useState<string | null>(null);
   // Tracks the currently-loaded user ID so the onAuthStateChange handler can
   // skip spurious SIGNED_IN events (e.g. iOS fires one every time the app
@@ -55,11 +57,20 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const signInFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadPackForUser = useCallback(async (userId: string): Promise<void> => {
+    setPackLoading(true);
     try {
-      const slugs = await getUserSelectedPacks(userId);
-      setSelectedPackSlug(slugs[0] ?? null);
+      // getUserSelectedPacks has no internal timeout — wrap it so a stalled
+      // auth lock never leaves packLoading=true and selectedPackSlug=null forever.
+      const slugs = await withTimeout(getUserSelectedPacks(userId), 5000);
+      // Always resolve to a valid slug. null means the query timed out;
+      // an empty array means no preference row exists — both fall back to the
+      // free default so the swipe screen can render immediately.
+      setSelectedPackSlug(slugs?.[0] ?? DEFAULT_PACK_SLUG);
     } catch {
-      setSelectedPackSlug(null);
+      // Network or RLS error — fall back to the free pack so nothing blocks.
+      setSelectedPackSlug(DEFAULT_PACK_SLUG);
+    } finally {
+      setPackLoading(false);
     }
   }, []);
 
@@ -278,6 +289,13 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // always emits mergeComplete when it finishes, whether or not guest data was
   // merged. Cancel the fallback timer from the SIGNED_IN handler since we're
   // now handling the load ourselves with a clean post-finalize state.
+  //
+  // CRITICAL GUARD: only call loadById when the user ID is actually changing
+  // (guest → authenticated). iOS fires SIGNED_IN on every app foreground,
+  // causing finalizeLogin → mergeComplete on every foreground. Without this
+  // guard, loadById fires on every resume → loadPackForUser runs → selectedPackSlug
+  // may bounce (null → slug) → loadNames re-triggers with a new gen counter →
+  // the 10 s safety timer from the old gen never clears → indefinite spinner.
   useEffect(() => {
     const unsub = onMergeComplete(() => {
       if (signInFallbackRef.current) {
@@ -285,9 +303,12 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         signInFallbackRef.current = null;
       }
       supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user?.id) {
-          loadById(session.user.id);
-        }
+        if (!session?.user?.id) return;
+        // Skip if this user is already loaded — mergeComplete now fires on every
+        // SIGNED_IN (including spurious iOS foreground events), so this guard
+        // prevents redundant loadById calls for returning authenticated users.
+        if (currentUserIdRef.current === session.user.id) return;
+        loadById(session.user.id);
       });
     });
     return unsub;
@@ -418,6 +439,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         user,
         loading,
         loadError,
+        packLoading,
         selectedPackSlug,
         changeSelectedPack,
         updateUser,

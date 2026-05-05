@@ -13,6 +13,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSharedValue } from "react-native-reanimated";
 
+import { useAuth } from "@/components/AuthContext";
+import { DebugLoadingScreen } from "@/components/DebugLoadingScreen";
 import { FirstLikePartnerModal } from "@/components/FirstLikePartnerModal";
 import { MatchCelebrationModal } from "@/components/MatchCelebrationModal";
 import { PackCompleteModal } from "@/components/PackCompleteModal";
@@ -23,15 +25,26 @@ import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
+import { authSignOut } from "@/lib/authService";
 import { getAllPacks, getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
-import { Name, NamePack, supabase } from "@/lib/supabase";
+import { DEFAULT_PACK_SLUG, Name, NamePack, supabase, USER_ID_KEY, ONBOARDED_KEY } from "@/lib/supabase";
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
 export default function SwipeScreen() {
   const colors = useColors();
   const router = useRouter();
-  const { user, updateUser, selectedPackSlug, changeSelectedPack } = useUser();
+  const {
+    user,
+    updateUser,
+    selectedPackSlug,
+    changeSelectedPack,
+    loading: userLoading,
+    loadError: userLoadError,
+    packLoading,
+    signOutLocal,
+  } = useUser();
+  const { signOut } = useAuth();
   const insets = useSafeAreaInsets();
   const { redirect } = useLocalSearchParams<{ redirect?: string }>();
 
@@ -48,7 +61,7 @@ export default function SwipeScreen() {
   // Tracks whether the swipe tab is currently focused so the partner-pick poll
   // skips cycles when the user is on a different tab.
   const isFocusedRef = useRef(false);
-  const [loading, setLoading] = useState(true);
+  const [namesLoading, setNamesLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [matchedName, setMatchedName] = useState<Name | null>(null);
   const [premiumOpen, setPremiumOpen] = useState(false);
@@ -95,21 +108,25 @@ export default function SwipeScreen() {
       // is creating a fresh guest), clear the spinner and bail. Without this,
       // `loading` stays `true` forever because the finally block never runs.
       if (!userId) {
-        setLoading(false);
+        setNamesLoading(false);
         return;
       }
       const gen = ++loadGenRef.current;
-      setLoading(true);
+      setNamesLoading(true);
       setError(null);
       setPackCompleteOpen(false);
       // Safety net: if any Supabase call hangs (common when the auth client is in
       // a transient bad state right after sign-out), unblock the UI after 10 s.
       const safetyTimer = setTimeout(() => {
-        if (gen === loadGenRef.current) setLoading(false);
+        if (gen === loadGenRef.current) setNamesLoading(false);
       }, 10_000);
       try {
         const gender = userGender ?? "either";
-        const packOverride = activePack ? [activePack] : undefined;
+        // When activePack is null (pack preference not yet loaded), use the
+        // free default directly instead of passing undefined, which causes
+        // getSwipeableNames to call getUserSelectedPacks internally — a raw
+        // Supabase query with no timeout that can hang on a stalled auth lock.
+        const packOverride = activePack ? [activePack] : [DEFAULT_PACK_SLUG];
         // The RPC excludes already-swiped names server-side when !includeAlready,
         // eliminating the separate swipes pre-fetch that used to block this step.
         // Partner swipes are fetched in parallel only when a partner exists.
@@ -168,7 +185,7 @@ export default function SwipeScreen() {
         setError(e instanceof Error ? e.message : "Failed to load names");
       } finally {
         clearTimeout(safetyTimer);
-        if (gen === loadGenRef.current) setLoading(false);
+        if (gen === loadGenRef.current) setNamesLoading(false);
       }
     },
     [userId, userGender, partnerId, activePack],
@@ -186,18 +203,18 @@ export default function SwipeScreen() {
 
   // When the user swipes through every card in the deck, show the pack-complete modal.
   useEffect(() => {
-    if (!loading && !error && names.length > 0 && currentIndex >= names.length) {
+    if (!namesLoading && !error && names.length > 0 && currentIndex >= names.length) {
       setPackCompleteOpen(true);
     }
-  }, [loading, error, names.length, currentIndex]);
+  }, [namesLoading, error, names.length, currentIndex]);
 
   useFocusEffect(
     useCallback(() => {
       isFocusedRef.current = true;
       // refresh on focus only if we're empty
-      if (names.length === 0 && !loading) loadNames();
+      if (names.length === 0 && !namesLoading) loadNames();
       return () => { isFocusedRef.current = false; };
-    }, [names.length, loading, loadNames]),
+    }, [names.length, namesLoading, loadNames]),
   );
 
   // Poll for new partner custom names every 15 seconds.
@@ -416,11 +433,53 @@ export default function SwipeScreen() {
     }
   }, [matchedName]);
 
-  if (!user || loading) {
+  // Derive the current initialisation step for the debug loading screen.
+  // This is always visible (not gated by __DEV__) so TestFlight builds show it.
+  const isSpinning = !user || namesLoading;
+  if (isSpinning) {
+    let step: string;
+    if (!user && (userLoading || (!userLoadError && !user))) {
+      step = "Loading profile";
+    } else if (!user && userLoadError) {
+      step = "Profile failed";
+    } else if (user && packLoading) {
+      step = "Loading pack";
+    } else {
+      step = "Loading names";
+    }
+
+    const handleRetry = () => {
+      if (!user) {
+        // UserContext will create/find a guest and eventually set user,
+        // which then triggers loadNames automatically.
+        return;
+      }
+      loadNames();
+    };
+
+    const handleSignOut = async () => {
+      try { await signOut(); } catch {}
+    };
+
+    const handleReset = async () => {
+      try {
+        await AsyncStorage.multiRemove([USER_ID_KEY, ONBOARDED_KEY]);
+        await authSignOut();
+      } catch {}
+      // signOutLocal clears remaining local keys and calls load() to create
+      // a fresh guest — no explicit navigation needed.
+      await signOutLocal();
+    };
+
     return (
-      <View style={[styles.center, { backgroundColor: colors.parchment }]}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
+      <DebugLoadingScreen
+        step={step}
+        userIdSuffix={user?.id?.slice(-6) ?? undefined}
+        packSlug={selectedPackSlug}
+        onRetry={handleRetry}
+        onSignOut={handleSignOut}
+        onReset={handleReset}
+      />
     );
   }
   if (error) {

@@ -1,0 +1,69 @@
+The previous fix did not resolve the issue.
+
+Current confirmed behavior:
+- Fresh install works
+- Issue happens only when signed in with Apple
+- Issue happens after premium purchase or restore
+- App gets stuck on loading spinner
+- Deleting/reinstalling clears it until the Apple premium state is recreated
+
+Please stop making narrow fixes and perform a full root-cause debug pass.
+
+Requirements:
+
+1. Add a visible debug loading screen that shows the exact current init step:
+   - checking Supabase session
+   - loading profile
+   - configuring RevenueCat
+   - logging into RevenueCat
+   - fetching customerInfo
+   - syncing premium plan
+   - loading selected pack
+   - loading names
+   - app ready
+
+2. Add a hard global startup timeout of 8 seconds.
+   After 8 seconds, the app must stop showing the spinner and show:
+   - current stuck step
+   - Retry
+   - Sign out
+   - Reset local app state
+
+3. Do not rely only on console logs because this is happening in TestFlight.
+
+4. Audit all code paths that can set loading=true.
+   Ensure every path has a finally block that sets loading=false.
+
+5. Search for every return of:
+   - <Loading />
+   - <Spinner />
+   - ActivityIndicator
+   - isLoading
+   - initializing
+   - authLoading
+   - profileLoading
+   - purchasesLoading
+   - namesLoading
+
+6. Identify the exact condition causing the loading screen to remain visible.
+
+7. Specifically test Apple Sign-In + premium purchase.
+   Check whether:
+   - Supabase user id changes
+   - RevenueCat appUserID changes
+   - selectedPackSlug becomes null
+   - premium pack loading fails
+   - profile plan_tier update fails
+   - customerInfo returns no entitlement
+   - auth listener fires repeatedly
+
+8. App rendering must not depend on RevenueCat, profile sync, premium pack sync, or selected pack loading.
+   These should fail gracefully without blocking the main app.
+
+9. If selectedPackSlug is null or invalid, default to the free top_2000 pack instead of loading forever.
+
+10. If premium status cannot be verified, default to free mode temporarily and render the app.
+
+11. Confirm whether this fix requires a new EAS build or can truly be delivered OTA.
+
+The goal is not to guess the issue. The app must visibly tell us which initialization step is stuck in TestFlight.

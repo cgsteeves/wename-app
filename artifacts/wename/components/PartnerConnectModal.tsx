@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -85,50 +86,56 @@ export function PartnerConnectModal({ open, onClose }: Props) {
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <Pressable style={styles.backdrop} onPress={() => { Keyboard.dismiss(); onClose(); }} />
-
-      <View
-        style={[
-          styles.sheet,
-          { paddingBottom: insets.bottom + 16 },
-        ]}
+      <KeyboardAvoidingView
+        style={styles.kavWrapper}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        {/* Handle bar */}
-        <View style={styles.handle} />
+        <Pressable style={styles.backdrop} onPress={() => { Keyboard.dismiss(); onClose(); }} />
 
-        {/* Header row */}
-        <View style={styles.headerRow}>
-          {sheetView === "invite" && (
-            <Pressable onPress={() => setSheetView("main")} style={styles.backBtn} hitSlop={8}>
-              <Feather name="chevron-left" size={20} color={FOREGROUND} />
-            </Pressable>
-          )}
-          <Text style={[styles.sheetTitle, sheetView === "main" && { marginLeft: 0 }]}>
-            {sheetView === "main" ? "Connect with Partner" : "Invite Partner"}
-          </Text>
-          <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
-            <Feather name="x" size={18} color={MUTED_FG} />
-          </Pressable>
-        </View>
-
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          contentContainerStyle={styles.scrollContent}
+        <View
+          style={[
+            styles.sheet,
+            { paddingBottom: insets.bottom + 16 },
+          ]}
         >
-          {sheetView === "main" ? (
-            <MainSheetView
-              user={user}
-              isAuthenticated={isAuthenticated}
-              onInvitePress={handleInvitePress}
-              updateUser={updateUser}
-              onClose={onClose}
-            />
-          ) : (
-            <InviteSheetView user={user} />
-          )}
-        </ScrollView>
-      </View>
+          {/* Handle bar */}
+          <View style={styles.handle} />
+
+          {/* Header row */}
+          <View style={styles.headerRow}>
+            {sheetView === "invite" && (
+              <Pressable onPress={() => setSheetView("main")} style={styles.backBtn} hitSlop={8}>
+                <Feather name="chevron-left" size={20} color={FOREGROUND} />
+              </Pressable>
+            )}
+            <Text style={[styles.sheetTitle, sheetView === "main" && { marginLeft: 0 }]}>
+              {sheetView === "main" ? "Connect with Partner" : "Invite Partner"}
+            </Text>
+            <Pressable onPress={onClose} style={styles.closeBtn} hitSlop={8}>
+              <Feather name="x" size={18} color={MUTED_FG} />
+            </Pressable>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.scrollContent}
+          >
+            {sheetView === "main" ? (
+              <MainSheetView
+                user={user}
+                isAuthenticated={isAuthenticated}
+                onInvitePress={handleInvitePress}
+                updateUser={updateUser}
+                onClose={onClose}
+              />
+            ) : (
+              <InviteSheetView user={user} />
+            )}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -444,19 +451,20 @@ function InviteSheetView({ user }: { user: User }) {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
+  kavWrapper: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.42)",
   },
   sheet: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: PARCHMENT,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: "90%",
+    minHeight: "65%",
+    maxHeight: "92%",
     shadowColor: "#000",
     shadowOpacity: 0.18,
     shadowRadius: 16,

@@ -175,7 +175,9 @@ export default function SwipeScreen() {
   );
 
   useEffect(() => {
-    getAllPacks().then(setAllPacks).catch(() => {});
+    getAllPacks()
+      .then(setAllPacks)
+      .catch((e) => console.warn("[SwipeScreen] failed to load pack list", e));
   }, []);
 
   useEffect(() => {

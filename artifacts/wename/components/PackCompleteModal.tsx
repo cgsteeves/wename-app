@@ -108,7 +108,7 @@ export function PackCompleteModal({
   const starStyle = useAnimatedStyle(() => ({ opacity: starGlow.value }));
 
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={onSwitchPack}>
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onStartOver}>
       <View style={styles.backdrop}>
         <Animated.View style={[styles.cardWrap, cardStyle]}>
           <Pressable onPress={() => {}} style={styles.cardOuter}>

@@ -62,7 +62,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         .insert({ invite_code: generateInviteCode() })
         .select()
         .single(),
-      8000,
+      5000,
     );
     if (!result) {
       console.error("[UserContext] createUser timed out");
@@ -86,7 +86,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   // Retries up to `maxRetries` times (500 ms apart) to handle the edge case
   // where finalizeLogin hasn't finished upserting the profile row yet.
   const loadById = useCallback(
-    async (userId: string, maxRetries = 5): Promise<void> => {
+    async (userId: string, maxRetries = 2): Promise<void> => {
       setLoading(true);
       setLoadError(false);
       const safetyTimer = setTimeout(() => setLoading(false), 8000);
@@ -94,7 +94,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
           const queryResult = await withTimeout(
             supabase.from("users").select("*").eq("id", userId).maybeSingle(),
-            5000,
+            3000,
           );
 
           if (queryResult && !queryResult.error && queryResult.data) {
@@ -132,7 +132,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
             )
             .select()
             .single(),
-          8000,
+          5000,
         );
         if (upsertResult && !upsertResult.error && upsertResult.data) {
           await AsyncStorage.setItem(USER_ID_KEY, userId);
@@ -169,7 +169,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       if (stored) {
         const queryResult = await withTimeout(
           supabase.from("users").select("*").eq("id", stored).maybeSingle(),
-          5000,
+          3000,
         );
         // Pack load is fire-and-forget — failures here must not block the
         // whole startup spinner.

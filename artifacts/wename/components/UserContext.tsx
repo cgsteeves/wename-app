@@ -208,11 +208,17 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const changeSelectedPack = useCallback(
     async (slug: string) => {
       if (!user) return;
+      // Update context immediately so the swipe screen reacts at once — the
+      // DB write is fire-and-forget. On Mac Catalyst the Supabase PKCE lock
+      // can delay auth-concurrent writes long enough that waiting for the DB
+      // before calling setSelectedPackSlug caused the deck to never reload.
+      setSelectedPackSlug(slug);
       try {
         await setUserPack(user.id, slug);
-        setSelectedPackSlug(slug);
       } catch (e) {
         console.error("[UserContext] changeSelectedPack error", e);
+        // Don't roll back — the in-memory selection is correct for this
+        // session. It will re-sync from the DB on next app launch.
       }
     },
     [user],

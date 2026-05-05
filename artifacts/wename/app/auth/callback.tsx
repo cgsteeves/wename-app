@@ -98,6 +98,15 @@ export default function AuthCallback() {
 
       handledRef.current = true;
 
+      // Safety timer — if the session exchange hangs (e.g. auth-lock contention
+      // on cold start), surface an error after 8 s instead of spinning forever.
+      let exchangeCompleted = false;
+      safety = setTimeout(() => {
+        if (cancelled || exchangeCompleted) return;
+        setErrorMsg("Sign-in timed out. Please close this screen and try again.");
+        setStatus("error");
+      }, 8_000);
+
       async function handleNative() {
         try {
           const urlStr = url!;
@@ -118,35 +127,42 @@ export default function AuthCallback() {
           const refreshToken = hashParams.get("refresh_token");
 
           if (code) {
-            // PKCE flow — supabase.auth.signInWithOtp() stores the verifier
-            // in AsyncStorage; exchangeCodeForSession reads it automatically.
+            // PKCE flow — only reached for links sent before the implicit-flow
+            // switch; exchangeCodeForSession reads the verifier from AsyncStorage.
             const { error } = await supabase.auth.exchangeCodeForSession(code);
             if (error) throw error;
           } else if (accessToken && refreshToken) {
-            // Implicit flow fallback (legacy magic links / Google OAuth)
+            // Implicit flow — tokens come in the hash fragment.
+            // signInWithEmailMagicLink now uses this path for all native links.
             const { error } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken,
             });
             if (error) throw error;
+          } else {
+            throw new Error("No sign-in credentials found in the link. It may have expired — please request a new one.");
           }
 
-          if (!cancelled) {
-            setStatus("success");
-            setTimeout(() => {
-              if (!cancelled) router.replace("/");
-            }, 400);
-          }
+          exchangeCompleted = true;
+          if (cancelled) return;
+          if (safety) clearTimeout(safety);
+          setStatus("success");
+          setTimeout(() => {
+            if (!cancelled) router.replace("/");
+          }, 400);
         } catch (e) {
-          if (!cancelled) {
-            setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
-            setStatus("error");
-          }
+          if (cancelled) return;
+          if (safety) clearTimeout(safety);
+          setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
+          setStatus("error");
         }
       }
 
       handleNative();
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+        if (safety) clearTimeout(safety);
+      };
     }
 
     // ── WEB ────────────────────────────────────────────────────────────────

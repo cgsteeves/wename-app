@@ -129,26 +129,54 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
 }
 
 export async function signInWithEmailMagicLink(email: string): Promise<void> {
-  // On native use the custom URL scheme so iOS/Android can intercept the
-  // redirect and reopen the app directly. The custom scheme is registered in
-  // app.json under "scheme": "wename", which makes iOS launch the app when
-  // any URL starting with wename:// is followed.
-  //
-  // We previously delegated to a custom Edge Function (send-magic-link) but
-  // that function silently fell back to the Supabase project's default redirect
-  // URL whenever the function had a bug or misconfiguration, causing the magic
-  // link to land on the HTTPS web callback in Safari instead of opening the
-  // app. Using supabase.auth.signInWithOtp() guarantees that emailRedirectTo
-  // is forwarded correctly by the SDK.
   const emailRedirectTo =
     Platform.OS !== "web" ? "wename://auth/callback" : `${getOrigin()}/auth/callback`;
 
+  if (Platform.OS !== "web") {
+    // Native: call the Supabase REST OTP endpoint directly WITHOUT a PKCE
+    // challenge. This produces an implicit-flow magic link that redirects to
+    //   wename://auth/callback#access_token=…&refresh_token=…
+    // The native callback reads the tokens from the hash and calls
+    // supabase.auth.setSession(), which is simpler and avoids two failure
+    // modes that plagued the PKCE approach:
+    //   1. The code-verifier lives in AsyncStorage; on a cold-start deep-link
+    //      open, getSession() can hold the auth lock before exchangeCodeForSession
+    //      gets a turn, producing a permanent hang (see supabase.ts lock comment).
+    //   2. If the user opens the link on a different device, the verifier is
+    //      simply absent and the exchange fails silently.
+    const supabaseUrl    = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+    const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+
+    const res = await fetch(`${supabaseUrl}/auth/v1/otp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        email,
+        create_user: true,
+        data: {},
+        gotrue_meta_security: {},
+        options: { emailRedirectTo },
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}) as Record<string, string>);
+      throw new Error(
+        body.error_description ?? body.msg ?? body.error ?? "Failed to send sign-in link. Please try again.",
+      );
+    }
+    return;
+  }
+
+  // Web: use the SDK so the PKCE verifier is written to localStorage and the
+  // web callback can exchange the code correctly.
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: {
-      emailRedirectTo,
-      shouldCreateUser: true,
-    },
+    options: { emailRedirectTo, shouldCreateUser: true },
   });
 
   if (error) throw new Error(error.message || "Failed to send sign-in link. Please try again.");

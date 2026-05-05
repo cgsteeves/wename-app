@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { ImageBackground } from "expo-image";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -75,20 +75,44 @@ export function NameSuggestions({
   const [shownNames, setShownNames] = useState<Set<string>>(new Set());
   const [streamingDone, setStreamingDone] = useState(false);
   const hasFetchedOnMount = useRef(false);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel any pending retry on unmount
+  useEffect(() => () => {
+    if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+  }, []);
 
   const tooFewNames = likedNames.length < 3;
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
-  async function fetchSuggestions(isRefresh: boolean) {
-    setLoading(true);
-    setError("");
-    setSuggestions([]);
-    setAddedIds(new Set());
-    setStreamingDone(false);
+  // `attempt` is internal — callers always use the default (0).
+  // On the first failure the function silently retries once after 3 s so that
+  // Supabase Edge Function cold-starts are invisible to the user.
+  const fetchSuggestions = useCallback(async (isRefresh: boolean, attempt = 0) => {
+    // Cancel any queued retry when a new explicit fetch begins
+    if (attempt === 0) {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = null;
+      }
+      setLoading(true);
+      setError("");
+      setSuggestions([]);
+      setAddedIds(new Set());
+      setStreamingDone(false);
+    }
 
     const excludeForRequest = isRefresh
       ? [...excludeNames, ...Array.from(shownNames)]
       : [...excludeNames];
+
+    const scheduleRetry = () => {
+      // Keep skeleton visible; silently retry after 3 s
+      retryTimeoutRef.current = setTimeout(
+        () => fetchSuggestions(isRefresh, attempt + 1),
+        3000,
+      );
+    };
 
     try {
       const response = await fetch(
@@ -111,15 +135,18 @@ export function NameSuggestions({
         },
       );
 
-      // Transition: skeleton → streaming
-      setLoading(false);
-      setHasLoaded(true);
-
       if (!response.ok) {
+        if (attempt === 0) { scheduleRetry(); return; }
+        setLoading(false);
+        setHasLoaded(true);
         setError("Could not load suggestions. Please try again.");
         setStreamingDone(true);
         return;
       }
+
+      // Transition: skeleton → streaming
+      setLoading(false);
+      setHasLoaded(true);
 
       const fetched: Suggestion[] = [];
       let buffer = "";
@@ -169,16 +196,19 @@ export function NameSuggestions({
       }
 
       if (fetched.length === 0) {
+        if (attempt === 0) { scheduleRetry(); return; }
         setError("Could not load suggestions. Please try again.");
       }
+      setStreamingDone(true);
     } catch {
+      if (attempt === 0) { scheduleRetry(); return; }
       setLoading(false);
       setHasLoaded(true);
       setError("Something went wrong. Please try again.");
-    } finally {
       setStreamingDone(true);
     }
-  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [excludeNames, likedNames, matchedNames, partnerLikedNames, selectedStyle, settingsGender, user.baby_last_name]);
 
   // Auto-fetch on mount if enough likes
   useEffect(() => {

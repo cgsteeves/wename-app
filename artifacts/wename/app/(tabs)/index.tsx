@@ -468,35 +468,6 @@ export default function SwipeScreen() {
       ]}
     >
 
-      {/* Pack header — pack name pill + remaining counter */}
-      <View style={styles.packHeader}>
-        <Pressable
-          onPress={() => setPackSwitcherOpen(true)}
-          style={({ pressed }) => [
-            styles.packPill,
-            {
-              borderColor: colors.grass + "55",
-              backgroundColor: "hsla(145,45%,35%,0.09)",
-              opacity: pressed ? 0.72 : 1,
-            },
-          ]}
-        >
-          <Feather name="layers" size={12} color={colors.grass} />
-          <Text
-            style={[styles.packPillText, { color: colors.grass }]}
-            numberOfLines={1}
-          >
-            {activePackName}
-          </Text>
-          <Feather name="chevron-down" size={11} color={colors.grass} />
-        </Pressable>
-        {names.length > 0 && (
-          <Text style={[styles.remainingText, { color: colors.mutedForeground }]}>
-            {Math.max(0, names.length - currentIndex)} left
-          </Text>
-        )}
-      </View>
-
       <View style={styles.cardArea}>
         {/*
           Render order, back to front: next → outgoing(s) → active.

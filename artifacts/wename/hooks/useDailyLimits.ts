@@ -17,9 +17,16 @@ function dateFromTimestamp(ts: string | null): string | null {
 export function useDailyLimits(
   user: User | null | undefined,
   updateUser: (updates: Partial<User>) => Promise<void>,
+  // The authoritative premium signal from RevenueCat (useSubscription().hasPremiumEntitlement).
+  // Must NOT be derived from user.plan_tier — callers must pass this explicitly.
+  // Defaults to false while RevenueCat is loading, which correctly keeps limits enforced.
+  hasPremiumEntitlement: boolean,
 ) {
   const resetInFlight = useRef(false);
-  const isPremium = user?.plan_tier === "premium";
+
+  // isPremium is derived exclusively from the RevenueCat entitlement.
+  // Never read user.plan_tier here.
+  const isPremium = hasPremiumEntitlement;
 
   const ensureResetIfNeeded = useCallback(async () => {
     if (!user) return { swipe_count: 0, like_count: 0, match_count: 0 };

@@ -54,10 +54,20 @@ export default function PremiumScreen() {
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useUser();
   const { isPurchaseEligible, openAuthModal } = useAuth();
-  const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
+  const {
+    purchase,
+    restore,
+    isPurchasing,
+    isRestoring,
+    offerings,
+    offeringsError,
+    hasPremiumEntitlement,
+    customerInfo,
+  } = useSubscription();
 
   if (!user) return null;
-  const isPremium = user.plan_tier === "premium";
+  // isPremium must always come from RevenueCat, never from user.plan_tier.
+  const isPremium = hasPremiumEntitlement;
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -76,25 +86,34 @@ export default function PremiumScreen() {
       });
       return;
     }
-    console.log("[PremiumScreen] upgrade tapped, pkg:", pkg.identifier);
+    console.log("[PremiumScreen] upgrade tapped", {
+      pkg: pkg.identifier,
+      isPurchaseEligible,
+      hasPremiumEntitlement,
+      rcUserId: customerInfo?.originalAppUserId,
+    });
     try {
-      const customerInfo = await purchase(pkg);
-      if (!customerInfo) {
+      const purchasedCustomerInfo = await purchase(pkg);
+      if (!purchasedCustomerInfo) {
         // DEV mode only: user dismissed the test-store dialog.
         console.log("[PremiumScreen] purchase cancelled (test-store dismissed)");
         return;
       }
-      const entitlementActive =
-        customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      if (!entitlementActive) {
-        console.warn("[PremiumScreen] purchase completed but entitlement not active");
+      // Defensive guard: only write to Supabase when RC confirms active entitlement.
+      const hasPremiumEntitlementAfterPurchase =
+        purchasedCustomerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (!hasPremiumEntitlementAfterPurchase) {
+        console.warn(
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumScreen/handleUpgrade]",
+          { entitlements: purchasedCustomerInfo.entitlements.active },
+        );
         Alert.alert(
           "Purchase Incomplete",
           "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
         );
         return;
       }
-      console.log("[PremiumScreen] premium entitlement confirmed — unlocking");
+      console.log("[PremiumScreen] premium entitlement confirmed after purchase — unlocking");
       await updateUser({ plan_tier: "premium" });
     } catch (e: any) {
       if (e?.userCancelled) {
@@ -108,15 +127,21 @@ export default function PremiumScreen() {
   }
 
   async function handleRestore() {
-    console.log("[PremiumScreen] restore tapped");
+    console.log("[PremiumScreen] restore tapped", { hasPremiumEntitlement });
     try {
-      const info = await restore();
-      const isNowSubscribed =
-        info?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      console.log("[PremiumScreen] restore result: entitlement active =", isNowSubscribed);
-      if (isNowSubscribed) {
+      const restoredInfo = await restore();
+      const hasPremiumEntitlementAfterRestore =
+        restoredInfo?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[PremiumScreen] restore result: hasPremiumEntitlementAfterRestore =", hasPremiumEntitlementAfterRestore);
+      if (hasPremiumEntitlementAfterRestore) {
+        // Defensive guard: entitlement confirmed from the restore result.
+        console.log("[PremiumScreen] premium entitlement confirmed after restore — unlocking");
         await updateUser({ plan_tier: "premium" });
       } else {
+        console.warn(
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumScreen/handleRestore]",
+          { entitlements: restoredInfo?.entitlements?.active },
+        );
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {

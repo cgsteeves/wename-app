@@ -16,12 +16,14 @@ import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { getAllPacks, getUserSelectedPacks } from "@/lib/namePacks";
+import { useSubscription } from "@/lib/revenuecat";
 import { NamePack } from "@/lib/supabase";
 
 export default function NamePacksScreen() {
   const colors = useColors();
   const tabBarHeight = useBottomTabBarHeight();
   const { user, changeSelectedPack } = useUser();
+  const { hasPremiumEntitlement } = useSubscription();
   const [packs, setPacks] = useState<NamePack[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -46,7 +48,8 @@ export default function NamePacksScreen() {
   }, [user]);
 
   if (!user) return null;
-  const isPremium = user.plan_tier === "premium";
+  // isPremium must always come from RevenueCat, never from user.plan_tier.
+  const isPremium = hasPremiumEntitlement;
 
   async function pick(slug: string) {
     const pack = packs.find((p) => p.slug === slug);

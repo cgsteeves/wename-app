@@ -9,7 +9,7 @@ import { PatrickHand_400Regular } from "@expo-google-fonts/patrick-hand";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { Alert, Platform, Text, TextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -57,26 +57,53 @@ function AuthModalOverlay() {
 
 function PlanSyncEffect() {
   const { user, updateUser } = useUser();
-  const { isSubscribed, isLoading } = useSubscription();
+  const { hasPremiumEntitlement, isSubscriptionLoading } = useSubscription();
+  // Fires at most once per user ID per app session.
+  const syncedForUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     // On web the RevenueCat test-store persists simulated purchases in
-    // localStorage, so isSubscribed may be true even for a fresh preview
-    // session. Skip the automatic DB sync on web — real upgrades are handled
-    // by the explicit purchase/restore flows and the webhook in production.
+    // localStorage, so hasPremiumEntitlement may be true even for a fresh
+    // preview session. Skip the automatic DB sync on web — real upgrades are
+    // handled by the explicit purchase/restore flows and the webhook in prod.
     if (Platform.OS === "web") return;
-    if (!user || isLoading) return;
+    if (!user || isSubscriptionLoading) return;
+    // Only run once per user ID — prevents looping when updateUser causes a
+    // re-render that changes user.plan_tier while this effect is mounted.
+    if (syncedForUserIdRef.current === user.id) return;
+    syncedForUserIdRef.current = user.id;
+
     const isPremiumInDb = user.plan_tier === "premium";
-    // Only auto-upgrade — never auto-downgrade here.
-    // After a purchase the customerInfo refetch is async; if isSubscribed is
-    // still false when this effect fires (race condition), auto-downgrading
-    // would silently revert the plan_tier the purchase flow just wrote.
-    // Cancellation downgrades are handled by the RevenueCat webhook in
-    // production, not by client-side polling.
-    if (isSubscribed && !isPremiumInDb) {
+    const uid = user.id.slice(-6);
+
+    if (hasPremiumEntitlement && !isPremiumInDb) {
+      // RC confirms active entitlement but Supabase is stale — upgrade.
+      console.log("[PlanSyncEffect] decision=upgrade", {
+        uid,
+        hasPremiumEntitlement,
+        plan_tier: user.plan_tier,
+      });
+      // Defensive: guard is implicit — this branch only executes when
+      // hasPremiumEntitlement === true, satisfying the RC entitlement check.
       updateUser({ plan_tier: "premium" });
+    } else if (!hasPremiumEntitlement && isPremiumInDb) {
+      // RC confirmed no entitlement but Supabase still says premium — downgrade
+      // to repair stale cache. All feature gates already read from RC, so the
+      // user is already correctly limited; this just keeps Supabase consistent.
+      console.log("[PlanSyncEffect] decision=downgrade", {
+        uid,
+        hasPremiumEntitlement,
+        plan_tier: user.plan_tier,
+      });
+      updateUser({ plan_tier: "free" });
+    } else {
+      console.log("[PlanSyncEffect] decision=no-op (RC and DB in sync)", {
+        uid,
+        hasPremiumEntitlement,
+        plan_tier: user.plan_tier,
+      });
     }
-  }, [isSubscribed, isLoading, user?.id]);
+  }, [hasPremiumEntitlement, isSubscriptionLoading, user?.id]);
 
   return null;
 }

@@ -317,7 +317,16 @@ export function PremiumModal({
   const insets = useSafeAreaInsets();
   const { isPurchaseEligible } = useAuth();
   const { updateUser } = useUser();
-  const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
+  const {
+    purchase,
+    restore,
+    isPurchasing,
+    isRestoring,
+    offerings,
+    offeringsError,
+    hasPremiumEntitlement,
+    customerInfo,
+  } = useSubscription();
 
   // Track the current step of the sign-in → purchase flow.
   // Initialised to "auth"; corrected in the open-change useEffect below.
@@ -383,28 +392,37 @@ export function PremiumModal({
 
   async function handleUpgrade() {
     if (!pkg) return;
-    console.log("[PremiumModal] upgrade tapped, pkg:", pkg.identifier);
+    console.log("[PremiumModal] upgrade tapped", {
+      pkg: pkg.identifier,
+      isPurchaseEligible,
+      hasPremiumEntitlement,
+      plan_tier: customerInfo?.originalAppUserId,
+    });
     try {
-      const customerInfo = await purchase(pkg);
-      if (!customerInfo) {
+      const purchasedCustomerInfo = await purchase(pkg);
+      if (!purchasedCustomerInfo) {
         // DEV mode only: user dismissed the test-store dialog — purchase()
         // returns undefined instead of throwing. Do NOT grant premium.
         console.log("[PremiumModal] purchase cancelled (test-store dismissed)");
         return;
       }
-      const entitlementActive =
-        customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      if (!entitlementActive) {
+      // Defensive guard: only write to Supabase when RC confirms active entitlement.
+      const hasPremiumEntitlementAfterPurchase =
+        purchasedCustomerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (!hasPremiumEntitlementAfterPurchase) {
         // Purchase call succeeded but the entitlement wasn't activated
         // (e.g. receipt validation still pending). Do not write to Supabase.
-        console.warn("[PremiumModal] purchase completed but entitlement not active");
+        console.warn(
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumModal/handleUpgrade]",
+          { entitlements: purchasedCustomerInfo.entitlements.active },
+        );
         Alert.alert(
           "Purchase Incomplete",
           "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
         );
         return;
       }
-      console.log("[PremiumModal] premium entitlement confirmed — unlocking");
+      console.log("[PremiumModal] premium entitlement confirmed after purchase — unlocking");
       await updateUser({ plan_tier: "premium" });
       onClose();
       onUpgrade();
@@ -419,17 +437,23 @@ export function PremiumModal({
   }
 
   async function handleRestore() {
-    console.log("[PremiumModal] restore tapped");
+    console.log("[PremiumModal] restore tapped", { hasPremiumEntitlement });
     try {
-      const info = await restore();
-      const isNowSubscribed =
-        info?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      console.log("[PremiumModal] restore result: entitlement active =", isNowSubscribed);
-      if (isNowSubscribed) {
+      const restoredInfo = await restore();
+      const hasPremiumEntitlementAfterRestore =
+        restoredInfo?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[PremiumModal] restore result: hasPremiumEntitlementAfterRestore =", hasPremiumEntitlementAfterRestore);
+      if (hasPremiumEntitlementAfterRestore) {
+        // Defensive guard: entitlement confirmed from the restore result.
+        console.log("[PremiumModal] premium entitlement confirmed after restore — unlocking");
         await updateUser({ plan_tier: "premium" });
         onClose();
         onUpgrade();
       } else {
+        console.warn(
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumModal/handleRestore]",
+          { entitlements: restoredInfo?.entitlements?.active },
+        );
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {

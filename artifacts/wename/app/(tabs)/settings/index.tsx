@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
+import { useSubscription } from "@/lib/revenuecat";
 
 type Row = {
   key: string;
@@ -23,7 +24,9 @@ export default function SettingsHub() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user } = useUser();
-  const isPremium = user?.plan_tier === "premium";
+  const { hasPremiumEntitlement } = useSubscription();
+  // isPremium must always come from RevenueCat, never from user.plan_tier.
+  const isPremium = hasPremiumEntitlement;
   const partnerHint = user?.partner_id ? "Connected" : "Not linked";
   const profileHint = user?.display_name ? user.display_name : "Set up your profile";
 

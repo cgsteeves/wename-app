@@ -125,8 +125,16 @@ function useSubscriptionContext() {
     onSuccess: () => customerInfoQuery.refetch(),
   });
 
-  const isSubscribed =
+  // The ONLY source of truth for premium feature access.
+  // true iff RevenueCat has confirmed an active "premium" entitlement.
+  // false while loading (customerInfoQuery.isLoading) or when there is no entitlement.
+  // Must NOT be replaced by user.plan_tier, isSubscribed, AsyncStorage, or any Supabase field.
+  const hasPremiumEntitlement =
     customerInfoQuery.data?.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+
+  // True while RevenueCat customer-info is still being fetched.
+  // Callers must default premium access to false while this is true.
+  const isSubscriptionLoading = customerInfoQuery.isLoading;
 
   const offeringsError = offeringsQuery.error;
   const customerInfoError = customerInfoQuery.error;
@@ -157,7 +165,8 @@ function useSubscriptionContext() {
   return {
     customerInfo: customerInfoQuery.data,
     offerings: offeringsQuery.data,
-    isSubscribed,
+    hasPremiumEntitlement,
+    isSubscriptionLoading,
     isLoading: customerInfoQuery.isLoading || offeringsQuery.isLoading,
     offeringsError,
     customerInfoError,

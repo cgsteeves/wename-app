@@ -27,6 +27,7 @@ import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
 import { authSignOut } from "@/lib/authService";
 import { getAllPacks, getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
+import { useSubscription } from "@/lib/revenuecat";
 import { DEFAULT_PACK_SLUG, Name, NamePack, supabase, USER_ID_KEY, ONBOARDED_KEY } from "@/lib/supabase";
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
@@ -96,7 +97,8 @@ export default function SwipeScreen() {
   // Using a Set so rapid-fire swipes don't cut each other's flights short.
   const [outgoingIds, setOutgoingIds] = useState<Set<string>>(new Set());
 
-  const limits = useDailyLimits(user, updateUser);
+  const { hasPremiumEntitlement } = useSubscription();
+  const limits = useDailyLimits(user, updateUser, hasPremiumEntitlement);
 
   const firstLikeKey = user ? `first_like_partner_shown_${user.id}` : "";
   const maybeShowFirstLike = useCallback(async () => {
@@ -502,7 +504,7 @@ export default function SwipeScreen() {
         step={step}
         userIdSuffix={user?.id?.slice(-6) ?? undefined}
         packSlug={selectedPackSlug}
-        isPremium={user?.plan_tier === "premium"}
+        isPremium={hasPremiumEntitlement}
         namesCount={names.length}
         errorMsg={error ?? undefined}
         onRetry={handleRetry}
@@ -512,7 +514,7 @@ export default function SwipeScreen() {
     );
   }
   if (error) {
-    const isPremiumUser = user.plan_tier === "premium";
+    const isPremiumUser = hasPremiumEntitlement;
     return (
       <View
         style={[
@@ -573,7 +575,8 @@ export default function SwipeScreen() {
     allPacks.find((p) => p.slug === activePack)?.display_name ??
     activePack ??
     "Names";
-  const isPremium = user.plan_tier === "premium";
+  // isPremium must always come from RevenueCat, never from user.plan_tier.
+  const isPremium = hasPremiumEntitlement;
 
 
   const undoEnabled = history.length > 0 && currentIndex > 0;

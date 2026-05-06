@@ -40,6 +40,7 @@ import { PremiumModal } from "@/components/PremiumModal";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
+import { useSubscription } from "@/lib/revenuecat";
 import { supabase } from "@/lib/supabase";
 
 type SubTab = "liked" | "matches" | "suggestions";
@@ -77,6 +78,7 @@ const accentA = (accent: string, a: number) =>
 export default function NamesScreen() {
   const colors = useColors();
   const { user } = useUser();
+  const { hasPremiumEntitlement } = useSubscription();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const [tab, setTab] = useState<SubTab>("liked");
@@ -103,7 +105,8 @@ export default function NamesScreen() {
   const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const isPremium = user?.plan_tier === "premium";
+  // isPremium must always come from RevenueCat, never from user.plan_tier.
+  const isPremium = hasPremiumEntitlement;
 
   // Shared helpers for mapping an embedded `names` row to NameItem fields.
   // The `names!name_id(...)` PostgREST syntax joins name detail in the same

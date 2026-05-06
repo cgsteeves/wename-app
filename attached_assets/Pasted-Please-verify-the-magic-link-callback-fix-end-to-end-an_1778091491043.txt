@@ -1,0 +1,57 @@
+Please verify the magic link callback fix end-to-end and make sure the race condition cannot recur.
+
+Context:
+The root cause was a React effect re-run race condition in app/auth/callback.tsx:
+- The previous code used useEffect([url]) where url came from Linking.useURL().
+- Linking.useURL() starts as null, then later resolves to the callback URL.
+- If the URL changed/re-fired, the cleanup from the active effect set cancelled=true and cleared the safety timer.
+- handleNative() kept running but exited silently because cancelled=true.
+- The safety timeout was gone, so the app stayed forever on the “Signing you in” spinner.
+
+Please validate the new fix carefully.
+
+Validation requirements:
+1. Confirm app/auth/callback.tsx no longer depends on Linking.useURL() to process the auth callback.
+2. Confirm the callback processor runs from a single useEffect([]) only once on mount.
+3. Confirm the callback URL is retrieved with Linking.getInitialURL().
+4. Confirm warm-start links are handled via Linking.addEventListener("url", ...).
+5. Confirm handledRef prevents the same callback from being processed twice.
+6. Confirm cleanup on unmount does not cancel an active callback while the screen is still visible.
+7. Confirm the 10-second timeout cannot be cleared unless:
+   - callback completes successfully,
+   - callback fails into an error state,
+   - or the component truly unmounts.
+8. Confirm all async branches always transition to one of:
+   - success/navigation
+   - recoverable error
+   - timeout
+9. Confirm finalizeLogin always emits mergeComplete in a finally block.
+10. Confirm no other auth callback handler elsewhere still uses Linking.useURL() or duplicate callback logic.
+
+Please also add or verify logs for:
+- callback screen mounted
+- getInitialURL result
+- warm URL event received
+- callback already handled / ignored
+- parsed params
+- session exchange started/succeeded/failed
+- finalizeLogin started/completed
+- timeout fired
+- navigation destination
+
+Test scenarios:
+- Magic link opened when app is fully closed.
+- Magic link opened when app is already in background.
+- Magic link opened when app is already foregrounded.
+- Magic link opened from Apple Mail.
+- Magic link opened from Gmail app.
+- Magic link opened from Safari.
+- Existing account.
+- Brand new account.
+- Existing account with no profile row.
+- Existing account with premium RevenueCat entitlement.
+
+Do not change unrelated auth, purchase, swipe, partner, or premium logic unless the verification reveals a direct issue.
+
+Expected result:
+The app should never remain indefinitely on “Signing you in.” It should either complete sign-in, show a recoverable error, or show the timeout recovery screen.

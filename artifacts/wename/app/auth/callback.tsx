@@ -168,7 +168,10 @@ export default function AuthCallback() {
   // handledRef prevents this from running twice if both sources fire.
 
   async function handleNativeUrl(urlStr: string) {
-    if (handledRef.current) return;
+    if (handledRef.current) {
+      console.log("[callback] native: URL already handled — ignoring duplicate");
+      return;
+    }
     handledRef.current = true;
 
     // Log safely — never expose tokens
@@ -267,7 +270,10 @@ export default function AuthCallback() {
   // ── Web callback handler ───────────────────────────────────────────────────
 
   async function runWebCallback() {
-    if (handledRef.current) return;
+    if (handledRef.current) {
+      console.log("[callback] web: callback already handled — ignoring duplicate");
+      return;
+    }
     handledRef.current = true;
 
     const isWebPopup =
@@ -375,6 +381,7 @@ export default function AuthCallback() {
   useEffect(() => {
     cancelledRef.current = false;
     handledRef.current = false;
+    console.log("[callback] screen mounted — starting auth callback handler");
 
     // Hard timeout — no matter what happens, never spin indefinitely.
     // 10 s is generous for any network call; if we're still loading after

@@ -95,7 +95,15 @@ function useSubscriptionContext() {
   const customerInfoQuery = useQuery({
     queryKey: ["revenuecat", "customer-info"],
     queryFn: async () => {
+      console.log("[RevenueCat] customer-info fetch: start");
       const info = await Purchases.getCustomerInfo();
+      const hasPremium =
+        info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[RevenueCat] customer-info fetch: complete", {
+        hasPremiumEntitlement: hasPremium,
+        activeEntitlements: Object.keys(info.entitlements.active),
+        originalAppUserId: info.originalAppUserId,
+      });
       return info;
     },
     staleTime: 60 * 1000,
@@ -104,7 +112,13 @@ function useSubscriptionContext() {
   const offeringsQuery = useQuery({
     queryKey: ["revenuecat", "offerings"],
     queryFn: async () => {
+      console.log("[RevenueCat] offerings fetch: start");
       const offerings = await Purchases.getOfferings();
+      const pkgCount = offerings.current?.availablePackages?.length ?? 0;
+      console.log("[RevenueCat] offerings fetch: complete", {
+        currentOfferingId: offerings.current?.identifier ?? null,
+        availablePackages: pkgCount,
+      });
       return offerings;
     },
     staleTime: 300 * 1000,
@@ -112,7 +126,18 @@ function useSubscriptionContext() {
 
   const purchaseMutation = useMutation({
     mutationFn: async (pkg: PurchasesPackage) => {
+      console.log("[RevenueCat] purchasePackage: called", {
+        packageId: pkg.identifier,
+        productId: pkg.product.identifier,
+        price: pkg.product.priceString,
+      });
       const { customerInfo } = await Purchases.purchasePackage(pkg);
+      const hasPremium =
+        customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[RevenueCat] purchasePackage: complete", {
+        hasPremiumEntitlement: hasPremium,
+        activeEntitlements: Object.keys(customerInfo.entitlements.active),
+      });
       return customerInfo;
     },
     onSuccess: () => customerInfoQuery.refetch(),
@@ -120,7 +145,15 @@ function useSubscriptionContext() {
 
   const restoreMutation = useMutation({
     mutationFn: async () => {
-      return Purchases.restorePurchases();
+      console.log("[RevenueCat] restorePurchases: called");
+      const info = await Purchases.restorePurchases();
+      const hasPremium =
+        info.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[RevenueCat] restorePurchases: complete", {
+        hasPremiumEntitlement: hasPremium,
+        activeEntitlements: Object.keys(info.entitlements.active),
+      });
+      return info;
     },
     onSuccess: () => customerInfoQuery.refetch(),
   });

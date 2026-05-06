@@ -68,8 +68,12 @@ function PlanSyncEffect() {
     // handled by the explicit purchase/restore flows and the webhook in prod.
     if (Platform.OS === "web") return;
     if (!user || isSubscriptionLoading) return;
-    // Only run once per user ID — prevents looping when updateUser causes a
-    // re-render that changes user.plan_tier while this effect is mounted.
+    // Only run once per user ID per app session. This prevents an update loop
+    // (updateUser re-renders the component, re-triggering the effect) at the
+    // cost of not catching same-session drift after the initial sync. In practice
+    // that drift can only happen if RC emits a second customerInfo change within
+    // the same session (e.g. subscription renewal) — tolerable because the
+    // feature gates already read from RC live; Supabase is only a cache.
     if (syncedForUserIdRef.current === user.id) return;
     syncedForUserIdRef.current = user.id;
 

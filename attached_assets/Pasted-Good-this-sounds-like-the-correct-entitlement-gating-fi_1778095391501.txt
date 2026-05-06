@@ -1,0 +1,132 @@
+Good — this sounds like the correct entitlement-gating fix.
+
+Please now validate Task #75 end-to-end before creating the next TestFlight build.
+
+Do not make unrelated auth, UI, swipe, partner, magic link, or onboarding changes.
+
+Please run a full codebase verification for the premium issue.
+
+Validation requirements:
+
+1. Confirm no feature gate uses Supabase plan_tier as the source of truth
+Search the whole codebase for:
+- plan_tier
+- isPremium
+- hasPremium
+- isSubscribed
+- subscription_status
+- premium
+- premiumPack
+- premiumOnly
+
+Confirm that premium feature access is only granted by:
+customerInfo.entitlements.active["premium"]
+
+The only acceptable plan_tier read should be the intentional isPremiumInDb read inside PlanSyncEffect for DB cache comparison.
+
+2. Confirm guests cannot unlock premium
+Test:
+- Fresh install
+- Guest user
+- Tap Premium CTA
+- Tap buy/upgrade
+
+Expected:
+- user is prompted to sign in
+- purchasePackage is not called while guest
+- no Supabase update to premium occurs
+- premium packs remain locked
+- swipe/like/match limits still apply
+- logs do not show premium unlock
+
+3. Confirm signed-in free user cannot unlock without Apple payment
+Test:
+- signed-in user
+- no active RevenueCat entitlement
+- tap upgrade
+
+Expected:
+- Apple payment sheet opens
+- premium is not unlocked before purchasePackage returns
+- if the Apple sheet is cancelled, user remains free
+- if purchasePackage returns no premium entitlement, user remains free
+- Supabase is not updated to premium
+
+4. Confirm successful purchase unlocks premium only after entitlement
+Test:
+- signed-in free user
+- complete Apple sandbox/TestFlight purchase
+
+Expected:
+- purchasePackage returns customerInfo
+- customerInfo.entitlements.active["premium"] exists
+- only then update Supabase plan_tier to premium
+- premium packs unlock
+- limits are removed
+- premium badge shows active
+
+5. Confirm stale Supabase premium is repaired
+Manually set a test user in Supabase to:
+plan_tier = "premium"
+
+Use a RevenueCat account with no active premium entitlement.
+
+Expected:
+- app treats user as free
+- premium packs remain locked
+- limits apply
+- Settings does not show active premium
+- PlanSyncEffect writes plan_tier back to "free" after RevenueCat loading completes
+- no infinite loading or blocking while this happens
+
+6. Confirm restore purchase behavior
+Test restore with no entitlement:
+- remains free
+- no Supabase premium update
+- clear “no purchase found” message
+
+Test restore with active entitlement:
+- RevenueCat returns active premium entitlement
+- Supabase cache updates to premium
+- premium unlocks
+
+7. Confirm defensive guard works
+Try to trigger any path that would write:
+updateUser({ plan_tier: "premium" })
+
+Expected:
+- if hasPremiumEntitlement is false, the write is blocked
+- log appears:
+BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT
+- user remains free
+
+8. Confirm RevenueCat loading behavior
+While RevenueCat is loading or customerInfo is unknown:
+
+Expected:
+- app does not block startup forever
+- premium defaults to false temporarily
+- Supabase is not downgraded until RevenueCat has finished loading
+- no premium features unlock during unknown/loading state
+
+9. Confirm logs show the full purchase path
+For a purchase attempt, logs should include:
+- Premium CTA tapped
+- user state: guest/signed in
+- isPurchaseEligible
+- hasPremiumEntitlement before purchase
+- Supabase plan_tier before purchase
+- RevenueCat App User ID
+- offerings fetch started/succeeded
+- package selected
+- purchasePackage called
+- purchase cancelled/failed/succeeded
+- returned customerInfo entitlement active true/false
+- Supabase sync started/succeeded/blocked
+- premium unlock applied true/false
+
+10. Confirm no old API references remain
+Because isSubscribed was removed from the public API, confirm the app compiles cleanly and no components still import or reference isSubscribed.
+
+Expected outcome:
+It should now be impossible for a guest or signed-in free user to access premium unless RevenueCat returns an active entitlement named exactly "premium".

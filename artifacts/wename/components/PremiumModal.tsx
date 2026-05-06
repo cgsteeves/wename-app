@@ -22,7 +22,7 @@ import { Svg, Path } from "react-native-svg";
 import { useAuth } from "@/components/AuthContext";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
-import { useSubscription } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 import { PENDING_PREMIUM_PURCHASE_KEY } from "@/lib/supabase";
 import {
   signInWithApple,
@@ -325,13 +325,15 @@ export function PremiumModal({
   // Marks whether the modal was opened when the user was a guest, so we
   // know to advance through the signed-in step when auth completes.
   const openedAsGuestRef = useRef(false);
-  // Guards the auto-advance timer so it cleans up if the modal closes.
   const signedInTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Prevents the signed-in advance from firing more than once per modal open.
+  const hasAdvancedRef = useRef(false);
 
-  // When modal opens: decide the starting step based on current auth state.
-  // When modal closes: reset the guest flag and clear any pending timer.
+  // When modal opens: set the starting step and reset advance guard.
+  // When modal closes: clear any pending advance timer.
   useEffect(() => {
     if (open) {
+      hasAdvancedRef.current = false;
       if (isPurchaseEligible) {
         openedAsGuestRef.current = false;
         setStep("purchase");
@@ -350,28 +352,29 @@ export function PremiumModal({
   }, [open]);
 
   // When the user signs in via Apple or Google while the modal is still open,
-  // isPurchaseEligible flips to true. Detect that transition and advance from
-  // the auth step → brief "signed in!" confirmation → purchase step.
-  // openedAsGuestRef guards against false positives: if auth state resolves
-  // *late* for a user who was already authenticated when they opened the modal,
-  // we don't flash the signed-in interstitial — we only show it when the modal
-  // was genuinely opened in guest mode and sign-in completed while it was open.
+  // isPurchaseEligible flips to true. Advance auth → "signed in!" → purchase.
+  //
+  // CRITICAL: `step` is intentionally excluded from the dependency array.
+  // If `step` were included, React would re-run this effect's cleanup when
+  // setStep("signed-in") fires. That cleanup would clear signedInTimerRef
+  // before the 1.4 s advance fires → modal stuck on "Getting your upgrade
+  // ready…" forever. hasAdvancedRef replaces `step === "auth"` as the guard
+  // against double-triggering. Timer cleanup on modal-close is handled above.
   useEffect(() => {
-    if (!open) return;
-    if (isPurchaseEligible && step === "auth" && openedAsGuestRef.current) {
-      setStep("signed-in");
-      signedInTimerRef.current = setTimeout(() => {
-        signedInTimerRef.current = null;
-        setStep("purchase");
-      }, 1400);
-      return () => {
-        if (signedInTimerRef.current) {
-          clearTimeout(signedInTimerRef.current);
-          signedInTimerRef.current = null;
-        }
-      };
-    }
-  }, [isPurchaseEligible, step, open]);
+    if (!open || !isPurchaseEligible || !openedAsGuestRef.current || hasAdvancedRef.current) return;
+    hasAdvancedRef.current = true;
+    console.log("[PremiumModal] user signed in while open — advancing to purchase");
+    setStep("signed-in");
+    const timer = setTimeout(() => {
+      signedInTimerRef.current = null;
+      console.log("[PremiumModal] signed-in delay complete — showing purchase step");
+      setStep("purchase");
+    }, 1400);
+    signedInTimerRef.current = timer;
+    // No cleanup here — the timer fires after 1.4 s naturally.
+    // If the modal closes first, the open-change effect above clears it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPurchaseEligible, open]);
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -380,21 +383,48 @@ export function PremiumModal({
 
   async function handleUpgrade() {
     if (!pkg) return;
+    console.log("[PremiumModal] upgrade tapped, pkg:", pkg.identifier);
     try {
-      await purchase(pkg);
+      const customerInfo = await purchase(pkg);
+      if (!customerInfo) {
+        // DEV mode only: user dismissed the test-store dialog — purchase()
+        // returns undefined instead of throwing. Do NOT grant premium.
+        console.log("[PremiumModal] purchase cancelled (test-store dismissed)");
+        return;
+      }
+      const entitlementActive =
+        customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (!entitlementActive) {
+        // Purchase call succeeded but the entitlement wasn't activated
+        // (e.g. receipt validation still pending). Do not write to Supabase.
+        console.warn("[PremiumModal] purchase completed but entitlement not active");
+        Alert.alert(
+          "Purchase Incomplete",
+          "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
+        );
+        return;
+      }
+      console.log("[PremiumModal] premium entitlement confirmed — unlocking");
       await updateUser({ plan_tier: "premium" });
       onClose();
       onUpgrade();
     } catch (e: any) {
-      if (e?.userCancelled) return;
+      if (e?.userCancelled) {
+        console.log("[PremiumModal] purchase cancelled by user");
+        return;
+      }
+      console.error("[PremiumModal] purchase failed:", e?.message);
       Alert.alert("Purchase Failed", e?.message ?? "Something went wrong. Please try again.");
     }
   }
 
   async function handleRestore() {
+    console.log("[PremiumModal] restore tapped");
     try {
       const info = await restore();
-      const isNowSubscribed = info?.entitlements?.active?.["premium"] !== undefined;
+      const isNowSubscribed =
+        info?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[PremiumModal] restore result: entitlement active =", isNowSubscribed);
       if (isNowSubscribed) {
         await updateUser({ plan_tier: "premium" });
         onClose();
@@ -403,6 +433,7 @@ export function PremiumModal({
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {
+      console.error("[PremiumModal] restore failed:", e?.message);
       Alert.alert("Restore Failed", e?.message ?? "Something went wrong. Please try again.");
     }
   }

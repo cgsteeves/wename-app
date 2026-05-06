@@ -1,0 +1,82 @@
+Fix two related premium purchase/auth bugs in WeName.
+
+Current problems:
+1. From the Premium page, guests can access premium without being prompted to sign in or completing Apple in-app purchase.
+2. When the sign-in prompt does appear and the user signs in, the app gets stuck forever on:
+   “You’re signed in, getting your upgrade ready”
+   The Apple in-app purchase flow never opens.
+
+Expected behavior:
+- A guest user should never be granted premium access.
+- To buy premium, the user must first sign in with Google, Apple, or email.
+- After successful sign-in, the app should return the user to the Premium page and start/resume the Apple in-app purchase flow.
+- No step should cause an infinite spinner.
+
+Please audit and fix the full premium purchase flow.
+
+Requirements:
+
+A) Premium access rules
+- Guests must not receive premium access.
+- Remove any logic that grants premium locally without a real RevenueCat/App Store entitlement.
+- Premium access should only be true if RevenueCat confirms an active entitlement.
+- Supabase is allowed to cache premium status, but it must not be the source of truth.
+
+B) Purchase gating
+- If the user taps premium while signed out:
+  - Show sign-in options.
+  - Save the intended action as “continue_to_purchase”.
+  - After auth completes, return to the Premium page.
+  - Then start the RevenueCat purchase flow.
+- Do not mark the user as premium just because they clicked a button or completed sign-in.
+
+C) Fix post-sign-in spinner
+- Find the logic behind “You’re signed in, getting your upgrade ready.”
+- Add try/catch and timeout handling to every async step:
+  - Supabase session exchange
+  - profile fetch/create
+  - RevenueCat logIn with Supabase user ID
+  - getOfferings
+  - getCustomerInfo
+  - entitlement check
+  - purchase package call
+- No step should block forever.
+- After max 8 seconds, show a recovery state:
+  “We couldn’t start the purchase. Please try again.”
+  Buttons: Try again, Back to Premium.
+
+D) RevenueCat purchase flow
+- After sign-in, call RevenueCat logIn using the Supabase auth user ID.
+- Then fetch offerings/packages.
+- Then trigger the Apple purchase sheet using RevenueCat purchasePackage.
+- Only after purchase succeeds should the app unlock premium.
+- If the user cancels, show a normal cancelled state and keep them free.
+- If purchase fails, show a clear error and keep them free.
+
+E) Restore purchases
+- Add or verify a “Restore Purchases” action.
+- Restore should call RevenueCat restorePurchases/getCustomerInfo.
+- Restore should only unlock premium if an active entitlement is returned.
+
+F) Defensive state handling
+- Do not rely only on local state like isPremium=true.
+- Do not rely only on Supabase fields like subscription_status='premium'.
+- Do not allow premium packs, unlimited swipes, AI suggestions, or premium UI access unless entitlement is active.
+- If entitlement check fails, default to free, not premium.
+
+G) Logging
+Add clear logs for:
+- Premium CTA tapped
+- User signed in/out state
+- Sign-in required
+- Auth completed
+- Returning to premium purchase flow
+- RevenueCat logIn started/succeeded/failed
+- Offerings fetch started/succeeded/failed
+- Purchase sheet opening
+- Purchase success/cancel/failure
+- Entitlement active/inactive
+- Premium unlock applied
+
+Goal:
+Guests must be blocked from premium access, sign-in must resume the purchase flow correctly, and the Apple in-app purchase sheet must open after sign-in instead of getting stuck on an infinite spinner.

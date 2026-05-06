@@ -13,11 +13,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAuth } from "@/components/AuthContext";
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
-import { useSubscription } from "@/lib/revenuecat";
+import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenuecat";
 
 const paperTexture = require("../../../assets/images/paper-texture.jpg");
 const girlBg = require("../../../assets/images/girl-card-bg.jpg");
@@ -52,6 +53,7 @@ export default function PremiumScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useUser();
+  const { isPurchaseEligible, openAuthModal } = useAuth();
   const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
 
   if (!user) return null;
@@ -64,26 +66,61 @@ export default function PremiumScreen() {
 
   async function handleUpgrade() {
     if (!pkg) return;
+    if (!isPurchaseEligible) {
+      // Guest — must sign in before purchasing so the purchase is tied to
+      // their account and can be restored across devices.
+      console.log("[PremiumScreen] upgrade tapped by guest — prompting sign-in");
+      openAuthModal({
+        title: "Sign in to purchase",
+        body: "Create an account first so your premium access is linked to your account and can be restored on any device.",
+      });
+      return;
+    }
+    console.log("[PremiumScreen] upgrade tapped, pkg:", pkg.identifier);
     try {
-      await purchase(pkg);
+      const customerInfo = await purchase(pkg);
+      if (!customerInfo) {
+        // DEV mode only: user dismissed the test-store dialog.
+        console.log("[PremiumScreen] purchase cancelled (test-store dismissed)");
+        return;
+      }
+      const entitlementActive =
+        customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      if (!entitlementActive) {
+        console.warn("[PremiumScreen] purchase completed but entitlement not active");
+        Alert.alert(
+          "Purchase Incomplete",
+          "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
+        );
+        return;
+      }
+      console.log("[PremiumScreen] premium entitlement confirmed — unlocking");
       await updateUser({ plan_tier: "premium" });
     } catch (e: any) {
-      if (e?.userCancelled) return;
+      if (e?.userCancelled) {
+        console.log("[PremiumScreen] purchase cancelled by user");
+        return;
+      }
+      console.error("[PremiumScreen] purchase failed:", e?.message);
       const msg = e?.message ?? "Something went wrong. Please try again.";
       Alert.alert("Purchase Failed", msg);
     }
   }
 
   async function handleRestore() {
+    console.log("[PremiumScreen] restore tapped");
     try {
       const info = await restore();
-      const isNowSubscribed = info?.entitlements?.active?.["premium"] !== undefined;
+      const isNowSubscribed =
+        info?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
+      console.log("[PremiumScreen] restore result: entitlement active =", isNowSubscribed);
       if (isNowSubscribed) {
         await updateUser({ plan_tier: "premium" });
       } else {
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {
+      console.error("[PremiumScreen] restore failed:", e?.message);
       const msg = e?.message ?? "Something went wrong. Please try again.";
       Alert.alert("Restore Failed", msg);
     }

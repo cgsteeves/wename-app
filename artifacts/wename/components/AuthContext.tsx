@@ -4,6 +4,7 @@ import type { Session, User as SupabaseUser } from "@supabase/supabase-js";
 
 import { supabase, USER_ID_KEY } from "@/lib/supabase";
 import { authSignOut, authDeleteAccount, finalizeLogin } from "@/lib/authService";
+import { emitMergeComplete } from "@/lib/mergeEvents";
 
 export type AuthModalProps = {
   title?: string;
@@ -47,14 +48,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       setSession(session);
       if (event === "SIGNED_IN" && session?.user) {
-        try {
-          // Full finalize: upsert profile defaults (display_name from
-          // Google metadata, invite_code if missing), merge any guest
-          // data, and reassign USER_ID_KEY from guest to authenticated.
-          await finalizeLogin(session.user.id, session.user.email ?? "");
-        } catch (e) {
-          console.warn("[AuthContext] finalizeLogin failed", e);
-        }
+        // IMPORTANT: Do NOT await finalizeLogin here.
+        //
+        // supabase-js awaits every onAuthStateChange listener before resolving
+        // the triggering call (e.g. setSession / signInWithIdToken). If we
+        // await finalizeLogin and any of its Supabase queries stall due to the
+        // auth-lock on cold start, setSession() in auth/callback.tsx never
+        // resolves → the "Signing you in" spinner stays forever.
+        //
+        // Fire-and-forget: the listener returns immediately, setSession resolves,
+        // and the callback navigates to the app. finalizeLogin runs in the
+        // background and emits mergeComplete() when done, which is UserContext's
+        // signal to call loadById(). Each step in finalizeLogin has its own
+        // timeout so it cannot hang indefinitely.
+        finalizeLogin(session.user.id, session.user.email ?? "").catch((e) => {
+          console.warn("[AuthContext] finalizeLogin failed:", e);
+          // Safety net: if finalizeLogin threw before reaching emitMergeComplete,
+          // emit it now so UserContext doesn't wait on the 10-second fallback timer.
+          emitMergeComplete();
+        });
       }
     });
 

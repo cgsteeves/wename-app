@@ -20,6 +20,20 @@ function getProjectRef(): string {
 // Supabase REST endpoint, then write the session into the same localStorage
 // key auth-js reads on next load. Opener tab picks it up via the storage
 // event listener registered in _layout.tsx.
+// Race an auth SDK call against a per-call timeout so a stalled auth-lock
+// on cold start never hangs the callback screen beyond the window given.
+function withAuthTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Auth timed out (${label}) — please try again`)),
+        ms,
+      ),
+    ),
+  ]);
+}
+
 async function exchangeCodeWeb(code: string): Promise<void> {
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -127,19 +141,38 @@ export default function AuthCallback() {
           const accessToken  = hashParams.get("access_token");
           const refreshToken = hashParams.get("refresh_token");
 
+          console.log("[callback] native params", {
+            hasCode: !!code,
+            hasTokens: !!(accessToken && refreshToken),
+            url: urlStr.slice(0, 80),
+          });
+
           if (code) {
             // PKCE flow — only reached for links sent before the implicit-flow
             // switch; exchangeCodeForSession reads the verifier from AsyncStorage.
-            const { error } = await supabase.auth.exchangeCodeForSession(code);
+            console.log("[callback] native: exchanging PKCE code");
+            const { error } = await withAuthTimeout(
+              supabase.auth.exchangeCodeForSession(code),
+              6_000,
+              "exchangeCodeForSession",
+            );
             if (error) throw error;
+            console.log("[callback] native: PKCE exchange complete");
           } else if (accessToken && refreshToken) {
             // Implicit flow — tokens come in the hash fragment.
-            // signInWithEmailMagicLink now uses this path for all native links.
-            const { error } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
-            });
+            // The send-magic-link edge function (admin.generateLink) produces
+            // this format since it doesn't include a PKCE code_challenge.
+            console.log("[callback] native: calling setSession with hash tokens");
+            const { error } = await withAuthTimeout(
+              supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken,
+              }),
+              6_000,
+              "setSession",
+            );
             if (error) throw error;
+            console.log("[callback] native: setSession complete");
           } else {
             throw new Error("No sign-in credentials found in the link. It may have expired — please request a new one.");
           }
@@ -256,11 +289,17 @@ export default function AuthCallback() {
             if (accessToken && refreshToken) {
               // supabase.auth.setSession writes the session to localStorage
               // and fires onAuthStateChange so the opener tab picks it up.
-              const { error } = await supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              });
+              console.log("[callback] web: calling setSession with hash tokens");
+              const { error } = await withAuthTimeout(
+                supabase.auth.setSession({
+                  access_token: accessToken,
+                  refresh_token: refreshToken,
+                }),
+                6_000,
+                "setSession",
+              );
               if (error) throw error;
+              console.log("[callback] web: setSession complete");
             }
           }
         }

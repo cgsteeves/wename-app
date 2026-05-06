@@ -132,62 +132,45 @@ export async function signInWithEmailMagicLink(email: string): Promise<void> {
   const emailRedirectTo =
     Platform.OS !== "web" ? "wename://auth/callback" : `${getOrigin()}/auth/callback`;
 
-  if (Platform.OS !== "web") {
-    // Native: call the Supabase REST OTP endpoint directly WITHOUT a PKCE
-    // challenge. This produces an implicit-flow magic link that redirects to
-    //   wename://auth/callback#access_token=…&refresh_token=…
-    // The native callback reads the tokens from the hash and calls
-    // supabase.auth.setSession(), which is simpler and avoids two failure
-    // modes that plagued the PKCE approach:
-    //   1. The code-verifier lives in AsyncStorage; on a cold-start deep-link
-    //      open, getSession() can hold the auth lock before exchangeCodeForSession
-    //      gets a turn, producing a permanent hang (see supabase.ts lock comment).
-    //   2. If the user opens the link on a different device, the verifier is
-    //      simply absent and the exchange fails silently.
-    const supabaseUrl    = process.env.EXPO_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabaseUrl    = process.env.EXPO_PUBLIC_SUPABASE_URL!;
+  const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
 
-    // GoTrue's /auth/v1/otp endpoint takes the redirect URL as a query
-    // parameter (?redirect_to=…), NOT inside the JSON body. Putting it in
-    // the body (e.g. as options.emailRedirectTo) is a JS SDK abstraction and
-    // is silently ignored by the server, which then falls back to the project's
-    // default site URL. Omitting code_challenge / code_challenge_method forces
-    // implicit flow — the link redirects with #access_token=…&refresh_token=…
-    // in the hash fragment, which the native callback handles via setSession().
-    const otpUrl = `${supabaseUrl}/auth/v1/otp?redirect_to=${encodeURIComponent(emailRedirectTo)}`;
-
-    const res = await fetch(otpUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${supabaseAnonKey}`,
-      },
-      body: JSON.stringify({
-        email,
-        create_user: true,
-        data: {},
-        gotrue_meta_security: {},
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}) as Record<string, string>);
-      throw new Error(
-        body.error_description ?? body.msg ?? body.error ?? "Failed to send sign-in link. Please try again.",
-      );
-    }
-    return;
-  }
-
-  // Web: use the SDK so the PKCE verifier is written to localStorage and the
-  // web callback can exchange the code correctly.
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo, shouldCreateUser: true },
+  console.log("[signInWithEmailMagicLink] sending OTP via edge function", {
+    platform: Platform.OS,
+    redirectTo: emailRedirectTo,
   });
 
-  if (error) throw new Error(error.message || "Failed to send sign-in link. Please try again.");
+  // Route through the send-magic-link Supabase Edge Function.
+  // The Edge Function uses the Supabase Admin API to generate a magic link
+  // and sends it via SendGrid using the branded WeName HTML template.
+  //
+  // Previously this called /auth/v1/otp directly, which bypassed the Edge
+  // Function entirely and caused Supabase to fall back to its own SMTP sender
+  // and default template (no SendGrid, no branded email).
+  //
+  // The Admin API generates an implicit-flow link (no PKCE code_challenge),
+  // so the resulting redirect always uses hash tokens:
+  //   wename://auth/callback#access_token=…&refresh_token=…   (native)
+  //   https://…/auth/callback#access_token=…&refresh_token=…  (web)
+  // Both callback handlers already support this format.
+  const res = await fetch(`${supabaseUrl}/functions/v1/send-magic-link`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${supabaseAnonKey}`,
+    },
+    body: JSON.stringify({ email, redirectTo: emailRedirectTo }),
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as Record<string, string>);
+    const msg = body.error ?? "Failed to send sign-in link. Please try again.";
+    console.warn("[signInWithEmailMagicLink] edge function error:", msg);
+    throw new Error(msg);
+  }
+
+  console.log("[signInWithEmailMagicLink] email dispatched successfully");
 }
 
 // ── Apple Sign-In (iOS native only) ────────────────────────────────────────
@@ -313,54 +296,91 @@ export async function authDeleteAccount(): Promise<void> {
   await supabase.auth.signOut();
 }
 
+// Race a promise-like against a ms timeout. Accepts PromiseLike<T> (which
+// covers Supabase PostgrestBuilder / PostgrestFilterBuilder) in addition to
+// native Promises. Promise.resolve() promotes the thenable to a real Promise
+// so it can be used with Promise.race.
+function withStep<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    Promise.resolve(p),
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`[finalizeLogin] timeout: ${label}`)), ms),
+    ),
+  ]);
+}
+
 export async function finalizeLogin(userId: string, email: string): Promise<void> {
-  const updates: Record<string, unknown> = {
-    id: userId,
-    updated_at: new Date().toISOString(),
-  };
-  if (email) updates.email = email;
+  console.log("[finalizeLogin] started", { uid: userId.slice(-6), email });
 
-  const { data: existing } = await supabase
-    .from("users")
-    .select("display_name, invite_code")
-    .eq("id", userId)
-    .maybeSingle();
+  // ── Step 1: profile upsert ───────────────────────────────────────────────
+  // Each step is in its own try/catch so one failure never prevents the rest
+  // from running — and emitMergeComplete() always fires at the end.
+  try {
+    const updates: Record<string, unknown> = {
+      id: userId,
+      updated_at: new Date().toISOString(),
+    };
+    if (email) updates.email = email;
 
-  if (!existing?.display_name) {
-    const { data: authData } = await supabase.auth.getUser();
-    const meta = authData?.user?.user_metadata;
-    const name = meta?.full_name || meta?.name;
-    if (name) updates.display_name = name;
+    const existingResult = await withStep(
+      supabase.from("users").select("display_name, invite_code").eq("id", userId).maybeSingle(),
+      4_000,
+      "profile select",
+    );
+    const existing = existingResult?.data;
+
+    if (!existing?.display_name) {
+      const { data: authData } = await supabase.auth.getUser();
+      const meta = authData?.user?.user_metadata;
+      const name = meta?.full_name || meta?.name;
+      if (name) updates.display_name = name;
+    }
+
+    if (!existing?.invite_code) {
+      updates.invite_code = Math.random().toString(36).substring(2, 10).toUpperCase();
+    }
+
+    await withStep(
+      supabase.from("users").upsert(updates, { onConflict: "id" }),
+      4_000,
+      "profile upsert",
+    );
+    console.log("[finalizeLogin] profile upserted");
+  } catch (e) {
+    console.warn("[finalizeLogin] profile step failed (continuing):", e);
   }
 
-  if (!existing?.invite_code) {
-    updates.invite_code = Math.random().toString(36).substring(2, 10).toUpperCase();
+  // ── Step 2: guest data merge ─────────────────────────────────────────────
+  try {
+    const guestUserId = await AsyncStorage.getItem(USER_ID_KEY);
+    if (guestUserId && guestUserId !== userId) {
+      console.log("[finalizeLogin] merging guest", guestUserId.slice(-6), "→", userId.slice(-6));
+      const { mergeGuestData } = await import("@/lib/guestDataMerge");
+      await withStep(mergeGuestData(guestUserId, userId), 6_000, "guest merge");
+      console.log("[finalizeLogin] guest merge complete");
+    }
+  } catch (e) {
+    console.warn("[finalizeLogin] guest merge failed (continuing):", e);
   }
 
-  await supabase.from("users").upsert(updates, { onConflict: "id" });
-
-  const guestUserId = await AsyncStorage.getItem(USER_ID_KEY);
-  if (guestUserId && guestUserId !== userId) {
-    const { mergeGuestData } = await import("@/lib/guestDataMerge");
-    await mergeGuestData(guestUserId, userId);
+  // ── Step 3: persist authenticated user ID ───────────────────────────────
+  try {
+    await AsyncStorage.setItem(USER_ID_KEY, userId);
+  } catch (e) {
+    console.warn("[finalizeLogin] AsyncStorage.setItem failed:", e);
   }
 
-  await AsyncStorage.setItem(USER_ID_KEY, userId);
-
-  // Identify this user in RevenueCat so purchases are linked to their account
-  // across devices and app reinstalls. logIn is idempotent — calling it again
-  // with the same userId is a no-op. Failures are swallowed so a RevenueCat
-  // outage never blocks sign-in. Not called on web (RC is native-only).
+  // ── Step 4: RevenueCat login (fire-and-forget) ───────────────────────────
+  // Failures are swallowed so a RevenueCat outage never blocks sign-in.
+  // Not called on web (RevenueCat is native-only).
   if (Platform.OS !== "web") {
     Purchases.logIn(userId).catch((e) =>
       console.warn("[authService] RevenueCat logIn failed", e),
     );
   }
 
-  // Always signal completion — UserContext waits for this before calling
-  // loadById so it never races with finalizeLogin's Supabase operations.
-  // Previously this was only emitted when guest data was merged, which left
-  // returning-user sign-ins relying on the SIGNED_IN handler's immediate
-  // loadById call (which caused auth-lock contention with finalizeLogin).
+  // Always signal completion — even if earlier steps failed.
+  // UserContext waits for this signal before calling loadById.
+  console.log("[finalizeLogin] complete, emitting mergeComplete");
   emitMergeComplete();
 }

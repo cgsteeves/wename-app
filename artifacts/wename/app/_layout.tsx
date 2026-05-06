@@ -58,8 +58,14 @@ function AuthModalOverlay() {
 function PlanSyncEffect() {
   const { user, updateUser } = useUser();
   const { hasPremiumEntitlement, isSubscriptionLoading } = useSubscription();
-  // Fires at most once per user ID per app session.
-  const syncedForUserIdRef = useRef<string | null>(null);
+  // Tracks the last (userId, hasPremiumEntitlement) combination that was synced.
+  // Using a composite key means: the sync fires once per unique entitlement state
+  // per user per session. If hasPremiumEntitlement changes (e.g. purchase completed
+  // mid-session), the guard allows one more sync pass for the new state.
+  // This prevents the update-loop bug (updateUser → re-render → re-trigger) while
+  // still catching within-session entitlement transitions that PlanSyncEffect would
+  // otherwise miss due to a strict userId-only guard.
+  const syncedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     // On web the RevenueCat test-store persists simulated purchases in
@@ -68,11 +74,12 @@ function PlanSyncEffect() {
     // handled by the explicit purchase/restore flows and the webhook in prod.
     if (Platform.OS === "web") return;
     if (!user || isSubscriptionLoading) return;
-    // Guard against concurrent effect invocations while the async write is
-    // in-flight. The ref is set to the userId immediately; on write failure it
-    // is cleared so the next render cycle can retry.
-    if (syncedForUserIdRef.current === user.id) return;
-    syncedForUserIdRef.current = user.id;
+    // Composite key: tracks (userId, entitlementState) combinations already synced.
+    // Allows re-sync when hasPremiumEntitlement flips mid-session (e.g. after purchase).
+    // On write failure the key is cleared so the next render can retry.
+    const syncKey = `${user.id}-${hasPremiumEntitlement ? "premium" : "free"}`;
+    if (syncedKeyRef.current === syncKey) return;
+    syncedKeyRef.current = syncKey;
 
     const isPremiumInDb = user.plan_tier === "premium";
     const uid = user.id.slice(-6);
@@ -95,8 +102,8 @@ function PlanSyncEffect() {
           console.log("[PlanSyncEffect] updateUser: success", { unlockApplied: true, uid, caller: "sync-upgrade" });
         } catch (e: any) {
           console.error("[PlanSyncEffect] updateUser: failed", { uid, caller: "sync-upgrade", error: e?.message });
-          // Clear the ref so the next render cycle can retry the sync.
-          syncedForUserIdRef.current = null;
+          // Clear the key so the next render cycle can retry the sync.
+          syncedKeyRef.current = null;
         }
       } else if (!hasPremiumEntitlement && isPremiumInDb) {
         // RC confirmed no entitlement but Supabase still says premium — downgrade
@@ -113,7 +120,7 @@ function PlanSyncEffect() {
           console.log("[PlanSyncEffect] updateUser: success", { unlockApplied: false, uid, caller: "sync-downgrade" });
         } catch (e: any) {
           console.error("[PlanSyncEffect] updateUser: failed", { uid, caller: "sync-downgrade", error: e?.message });
-          syncedForUserIdRef.current = null;
+          syncedKeyRef.current = null;
         }
       } else {
         console.log("[PlanSyncEffect] decision=no-op (RC and DB in sync)", {

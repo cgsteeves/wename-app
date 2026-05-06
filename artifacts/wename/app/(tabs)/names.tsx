@@ -108,8 +108,12 @@ export default function NamesScreen() {
   // Shared helpers for mapping an embedded `names` row to NameItem fields.
   // The `names!name_id(...)` PostgREST syntax joins name detail in the same
   // query, removing the separate fetchNamesByIds round trip entirely.
-  // Supabase SDK types the embedded relation as an array even for to-one FKs,
-  // so EmbeddedName is typed as an array and we take [0].
+  //
+  // IMPORTANT: PostgREST returns a plain OBJECT (not array) for many-to-one
+  // joins at runtime, even though the Supabase TypeScript SDK types them as
+  // EmbeddedNameRow[]. Using ns[0] on a plain object returns undefined, so
+  // all name texts came back blank. We normalise to a single object here with
+  // Array.isArray() so the code is robust to either runtime shape.
   const NAME_COLS =
     "name, gender, us_rank, origin_raw, meaning, nicknames, pronunciation";
 
@@ -122,7 +126,8 @@ export default function NamesScreen() {
     nicknames: string | null;
     pronunciation: string | null;
   };
-  type EmbeddedName = EmbeddedNameRow[] | null;
+  // SDK types the embedded relation as array, but runtime shape may be object.
+  type EmbeddedName = EmbeddedNameRow[] | EmbeddedNameRow | null;
 
   const cleanField = (val: string | null | undefined): string | null => {
     if (val == null || val === "\\N" || val === "" || val.trim() === "\\N")
@@ -130,8 +135,15 @@ export default function NamesScreen() {
     return val;
   };
 
+  // Normalise the runtime shape (object or array) to a single row.
+  const toRow = (ns: EmbeddedName): EmbeddedNameRow | null => {
+    if (!ns) return null;
+    if (Array.isArray(ns)) return ns[0] ?? null;
+    return ns;
+  };
+
   const embeddedToFields = (ns: EmbeddedName) => {
-    const n = ns?.[0] ?? null;
+    const n = toRow(ns);
     if (!n) return null;
     return {
       text: n.name,
@@ -161,7 +173,7 @@ export default function NamesScreen() {
         ranking: number | null;
         created_at: string;
         manually_added: boolean;
-        names: EmbeddedNameRow[];
+        names: EmbeddedName;
       };
       type MatchRow = SwipeRow & {
         manually_added_by_user_id: string | null;
@@ -171,7 +183,7 @@ export default function NamesScreen() {
         name_id: string;
         ranking: number | null;
         created_at: string;
-        names: EmbeddedNameRow[];
+        names: EmbeddedName;
       };
 
       const [swipeData, matchData, finData] = await Promise.all([
@@ -249,8 +261,14 @@ export default function NamesScreen() {
     try {
       // All three fetches run in parallel. Embedded selects (names!name_id)
       // mean each query returns name text directly — no chained round trips.
-      // SDK types the embedded resource as an array even for to-one FKs.
-      type SwipeNameRow = { names: { name: string }[] };
+      // SDK types the embedded resource as an array, but runtime is object for
+      // many-to-one FKs. toNameStr handles both shapes.
+      type SwipeNameRow = { names: { name: string }[] | { name: string } | null };
+      const toNameStr = (ns: SwipeNameRow["names"]): string | null => {
+        if (!ns) return null;
+        if (Array.isArray(ns)) return ns[0]?.name ?? null;
+        return ns.name ?? null;
+      };
 
       const [mySwipes, partnerUserRow, partnerSwipes] = await Promise.all([
         supabase
@@ -277,14 +295,14 @@ export default function NamesScreen() {
       ]);
 
       setAllSwipedNames(
-        mySwipes.map((r) => r.names[0]?.name).filter((n): n is string => n != null),
+        mySwipes.map((r) => toNameStr(r.names)).filter((n): n is string => n != null),
       );
 
       if (user.partner_id) {
         setPartnerDisplayName(partnerUserRow?.display_name ?? null);
         setPartnerLikedNames(
           partnerSwipes
-            .map((r) => r.names[0]?.name)
+            .map((r) => toNameStr(r.names))
             .filter((n): n is string => n != null),
         );
       }

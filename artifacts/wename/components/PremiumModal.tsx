@@ -352,9 +352,13 @@ export function PremiumModal({
   // When the user signs in via Apple or Google while the modal is still open,
   // isPurchaseEligible flips to true. Detect that transition and advance from
   // the auth step → brief "signed in!" confirmation → purchase step.
+  // openedAsGuestRef guards against false positives: if auth state resolves
+  // *late* for a user who was already authenticated when they opened the modal,
+  // we don't flash the signed-in interstitial — we only show it when the modal
+  // was genuinely opened in guest mode and sign-in completed while it was open.
   useEffect(() => {
     if (!open) return;
-    if (isPurchaseEligible && step === "auth") {
+    if (isPurchaseEligible && step === "auth" && openedAsGuestRef.current) {
       setStep("signed-in");
       signedInTimerRef.current = setTimeout(() => {
         signedInTimerRef.current = null;

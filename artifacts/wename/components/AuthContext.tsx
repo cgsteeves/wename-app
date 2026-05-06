@@ -88,9 +88,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         authUser: session?.user ?? null,
         isAuthenticated: !!session,
-        // A real account always has an email (Apple/Google/magic-link).
-        // Guests have no Supabase session at all, so this is false for them.
-        isPurchaseEligible: !!session && !!session.user.email,
+        // A real account always has an email or a non-anonymous OAuth provider.
+        // Guests have no Supabase session, so this is always false for them.
+        // Using both checks guards edge cases where Apple private-relay emails
+        // are stripped, while still excluding any hypothetical anonymous-provider
+        // sessions that might be cached from earlier SDK versions.
+        isPurchaseEligible:
+          !!session &&
+          (!!session.user.email ||
+            (!!session.user.app_metadata?.provider &&
+              session.user.app_metadata.provider !== "anonymous")),
         authLoading,
         showAuthModal,
         authModalProps,

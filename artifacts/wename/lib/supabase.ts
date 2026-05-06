@@ -107,3 +107,4 @@ export type PartnerInvite = {
 export const DEFAULT_PACK_SLUG = "top_2000";
 export const USER_ID_KEY = "baby_picker_user_id";
 export const ONBOARDED_KEY = "wename_onboarded";
+export const PENDING_PREMIUM_PURCHASE_KEY = "pending_premium_purchase";

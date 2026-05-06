@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -5,7 +6,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/constants/fonts";
-import { supabase } from "@/lib/supabase";
+import { supabase, PENDING_PREMIUM_PURCHASE_KEY } from "@/lib/supabase";
 
 type Status = "loading" | "success" | "error";
 
@@ -147,8 +148,22 @@ export default function AuthCallback() {
           if (cancelled) return;
           if (safety) clearTimeout(safety);
           setStatus("success");
+
+          // Check for a pending premium purchase intent written by PremiumModal
+          // before the user tapped "Continue with Email". If found, navigate
+          // back to the swipe screen with ?openPremium=1 so the modal re-opens
+          // at the purchase step instead of the sign-in step.
+          let destination: string = "/";
+          try {
+            const pending = await AsyncStorage.getItem(PENDING_PREMIUM_PURCHASE_KEY);
+            if (pending) {
+              await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY);
+              destination = "/?openPremium=1";
+            }
+          } catch { /* ignore — worst case we navigate to "/" */ }
+
           setTimeout(() => {
-            if (!cancelled) router.replace("/");
+            if (!cancelled) router.replace(destination as any);
           }, 400);
         } catch (e) {
           if (cancelled) return;
@@ -173,7 +188,7 @@ export default function AuthCallback() {
       !!window.opener &&
       window.opener !== window;
 
-    function notifyAndClose() {
+    async function notifyAndClose() {
       if (Platform.OS !== "web" || typeof window === "undefined") return;
       if (isWebPopup) {
         try {
@@ -194,7 +209,18 @@ export default function AuthCallback() {
           if (!cancelled) router.replace("/");
         }, 250);
       } else {
-        router.replace("/");
+        // Direct navigation (e.g. email magic link). Check for a pending
+        // premium purchase intent so we can re-open PremiumModal at the
+        // purchase step instead of the sign-in step.
+        let destination: string = "/";
+        try {
+          const pending = await AsyncStorage.getItem(PENDING_PREMIUM_PURCHASE_KEY);
+          if (pending) {
+            await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY);
+            destination = "/?openPremium=1";
+          }
+        } catch { /* ignore */ }
+        router.replace(destination as any);
       }
     }
 

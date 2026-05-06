@@ -15,6 +15,10 @@ type AuthContextValue = {
   session: Session | null;
   authUser: SupabaseUser | null;
   isAuthenticated: boolean;
+  // True only when the session belongs to a real named/verified account
+  // (email or OAuth). Guests have no Supabase session so this is false
+  // for them. Used to gate the premium purchase flow.
+  isPurchaseEligible: boolean;
   authLoading: boolean;
   showAuthModal: boolean;
   authModalProps: AuthModalProps | null;
@@ -84,6 +88,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         authUser: session?.user ?? null,
         isAuthenticated: !!session,
+        // A real account always has an email (Apple/Google/magic-link).
+        // Guests have no Supabase session at all, so this is false for them.
+        isPurchaseEligible: !!session && !!session.user.email,
         authLoading,
         showAuthModal,
         authModalProps,

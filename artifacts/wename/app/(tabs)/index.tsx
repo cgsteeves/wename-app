@@ -46,7 +46,7 @@ export default function SwipeScreen() {
   } = useUser();
   const { signOut } = useAuth();
   const insets = useSafeAreaInsets();
-  const { redirect } = useLocalSearchParams<{ redirect?: string }>();
+  const { redirect, openPremium } = useLocalSearchParams<{ redirect?: string; openPremium?: string }>();
 
   // Consume post-auth redirect params (e.g. after signing in from partner invite gate)
   useEffect(() => {
@@ -54,6 +54,17 @@ export default function SwipeScreen() {
       router.replace("/(tabs)/settings/partner?autoInvite=1");
     }
   }, [redirect, user]);
+
+  // Re-open PremiumModal after returning from an email magic-link sign-in.
+  // The auth/callback screen sets ?openPremium=1 when it finds a pending
+  // purchase intent in AsyncStorage (set by PremiumModal before sending OTP).
+  const openPremiumHandledRef = useRef(false);
+  useEffect(() => {
+    if (openPremium === "1" && user && !openPremiumHandledRef.current) {
+      openPremiumHandledRef.current = true;
+      setPremiumOpen(true);
+    }
+  }, [openPremium, user]);
 
   const [names, setNames] = useState<Name[]>([]);
   const [partnerPickIds, setPartnerPickIds] = useState<Set<string>>(new Set());

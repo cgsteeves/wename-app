@@ -2,7 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import { ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as AppleAuthentication from "expo-apple-authentication";
-import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
   ActivityIndicator,
@@ -22,6 +23,7 @@ import { useAuth } from "@/components/AuthContext";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useSubscription } from "@/lib/revenuecat";
+import { PENDING_PREMIUM_PURCHASE_KEY } from "@/lib/supabase";
 import {
   signInWithApple,
   signInWithGoogle,
@@ -33,6 +35,13 @@ const paperTexture = require("../assets/images/paper-texture.jpg");
 const girlBg = require("../assets/images/girl-card-bg.jpg");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
+
+// Three-step flow:
+//   "auth"      → sign-in panel (guests / unauthenticated)
+//   "signed-in" → brief confirmation shown after Apple/Google sign-in completes
+//                 while the modal is still open; auto-advances to "purchase"
+//   "purchase"  → normal purchase CTA (authenticated users)
+type PurchaseStep = "auth" | "signed-in" | "purchase";
 
 const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
   {
@@ -52,14 +61,14 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
   },
 ];
 
-const GRASS       = "hsl(145,45%,35%)";
-const GRASS_BG    = "hsla(145,45%,35%,0.08)";
+const GRASS        = "hsl(145,45%,35%)";
+const GRASS_BG     = "hsla(145,45%,35%,0.08)";
 const GRASS_BORDER = "hsl(145,45%,60%)";
-const TEXT_DARK   = "hsl(25,30%,20%)";
-const TEXT_MID    = "hsl(25,12%,48%)";
-const BORDER      = "hsl(35,22%,80%)";
-const BOY_BLUE    = "hsl(214,55%,42%)";
-const DESTRUCTIVE = "hsl(0,72%,50%)";
+const TEXT_DARK    = "hsl(25,30%,20%)";
+const TEXT_MID     = "hsl(25,12%,48%)";
+const BORDER       = "hsl(35,22%,80%)";
+const BOY_BLUE     = "hsl(214,55%,42%)";
+const DESTRUCTIVE  = "hsl(0,72%,50%)";
 
 function GoogleIcon() {
   return (
@@ -72,7 +81,13 @@ function GoogleIcon() {
   );
 }
 
-function SignInPanel({ onClose }: { onClose: () => void }) {
+function SignInPanel({
+  onClose,
+  onMagicLinkSent,
+}: {
+  onClose: () => void;
+  onMagicLinkSent?: () => void;
+}) {
   const insets = useSafeAreaInsets();
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [appleLoading,   setAppleLoading]   = useState(false);
@@ -96,6 +111,8 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
     try {
       const result = await signInWithApple();
       if (result === "cancelled") setAppleLoading(false);
+      // On success: onAuthStateChange fires → isPurchaseEligible becomes true
+      // → PremiumModal useEffect advances the step to "signed-in" automatically.
     } catch (e) {
       setAppleError(e instanceof Error ? e.message : "Apple sign-in failed. Please try again.");
       setAppleLoading(false);
@@ -108,6 +125,7 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
     try {
       const result = await signInWithGoogle();
       if (result.kind === "native-cancelled") setGoogleLoading(false);
+      // On success: same as Apple — auth state change propagates upward.
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
       setGoogleLoading(false);
@@ -123,9 +141,18 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
     setEmailError("");
     setEmailLoading(true);
     try {
+      // Write the pending-purchase intent BEFORE sending the OTP.
+      // If the user opens the magic link on a cold start (app not running),
+      // auth/callback reads this flag and navigates to /?openPremium=1 so
+      // PremiumModal re-opens at the purchase step when the app launches.
+      await AsyncStorage.setItem(PENDING_PREMIUM_PURCHASE_KEY, "1");
       await signInWithEmailMagicLink(trimmed);
       setEmailSent(true);
+      onMagicLinkSent?.();
     } catch (e) {
+      // Roll back the intent flag if the OTP request failed so it doesn't
+      // falsely re-open the modal on a future unrelated sign-in.
+      await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY).catch(() => {});
       setEmailError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     }
     setEmailLoading(false);
@@ -145,7 +172,6 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
         Sign in to purchase — your premium access will be linked to your account and restored on any device.
       </Text>
 
-      {/* Feature preview */}
       <View style={styles.features}>
         {FEATURES.map((f) => (
           <View key={f.label} style={styles.featureRow}>
@@ -158,7 +184,6 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
         ))}
       </View>
 
-      {/* Apple */}
       {appleAvailable && Platform.OS === "ios" && (
         <>
           <View
@@ -189,7 +214,6 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
         </>
       )}
 
-      {/* Google */}
       <Pressable
         onPress={handleGoogle}
         disabled={anyLoading}
@@ -209,14 +233,12 @@ function SignInPanel({ onClose }: { onClose: () => void }) {
         <Text style={[styles.microError, { color: DESTRUCTIVE }]}>{googleError}</Text>
       )}
 
-      {/* Divider */}
       <View style={styles.orRow}>
         <View style={[styles.orLine, { backgroundColor: BORDER }]} />
         <Text style={[styles.orText, { color: TEXT_MID }]}>or</Text>
         <View style={[styles.orLine, { backgroundColor: BORDER }]} />
       </View>
 
-      {/* Email */}
       {emailSent ? (
         <View style={{ alignItems: "center", gap: 4, paddingVertical: 8 }}>
           <Text style={[styles.providerBtnText, { color: TEXT_DARK, fontFamily: fonts.displaySemibold }]}>
@@ -293,9 +315,59 @@ export function PremiumModal({
   onUpgrade: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { isAuthenticated } = useAuth();
+  const { isPurchaseEligible } = useAuth();
   const { updateUser } = useUser();
   const { purchase, restore, isPurchasing, isRestoring, offerings, offeringsError } = useSubscription();
+
+  // Track the current step of the sign-in → purchase flow.
+  // Initialised to "auth"; corrected in the open-change useEffect below.
+  const [step, setStep] = useState<PurchaseStep>("auth");
+  // Marks whether the modal was opened when the user was a guest, so we
+  // know to advance through the signed-in step when auth completes.
+  const openedAsGuestRef = useRef(false);
+  // Guards the auto-advance timer so it cleans up if the modal closes.
+  const signedInTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // When modal opens: decide the starting step based on current auth state.
+  // When modal closes: reset the guest flag and clear any pending timer.
+  useEffect(() => {
+    if (open) {
+      if (isPurchaseEligible) {
+        openedAsGuestRef.current = false;
+        setStep("purchase");
+      } else {
+        openedAsGuestRef.current = true;
+        setStep("auth");
+      }
+    } else {
+      openedAsGuestRef.current = false;
+      if (signedInTimerRef.current) {
+        clearTimeout(signedInTimerRef.current);
+        signedInTimerRef.current = null;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // When the user signs in via Apple or Google while the modal is still open,
+  // isPurchaseEligible flips to true. Detect that transition and advance from
+  // the auth step → brief "signed in!" confirmation → purchase step.
+  useEffect(() => {
+    if (!open) return;
+    if (isPurchaseEligible && step === "auth") {
+      setStep("signed-in");
+      signedInTimerRef.current = setTimeout(() => {
+        signedInTimerRef.current = null;
+        setStep("purchase");
+      }, 1400);
+      return () => {
+        if (signedInTimerRef.current) {
+          clearTimeout(signedInTimerRef.current);
+          signedInTimerRef.current = null;
+        }
+      };
+    }
+  }, [isPurchaseEligible, step, open]);
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -355,11 +427,28 @@ export function PremiumModal({
           <Feather name="x" size={14} color={TEXT_MID} />
         </Pressable>
 
-        {/* Guest: show sign-in prompt */}
-        {!isAuthenticated ? (
+        {/* Step: auth — guest, must sign in first */}
+        {step === "auth" && (
           <SignInPanel onClose={onClose} />
-        ) : (
-          /* Authenticated: show normal purchase UI */
+        )}
+
+        {/* Step: signed-in — brief confirmation before showing purchase UI */}
+        {step === "signed-in" && (
+          <View style={styles.signedInPanel}>
+            <View style={styles.signedInIconBox}>
+              <Feather name="check" size={28} color={GRASS} />
+            </View>
+            <Text style={[styles.headline, { marginTop: 16 }]}>You're signed in!</Text>
+            <View style={styles.divider} />
+            <Text style={[styles.subText, { marginBottom: 0 }]}>
+              Getting your upgrade ready…
+            </Text>
+            <ActivityIndicator color={GRASS} style={{ marginTop: 20 }} />
+          </View>
+        )}
+
+        {/* Step: purchase — authenticated, show normal purchase CTA */}
+        {step === "purchase" && (
           <ScrollView
             contentContainerStyle={[
               styles.scroll,
@@ -498,6 +587,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     opacity: 0.85,
     lineHeight: 20,
+  },
+  // Signed-in confirmation panel
+  signedInPanel: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  signedInIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: GRASS_BG,
+    borderWidth: 1.5,
+    borderColor: GRASS_BORDER,
+    alignItems: "center",
+    justifyContent: "center",
   },
   // Purchase CTA
   cta: {

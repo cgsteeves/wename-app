@@ -1,0 +1,66 @@
+Use this in Replit:
+
+```text
+We need to fix two related auth issues in WeName:
+
+1. Supabase email magic link emails are no longer using our branded SendGrid/template setup and appear to be falling back to the default Supabase email template.
+2. When the user taps the magic link, the app opens but gets stuck forever on a “Signing you in” spinner.
+
+Please diagnose and fix the full magic-link auth flow for both web and native/TestFlight.
+
+Requirements:
+
+A) Email template / SendGrid issue
+- Audit Supabase Auth email settings and app code assumptions.
+- Confirm whether Supabase is configured to send emails through custom SMTP/SendGrid.
+- Confirm the correct magic link template is being used in Supabase Auth templates.
+- Make sure the email link uses the correct redirect URL for WeName.
+- Do not rely on a local SendGrid template unless the app/backend is actually sending the email directly.
+- If Supabase Auth is sending the email, ensure the branded Supabase magic link template is updated there.
+
+B) Magic link redirect / deep link issue
+- Audit the magic link sign-in flow on iOS, Android, and web.
+- Confirm the redirect URL passed to Supabase signInWithOtp is correct.
+- For native app, the link should open the app and route to the auth callback screen.
+- The callback screen must parse the URL/session correctly and complete sign-in.
+- Support both hash-based and query-param Supabase callback formats if needed.
+- Handle access_token, refresh_token, code, type, and error params safely.
+
+C) Infinite “Signing you in” spinner
+- Find every async operation that runs after opening the magic link.
+- No auth callback step should be able to block forever.
+- Add try/catch around:
+  - exchanging auth code for session
+  - reading Supabase session
+  - creating/fetching profile
+  - RevenueCat login
+  - entitlement check
+  - onboarding redirect
+- Add a max timeout of 8 seconds.
+- If auth succeeds but profile/premium checks fail, still route the user into the app with safe defaults.
+- If auth fails, show a clear error screen with Retry and Back to sign in.
+- Never leave the user on an infinite spinner.
+
+D) Account/profile recovery
+- After successful auth, ensure the user has a valid profile row.
+- If profile is missing or incomplete, create/repair it with safe defaults.
+- Do not let missing partner, subscription, onboarding, or pack fields block login.
+- RevenueCat should not block sign-in. It should run after the user is authenticated and the app is already usable.
+- Use the Supabase auth user ID as the RevenueCat App User ID.
+
+E) Logging
+Add detailed logs for:
+- Magic link requested
+- Redirect URL used
+- App opened from URL
+- Parsed callback params
+- Supabase session exchange started/succeeded/failed
+- Session loaded
+- Profile fetch/create started/succeeded/failed
+- RevenueCat login started/succeeded/failed
+- Final redirect destination
+- Any timeout/error
+
+Goal:
+Restore the correct branded email magic link setup, fix deep linking/session handling, and make it impossible for the magic-link callback to get stuck forever on “Signing you in.”
+```

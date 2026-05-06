@@ -68,46 +68,61 @@ function PlanSyncEffect() {
     // handled by the explicit purchase/restore flows and the webhook in prod.
     if (Platform.OS === "web") return;
     if (!user || isSubscriptionLoading) return;
-    // Only run once per user ID per app session. This prevents an update loop
-    // (updateUser re-renders the component, re-triggering the effect) at the
-    // cost of not catching same-session drift after the initial sync. In practice
-    // that drift can only happen if RC emits a second customerInfo change within
-    // the same session (e.g. subscription renewal) — tolerable because the
-    // feature gates already read from RC live; Supabase is only a cache.
+    // Guard against concurrent effect invocations while the async write is
+    // in-flight. The ref is set to the userId immediately; on write failure it
+    // is cleared so the next render cycle can retry.
     if (syncedForUserIdRef.current === user.id) return;
     syncedForUserIdRef.current = user.id;
 
     const isPremiumInDb = user.plan_tier === "premium";
     const uid = user.id.slice(-6);
 
-    if (hasPremiumEntitlement && !isPremiumInDb) {
-      // RC confirms active entitlement but Supabase is stale — upgrade.
-      console.log("[PlanSyncEffect] decision=upgrade", {
-        uid,
-        hasPremiumEntitlement,
-        plan_tier: user.plan_tier,
-      });
-      // Defensive: guard is implicit — this branch only executes when
-      // hasPremiumEntitlement === true, satisfying the RC entitlement check.
-      console.log("[PlanSyncEffect] updateUser: start", { plan_tier: "premium", caller: "sync-upgrade" });
-      updateUser({ plan_tier: "premium" });
-    } else if (!hasPremiumEntitlement && isPremiumInDb) {
-      // RC confirmed no entitlement but Supabase still says premium — downgrade
-      // to repair stale cache. All feature gates already read from RC, so the
-      // user is already correctly limited; this just keeps Supabase consistent.
-      console.log("[PlanSyncEffect] decision=downgrade", {
-        uid,
-        hasPremiumEntitlement,
-        plan_tier: user.plan_tier,
-      });
-      updateUser({ plan_tier: "free" });
-    } else {
-      console.log("[PlanSyncEffect] decision=no-op (RC and DB in sync)", {
-        uid,
-        hasPremiumEntitlement,
-        plan_tier: user.plan_tier,
-      });
-    }
+    // Run the async write in an IIFE so we can await it and log the outcome.
+    // useEffect callbacks must be synchronous; async state is managed inside.
+    void (async () => {
+      if (hasPremiumEntitlement && !isPremiumInDb) {
+        // RC confirms active entitlement but Supabase is stale — upgrade.
+        // Defensive: guard is implicit — this branch only executes when
+        // hasPremiumEntitlement === true, satisfying the RC entitlement check.
+        console.log("[PlanSyncEffect] decision=upgrade", {
+          uid,
+          hasPremiumEntitlement,
+          plan_tier: user.plan_tier,
+        });
+        console.log("[PlanSyncEffect] updateUser: start", { plan_tier: "premium", caller: "sync-upgrade" });
+        try {
+          await updateUser({ plan_tier: "premium" });
+          console.log("[PlanSyncEffect] updateUser: success", { unlockApplied: true, uid, caller: "sync-upgrade" });
+        } catch (e: any) {
+          console.error("[PlanSyncEffect] updateUser: failed", { uid, caller: "sync-upgrade", error: e?.message });
+          // Clear the ref so the next render cycle can retry the sync.
+          syncedForUserIdRef.current = null;
+        }
+      } else if (!hasPremiumEntitlement && isPremiumInDb) {
+        // RC confirmed no entitlement but Supabase still says premium — downgrade
+        // to repair stale cache. All feature gates already read from RC, so the
+        // user is already correctly limited; this just keeps Supabase consistent.
+        console.log("[PlanSyncEffect] decision=downgrade", {
+          uid,
+          hasPremiumEntitlement,
+          plan_tier: user.plan_tier,
+        });
+        console.log("[PlanSyncEffect] updateUser: start", { plan_tier: "free", caller: "sync-downgrade" });
+        try {
+          await updateUser({ plan_tier: "free" });
+          console.log("[PlanSyncEffect] updateUser: success", { unlockApplied: false, uid, caller: "sync-downgrade" });
+        } catch (e: any) {
+          console.error("[PlanSyncEffect] updateUser: failed", { uid, caller: "sync-downgrade", error: e?.message });
+          syncedForUserIdRef.current = null;
+        }
+      } else {
+        console.log("[PlanSyncEffect] decision=no-op (RC and DB in sync)", {
+          uid,
+          hasPremiumEntitlement,
+          plan_tier: user.plan_tier,
+        });
+      }
+    })();
   }, [hasPremiumEntitlement, isSubscriptionLoading, user?.id]);
 
   return null;

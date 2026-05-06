@@ -1,0 +1,253 @@
+We need to fix a recurring critical premium access bug in WeName.
+
+Problem:
+Tapping the “Upgrade to Premium” / purchase premium button is still granting users access to premium without showing or completing the Apple in-app purchase flow.
+
+This is a serious monetization/security bug:
+- Guests must not be able to access premium.
+- Signed-in users must not be able to access premium unless RevenueCat confirms an active Apple/App Store entitlement.
+- Tapping a CTA must never directly set premium access.
+- Supabase plan_tier / subscription_status must not be trusted as the source of truth unless RevenueCat confirms the entitlement first.
+
+Important context:
+A previous implementation added:
+- PremiumModal three-step flow: auth → signed-in → purchase
+- isPurchaseEligible flag for verified non-anonymous users
+- pending_premium_purchase AsyncStorage flag for magic-link flows
+- Apple/Google/email sign-in from the premium modal
+- RevenueCat Purchases.logIn(userId) after login
+- Purchases.purchasePackage()
+- entitlement check using customerInfo.entitlements.active["premium"]
+- Supabase updateUser({ plan_tier: "premium" }) after purchase
+- Restore Purchases
+- guest gating on Settings → Premium
+
+Despite this, the bug still exists: tapping the premium purchase button can grant premium access without the Apple purchase sheet or completed App Store payment.
+
+Please do a careful root-cause audit and fix only the premium entitlement/purchase gating logic. Do not make unrelated changes to auth, magic links, swipe mechanics, partner linking, onboarding, UI styling, or name pack logic unless directly required.
+
+Goal:
+Premium should only unlock when RevenueCat returns an active entitlement named exactly "premium". Nothing else should unlock premium.
+
+Audit requirements:
+
+1. Find every place that can set premium access
+Search the entire codebase for all ways premium can be granted, including but not limited to:
+
+- plan_tier
+- subscription_status
+- isPremium
+- premium
+- entitlement
+- entitlements.active
+- updateUser
+- updateProfile
+- profiles update
+- setIsPremium
+- setPlanTier
+- setSubscriptionStatus
+- AsyncStorage premium flags
+- localStorage premium flags
+- mock premium
+- dev premium
+- trial premium
+- guest premium
+- unlockPremium
+- purchasePremium
+- handlePurchase
+- handleUpgrade
+- restorePurchases
+- purchasePackage
+- getCustomerInfo
+- RevenueCat
+- Purchases
+
+Create a short report listing every file/function that can affect premium access.
+
+2. Remove all non-RevenueCat unlock paths
+Premium access must NOT be granted by:
+- tapping the purchase button
+- opening the premium modal
+- completing sign-in
+- having a pending_premium_purchase flag
+- navigating to /?openPremium=1
+- setting plan_tier manually
+- being purchase eligible
+- being signed in
+- having previously selected a premium pack
+- guest state
+- local cache
+- Supabase plan_tier alone
+- RevenueCat purchase call returning without checking entitlement
+
+The only valid unlock condition is:
+
+customerInfo.entitlements.active["premium"] exists and is active.
+
+3. Separate “eligible to purchase” from “has premium”
+There must be two separate concepts:
+
+A) isPurchaseEligible
+- true only when the user is signed in with a real non-anonymous account.
+- means the user may open the Apple purchase sheet.
+- does NOT mean the user has premium.
+
+B) hasPremiumEntitlement
+- true only when RevenueCat confirms active entitlement "premium".
+- this is the only value that unlocks premium features.
+
+Audit the app and make sure these are never conflated.
+
+4. Fix purchase button behavior
+When the user taps the purchase button:
+
+If user is guest:
+- show auth/sign-in panel
+- do not call purchasePackage
+- do not update Supabase to premium
+- do not unlock premium
+- do not open premium packs
+
+If user is signed in:
+- call Purchases.logIn(supabaseUser.id) if not already logged in
+- fetch offerings
+- select the correct package
+- call Purchases.purchasePackage(package)
+- wait for the Apple in-app purchase sheet
+- if the user cancels, keep them free
+- if purchase fails, keep them free and show error
+- after purchase returns, inspect returned customerInfo
+- only unlock if customerInfo.entitlements.active["premium"] is active
+
+5. Protect against fake success
+Do not unlock premium after purchasePackage just because the function resolved.
+
+Use logic like:
+
+const entitlement = customerInfo?.entitlements?.active?.premium;
+
+if (!entitlement) {
+  // keep user free
+  // show: “Purchase completed, but premium is not active yet. Please try Restore Purchases.”
+  return;
+}
+
+// only here:
+await update profile/cache as premium
+
+6. Treat Supabase premium status as cache only
+Supabase fields like:
+- plan_tier = "premium"
+- subscription_status = "premium"
+- is_premium = true
+
+must be treated as cached/display state only.
+
+On app startup:
+- check RevenueCat customerInfo in the background
+- if active entitlement exists, allow premium
+- if no active entitlement exists, do NOT allow premium, even if Supabase says premium
+- optionally repair Supabase back to free if it says premium but RevenueCat says no entitlement
+
+Important:
+Do not block app startup forever on RevenueCat. But while RevenueCat is unknown, default premium access should be false.
+
+7. Fix guest access to premium features
+Audit all premium feature gates:
+- premium name packs
+- unlimited swipes
+- unlimited likes
+- unlimited matches
+- AI recommendations
+- premium settings/status screen
+- any premium badges or copy
+
+All must check hasPremiumEntitlement, not isPurchaseEligible, not signedIn, not plan_tier alone.
+
+8. Add defensive server-side/data checks where possible
+If Supabase rows are being updated from the client:
+- make sure the client cannot simply set plan_tier to premium without verified RevenueCat entitlement.
+- If there is no backend/webhook validation today, at minimum prevent client code from writing premium except immediately after RevenueCat confirms entitlement.
+- Ideally, add a RevenueCat webhook or server-side verification later, but do not block this fix on that.
+
+9. Add logging around the broken flow
+Add safe logs for:
+
+- Premium CTA tapped
+- current user state: guest / signed in
+- isPurchaseEligible value
+- hasPremiumEntitlement value
+- current Supabase plan_tier
+- RevenueCat App User ID
+- offerings fetch started/succeeded/failed
+- package selected
+- purchasePackage called
+- Apple purchase sheet expected to open
+- purchase cancelled
+- purchase failed
+- purchase returned customerInfo
+- entitlement premium active true/false
+- Supabase premium cache update started/succeeded/failed
+- premium unlock applied true/false
+
+Do not log secrets or full tokens.
+
+10. Add a temporary debug guard for this bug
+For now, add a defensive assertion/warning:
+
+If premium is about to be unlocked and no active RevenueCat entitlement exists, block it and log:
+
+“BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT”
+
+This should fire anywhere the old bad path tries to grant premium.
+
+11. Test scenarios
+Verify all of these:
+
+A) Guest taps Premium CTA
+Expected:
+- sign-in required
+- no premium access
+- no Supabase premium update
+- no premium packs unlocked
+- no unlimited limits
+
+B) Guest signs in after tapping Premium CTA
+Expected:
+- modal moves to purchase step
+- still no premium access yet
+- Apple purchase sheet only opens after user taps buy
+- no premium until entitlement active
+
+C) Signed-in free user taps buy
+Expected:
+- Apple purchase sheet opens
+- if cancelled, stays free
+- if completed and entitlement active, premium unlocks
+
+D) Signed-in user taps buy but RevenueCat returns no premium entitlement
+Expected:
+- stays free
+- shows restore/retry message
+- no premium access
+
+E) User with Supabase plan_tier premium but no RevenueCat entitlement
+Expected:
+- treated as free
+- optionally repair Supabase cache to free
+
+F) Restore purchases with active entitlement
+Expected:
+- premium unlocks
+
+G) Restore purchases without active entitlement
+Expected:
+- remains free
+
+H) App restart after purchase
+Expected:
+- RevenueCat entitlement restores premium
+- not Supabase alone
+
+Expected outcome:
+It should be impossible for any user, guest or signed-in, to access premium unless RevenueCat confirms active entitlement "premium". Tapping the purchase button must never directly grant premium. The Apple payment process must occur before premium access is applied.

@@ -1,0 +1,69 @@
+This plan looks correct. Please proceed, but tighten the implementation with these requirements:
+
+1. hasPremiumEntitlement must be the ONLY source of truth for premium feature access.
+- It should be derived only from:
+  customerInfo.entitlements.active["premium"]
+- Not from:
+  user.plan_tier
+  isSubscribed
+  isPurchaseEligible
+  pending purchase intent
+  local state
+  AsyncStorage
+  Supabase profile values
+
+2. Be careful with the loading state.
+While RevenueCat is still loading or customerInfo is unknown:
+- default premium access to false
+- do not unlock premium features
+- do not immediately downgrade Supabase until RevenueCat has fully finished loading
+- avoid flashing premium/free UI unnecessarily
+
+3. PlanSyncEffect should never cause a loop.
+When syncing Supabase:
+- only update if the value actually changed
+- use refs/guards to avoid repeated writes
+- log every sync decision
+
+4. Rename confusing variables if needed.
+If isSubscribed currently means something broader or unclear, do not use it for gating.
+Use names like:
+- hasPremiumEntitlement
+- isPurchaseEligible
+- isSubscriptionLoading
+
+5. Do not auto-open the Apple payment sheet immediately after sign-in unless that is already intended.
+After sign-in, the user can be returned to the purchase step, but premium should still remain locked until RevenueCat confirms entitlement.
+
+6. Confirm every premium gate is updated.
+Please search the full codebase for:
+plan_tier === "premium"
+plan_tier
+isPremium
+isSubscribed
+subscription_status
+premiumPack
+premiumOnly
+and verify none of them grant premium access without hasPremiumEntitlement.
+
+7. Add the defensive guard globally.
+Any attempt to write:
+updateUser({ plan_tier: "premium" })
+must require an active RevenueCat premium entitlement first.
+
+If no entitlement exists, block the write and log:
+BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT
+
+8. Test the stale Supabase case explicitly.
+Manually set my Supabase profile to:
+plan_tier = "premium"
+
+Then run the app with a RevenueCat user that has no active entitlement.
+
+Expected:
+- app treats me as free
+- premium packs remain locked
+- limits apply
+- Supabase is repaired back to free after RevenueCat loading completes
+
+Please implement only this entitlement gating fix. Do not modify unrelated auth, magic link, onboarding, partner, swipe animation, or UI styling code.

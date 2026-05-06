@@ -119,7 +119,9 @@ export default function PremiumScreen() {
         return;
       }
       console.log("[PremiumScreen] premium entitlement confirmed after purchase — unlocking");
+      console.log("[PremiumScreen] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
       await updateUser({ plan_tier: "premium" });
+      console.log("[PremiumScreen] updateUser: success", { unlockApplied: true, caller: "handleUpgrade" });
     } catch (e: any) {
       if (e?.userCancelled) {
         console.log("[PremiumScreen] purchase cancelled by user");
@@ -141,7 +143,9 @@ export default function PremiumScreen() {
       if (hasPremiumEntitlementAfterRestore) {
         // Defensive guard: entitlement confirmed from the restore result.
         console.log("[PremiumScreen] premium entitlement confirmed after restore — unlocking");
+        console.log("[PremiumScreen] updateUser: start", { plan_tier: "premium", caller: "handleRestore" });
         await updateUser({ plan_tier: "premium" });
+        console.log("[PremiumScreen] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
       } else {
         console.warn(
           "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",

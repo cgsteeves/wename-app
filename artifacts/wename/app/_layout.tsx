@@ -89,6 +89,7 @@ function PlanSyncEffect() {
       });
       // Defensive: guard is implicit — this branch only executes when
       // hasPremiumEntitlement === true, satisfying the RC entitlement check.
+      console.log("[PlanSyncEffect] updateUser: start", { plan_tier: "premium", caller: "sync-upgrade" });
       updateUser({ plan_tier: "premium" });
     } else if (!hasPremiumEntitlement && isPremiumInDb) {
       // RC confirmed no entitlement but Supabase still says premium — downgrade

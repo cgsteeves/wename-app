@@ -180,6 +180,12 @@ function useSubscriptionContext() {
       });
       if (!confirmed) return;
     }
+    // Log the moment the native payment sheet is about to open (production path).
+    console.log("[RevenueCat] payment sheet: opening", {
+      packageId: pkg.identifier,
+      productId: pkg.product.identifier,
+      price: pkg.product.priceString,
+    });
     return purchaseMutation.mutateAsync(pkg);
   }
 

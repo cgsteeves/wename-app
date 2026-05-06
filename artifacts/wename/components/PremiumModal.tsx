@@ -429,7 +429,9 @@ export function PremiumModal({
         return;
       }
       console.log("[PremiumModal] premium entitlement confirmed after purchase — unlocking");
+      console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
       await updateUser({ plan_tier: "premium" });
+      console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleUpgrade" });
       onClose();
       onUpgrade();
     } catch (e: any) {
@@ -452,7 +454,9 @@ export function PremiumModal({
       if (hasPremiumEntitlementAfterRestore) {
         // Defensive guard: entitlement confirmed from the restore result.
         console.log("[PremiumModal] premium entitlement confirmed after restore — unlocking");
+        console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleRestore" });
         await updateUser({ plan_tier: "premium" });
+        console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
         onClose();
         onUpgrade();
       } else {

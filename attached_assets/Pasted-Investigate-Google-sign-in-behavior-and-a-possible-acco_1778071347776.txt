@@ -1,0 +1,75 @@
+Investigate Google sign-in behavior and a possible account-specific issue.
+
+Context:
+- In the iOS/TestFlight app, when tapping “Continue with Google,” the app does not prompt me to select a Google account.
+- It appears to skip account selection and signs in immediately.
+- iOS shows a system prompt saying “WeName wants to use cwpanlrimbccdgzchkdo.supabase.co to Sign In.”
+- The affected user/account is: cgsteeves1@gmail.com
+- Please check whether this is expected browser/session behavior, or whether there is an issue with this specific Supabase/Google user.
+
+Requirements:
+
+1. Audit the Google OAuth flow
+- Find where signInWithOAuth for Google is called.
+- Confirm the redirect URL is correct for iOS/TestFlight and web.
+- Confirm the flow uses the correct Supabase project.
+- Confirm the callback route properly handles the returned session.
+
+2. Force Google account selection when appropriate
+- Add the Google OAuth query param:
+  prompt=select_account
+- If supported by the current Supabase client version, implement:
+  queryParams: {
+    prompt: "select_account"
+  }
+- The goal is for Google to show the account chooser instead of silently reusing the existing Google session.
+
+3. Investigate cached session behavior
+- Check whether the app is reusing:
+  - Safari/ASWebAuthenticationSession cookies
+  - Supabase session
+  - local app session
+  - previously authenticated Google account
+- Confirm whether immediate sign-in is expected because the Google account is already authenticated in the system browser.
+- Add a clear “Sign in with a different Google account” path if needed.
+
+4. Investigate user-specific issue for cgsteeves1@gmail.com
+- In Supabase, inspect the auth user and profile for cgsteeves1@gmail.com.
+- Compare this user against a working test Google user.
+- Check for missing, null, or invalid fields in:
+  - auth.users
+  - profiles
+  - partner linking fields
+  - onboarding fields
+  - premium/subscription fields
+  - RevenueCat app user/customer ID fields
+  - daily limits fields
+- Repair or safely handle any bad account state.
+
+5. Prevent infinite loading after Google sign-in
+- After OAuth returns, no step should block forever.
+- Add try/catch and timeout handling around:
+  - session exchange
+  - profile fetch/create
+  - RevenueCat login
+  - entitlement checks
+  - onboarding redirect
+- If profile or RevenueCat fails, still let the user into the app with safe defaults.
+
+6. Add logging
+Log:
+- Google sign-in tapped
+- OAuth URL generated
+- OAuth query params used
+- Redirect URL used
+- App opened from callback URL
+- Session exchange started/succeeded/failed
+- Signed-in email/user ID
+- Profile fetch/create result
+- RevenueCat login result
+- Final navigation destination
+
+Expected outcome:
+- Google account chooser appears when tapping Continue with Google.
+- cgsteeves1@gmail.com is checked for bad Supabase/profile/RevenueCat state.
+- Google sign-in never results in an infinite spinner or silent broken state.

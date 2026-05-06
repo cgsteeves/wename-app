@@ -125,6 +125,7 @@ export default function AuthCallback() {
       async function handleNative() {
         try {
           const urlStr = url!;
+          console.log("[callback] native: app opened from callback URL", urlStr.slice(0, 100));
 
           // Parse query string and hash manually — new URL() chokes on
           // custom schemes like wename:// on some RN environments.
@@ -141,29 +142,31 @@ export default function AuthCallback() {
           const accessToken  = hashParams.get("access_token");
           const refreshToken = hashParams.get("refresh_token");
 
-          console.log("[callback] native params", {
+          console.log("[callback] native: params parsed", {
             hasCode: !!code,
             hasTokens: !!(accessToken && refreshToken),
-            url: urlStr.slice(0, 80),
           });
 
           if (code) {
             // PKCE flow — only reached for links sent before the implicit-flow
             // switch; exchangeCodeForSession reads the verifier from AsyncStorage.
             console.log("[callback] native: exchanging PKCE code");
-            const { error } = await withAuthTimeout(
+            const { data: exchangeData, error } = await withAuthTimeout(
               supabase.auth.exchangeCodeForSession(code),
               6_000,
               "exchangeCodeForSession",
             );
             if (error) throw error;
-            console.log("[callback] native: PKCE exchange complete");
+            console.log("[callback] native: PKCE exchange complete", {
+              uid: exchangeData?.session?.user?.id?.slice(-6),
+              email: exchangeData?.session?.user?.email,
+            });
           } else if (accessToken && refreshToken) {
             // Implicit flow — tokens come in the hash fragment.
             // The send-magic-link edge function (admin.generateLink) produces
             // this format since it doesn't include a PKCE code_challenge.
             console.log("[callback] native: calling setSession with hash tokens");
-            const { error } = await withAuthTimeout(
+            const { data: sessionData, error } = await withAuthTimeout(
               supabase.auth.setSession({
                 access_token: accessToken,
                 refresh_token: refreshToken,
@@ -172,7 +175,10 @@ export default function AuthCallback() {
               "setSession",
             );
             if (error) throw error;
-            console.log("[callback] native: setSession complete");
+            console.log("[callback] native: setSession complete", {
+              uid: sessionData?.session?.user?.id?.slice(-6),
+              email: sessionData?.session?.user?.email,
+            });
           } else {
             throw new Error("No sign-in credentials found in the link. It may have expired — please request a new one.");
           }
@@ -195,6 +201,7 @@ export default function AuthCallback() {
             }
           } catch { /* ignore — worst case we navigate to "/" */ }
 
+          console.log("[callback] native: navigating to", destination);
           setTimeout(() => {
             if (!cancelled) router.replace(destination as any);
           }, 400);
@@ -253,6 +260,7 @@ export default function AuthCallback() {
             destination = "/?openPremium=1";
           }
         } catch { /* ignore */ }
+        console.log("[callback] web: navigating to", destination);
         router.replace(destination as any);
       }
     }

@@ -221,7 +221,10 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
     signInWithGoogle()
       .then((result) => {
         if (cancelled) return;
-        if (result.kind === "web-url") setGoogleUrl(result.url);
+        if (result.kind === "web-url") {
+          console.log("[AuthModal] Google OAuth URL pre-generated (web)");
+          setGoogleUrl(result.url);
+        }
       })
       .catch(() => {
         // Silent — button stays disabled (href=null); user can close + reopen.
@@ -260,6 +263,7 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
   function handleGoogleNative() {
     // Native (Expo Go / standalone): signInWithGoogle drives the in-app
     // browser session itself and resolves with a kind discriminator.
+    console.log("[AuthModal] Google sign-in button tapped (native)");
     setLoadingProvider("google");
     setErrorMsg("");
     signInWithGoogle()
@@ -426,8 +430,10 @@ export function AuthModal({ onClose, title, body, preHeader }: Props) {
                   loading={loadingProvider === "google"}
                   disabled={anyLoading}
                   onWebClick={() => {
+                    console.log("[AuthModal] Google sign-in button tapped (web)");
                     setLoadingProvider("google");
                     setErrorMsg("");
+                    setUrlVersion((v) => v + 1); // refresh PKCE verifier for next attempt
                   }}
                   onNativePress={handleGoogleNative}
                 />

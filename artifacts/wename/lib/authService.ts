@@ -58,6 +58,8 @@ export type GoogleSignInResult =
   | { kind: "native-cancelled" };
 
 export async function signInWithGoogle(): Promise<GoogleSignInResult> {
+  console.log("[signInWithGoogle] tapped — platform:", Platform.OS);
+
   if (Platform.OS === "web" && typeof window !== "undefined") {
     // Web: build the Supabase /authorize URL ourselves so we never touch the
     // auth-js lock that hangs in proxied iframes.
@@ -75,11 +77,14 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
       redirect_to: redirectTo,
       code_challenge: challenge,
       code_challenge_method: "s256",
+      // Force Google's account chooser so the user is never silently re-authed
+      // with a cached session. Without this, browsers and ASWebAuthenticationSession
+      // (which shares the Safari cookie jar) skip the picker entirely.
+      prompt: "select_account",
     });
-    return {
-      kind: "web-url",
-      url: `${supabaseUrl}/auth/v1/authorize?${params.toString()}`,
-    };
+    const url = `${supabaseUrl}/auth/v1/authorize?${params.toString()}`;
+    console.log("[signInWithGoogle] web: OAuth URL built", { redirectTo, prompt: "select_account" });
+    return { kind: "web-url", url };
   }
 
   // Native (Expo Go / standalone): use the custom URL scheme directly so
@@ -89,16 +94,34 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
   // cannot intercept (it only works with custom schemes, not https://).
   const redirectTo = "wename://auth/callback";
 
+  console.log("[signInWithGoogle] native: calling signInWithOAuth", {
+    redirectTo,
+    prompt: "select_account",
+  });
+
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo, skipBrowserRedirect: true },
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      queryParams: {
+        // Force Google's account chooser so the user is never silently re-authed
+        // with a cached session from the shared ASWebAuthenticationSession/Safari
+        // cookie jar. This is the fix for "Google sign-in completes instantly
+        // without showing any account selection sheet" on iOS TestFlight.
+        prompt: "select_account",
+      },
+    },
   });
   if (error) throw error;
   if (!data?.url) throw new Error("Sign-in URL was not returned by Supabase.");
 
+  console.log("[signInWithGoogle] native: opening ASWebAuthenticationSession");
   const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+  console.log("[signInWithGoogle] native: browser session result:", result.type);
 
   if (result.type === "cancel" || result.type === "dismiss") {
+    console.log("[signInWithGoogle] native: user cancelled");
     return { kind: "native-cancelled" };
   }
   if (result.type !== "success") {
@@ -119,12 +142,18 @@ export async function signInWithGoogle(): Promise<GoogleSignInResult> {
     returned.searchParams.get("error");
 
   if (!code) {
+    console.error("[signInWithGoogle] native: no code in redirect URL", { oauthError });
     throw new Error(oauthError || "No authorization code in redirect URL.");
   }
 
+  console.log("[signInWithGoogle] native: exchanging code for session");
   const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-  if (exchangeError) throw exchangeError;
+  if (exchangeError) {
+    console.error("[signInWithGoogle] native: code exchange failed", exchangeError.message);
+    throw exchangeError;
+  }
 
+  console.log("[signInWithGoogle] native: session exchange complete");
   return { kind: "native-success" };
 }
 
@@ -374,9 +403,15 @@ export async function finalizeLogin(userId: string, email: string): Promise<void
   // Failures are swallowed so a RevenueCat outage never blocks sign-in.
   // Not called on web (RevenueCat is native-only).
   if (Platform.OS !== "web") {
-    Purchases.logIn(userId).catch((e) =>
-      console.warn("[authService] RevenueCat logIn failed", e),
-    );
+    Purchases.logIn(userId)
+      .then(({ customerInfo, created }) => {
+        console.log("[finalizeLogin] RevenueCat logIn succeeded", {
+          uid: userId.slice(-6),
+          created,
+          entitlements: Object.keys(customerInfo.entitlements.active),
+        });
+      })
+      .catch((e) => console.warn("[finalizeLogin] RevenueCat logIn failed", e));
   }
 
   // Always signal completion — even if earlier steps failed.

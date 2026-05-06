@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/constants/fonts";
 import { supabase, PENDING_PREMIUM_PURCHASE_KEY } from "@/lib/supabase";
+import { takeCapturedUrl } from "@/lib/warmStartUrl";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -432,13 +433,26 @@ export default function AuthCallback() {
     }, 10_000);
 
     if (Platform.OS !== "web") {
-      // Cold start: get the launch URL imperatively
+      // Cold start: get the launch URL imperatively.
+      // Warm start: getInitialURL() returns null — fall back to the URL that
+      // was captured at module level in warmStartUrl.ts before this screen
+      // mounted (the Linking url event fires before component mount on warm start).
       Linking.getInitialURL()
         .then((initialUrl) => {
           if (cancelledRef.current) return;
           const wasNull = initialUrl === null;
-          console.log("[callback] native: getInitialURL resolved", wasNull ? "(null)" : "with URL");
-          handleNativeUrl(initialUrl ?? "", wasNull);
+
+          // Recover the warm-start URL if getInitialURL came back empty.
+          const resolvedUrl = initialUrl ?? takeCapturedUrl();
+          const effectivelyNull = !resolvedUrl;
+
+          console.log("[callback] native: getInitialURL resolved", {
+            getInitialURLWasNull: wasNull,
+            recoveredFromCapture: wasNull && !!resolvedUrl,
+            hasResolvedUrl: !!resolvedUrl,
+          });
+
+          handleNativeUrl(resolvedUrl ?? "", effectivelyNull);
         })
         .catch((err) => {
           if (cancelledRef.current) return;
@@ -447,10 +461,12 @@ export default function AuthCallback() {
           fail("INITIAL_URL_NULL", "Could not read sign-in link. Please try again.");
         });
 
-      // Warm start: app was already running when the link was tapped
+      // Late warm start: URL arrives after this screen has already mounted.
+      // handledRef prevents this from double-processing if the captured URL
+      // was already handled by the getInitialURL path above.
       const sub = Linking.addEventListener("url", ({ url }) => {
         if (cancelledRef.current) return;
-        console.log("[callback] native: warm-start URL received");
+        console.log("[callback] native: late warm-start URL received");
         handleNativeUrl(url);
       });
 

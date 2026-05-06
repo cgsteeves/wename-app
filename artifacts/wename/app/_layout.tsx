@@ -21,6 +21,9 @@ import { AuthModal } from "@/components/AuthModal";
 import { UserProvider, useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { initializeRevenueCat, SubscriptionProvider, useSubscription } from "@/lib/revenuecat";
+// Side-effect import — starts the module-level Linking listener that captures
+// warm-start deep-link URLs before any screen component mounts.
+import "@/lib/warmStartUrl";
 
 const TextAny = Text as any;
 TextAny.defaultProps = TextAny.defaultProps || {};

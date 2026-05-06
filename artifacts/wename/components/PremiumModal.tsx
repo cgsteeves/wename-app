@@ -316,7 +316,7 @@ export function PremiumModal({
 }) {
   const insets = useSafeAreaInsets();
   const { isPurchaseEligible } = useAuth();
-  const { updateUser } = useUser();
+  const { user, updateUser } = useUser();
   const {
     purchase,
     restore,
@@ -396,7 +396,8 @@ export function PremiumModal({
       pkg: pkg.identifier,
       isPurchaseEligible,
       hasPremiumEntitlement,
-      plan_tier: customerInfo?.originalAppUserId,
+      currentPlanTier: user?.plan_tier,
+      rcAppUserId: customerInfo?.originalAppUserId,
     });
     try {
       const purchasedCustomerInfo = await purchase(pkg);
@@ -413,8 +414,13 @@ export function PremiumModal({
         // Purchase call succeeded but the entitlement wasn't activated
         // (e.g. receipt validation still pending). Do not write to Supabase.
         console.warn(
-          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumModal/handleUpgrade]",
-          { entitlements: purchasedCustomerInfo.entitlements.active },
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
+          {
+            caller: "PremiumModal/handleUpgrade",
+            currentPlanTier: user?.plan_tier,
+            hasPremiumEntitlement,
+            entitlements: purchasedCustomerInfo.entitlements.active,
+          },
         );
         Alert.alert(
           "Purchase Incomplete",
@@ -451,8 +457,13 @@ export function PremiumModal({
         onUpgrade();
       } else {
         console.warn(
-          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumModal/handleRestore]",
-          { entitlements: restoredInfo?.entitlements?.active },
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
+          {
+            caller: "PremiumModal/handleRestore",
+            currentPlanTier: user?.plan_tier,
+            hasPremiumEntitlement,
+            entitlements: restoredInfo?.entitlements?.active,
+          },
         );
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }

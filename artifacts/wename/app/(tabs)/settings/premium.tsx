@@ -104,8 +104,13 @@ export default function PremiumScreen() {
         purchasedCustomerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
       if (!hasPremiumEntitlementAfterPurchase) {
         console.warn(
-          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumScreen/handleUpgrade]",
-          { entitlements: purchasedCustomerInfo.entitlements.active },
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
+          {
+            caller: "PremiumScreen/handleUpgrade",
+            currentPlanTier: user?.plan_tier,
+            hasPremiumEntitlement,
+            entitlements: purchasedCustomerInfo.entitlements.active,
+          },
         );
         Alert.alert(
           "Purchase Incomplete",
@@ -139,8 +144,13 @@ export default function PremiumScreen() {
         await updateUser({ plan_tier: "premium" });
       } else {
         console.warn(
-          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT [PremiumScreen/handleRestore]",
-          { entitlements: restoredInfo?.entitlements?.active },
+          "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
+          {
+            caller: "PremiumScreen/handleRestore",
+            currentPlanTier: user?.plan_tier,
+            hasPremiumEntitlement,
+            entitlements: restoredInfo?.entitlements?.active,
+          },
         );
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }

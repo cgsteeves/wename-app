@@ -341,81 +341,86 @@ function withStep<T>(p: PromiseLike<T>, ms: number, label: string): Promise<T> {
 export async function finalizeLogin(userId: string, email: string): Promise<void> {
   console.log("[finalizeLogin] started", { uid: userId.slice(-6), email });
 
-  // ── Step 1: profile upsert ───────────────────────────────────────────────
-  // Each step is in its own try/catch so one failure never prevents the rest
-  // from running — and emitMergeComplete() always fires at the end.
+  // The try/finally guarantees emitMergeComplete() fires no matter what —
+  // even if an unexpected exception escapes one of the inner steps.
+  // UserContext.onMergeComplete is the signal to call loadById; without it
+  // the user context never finishes loading (10 s fallback is the only rescue).
   try {
-    const updates: Record<string, unknown> = {
-      id: userId,
-      updated_at: new Date().toISOString(),
-    };
-    if (email) updates.email = email;
+    // ── Step 1: profile upsert ─────────────────────────────────────────────
+    // Each step is in its own try/catch so one failure never prevents the rest.
+    try {
+      const updates: Record<string, unknown> = {
+        id: userId,
+        updated_at: new Date().toISOString(),
+      };
+      if (email) updates.email = email;
 
-    const existingResult = await withStep(
-      supabase.from("users").select("display_name, invite_code").eq("id", userId).maybeSingle(),
-      4_000,
-      "profile select",
-    );
-    const existing = existingResult?.data;
+      const existingResult = await withStep(
+        supabase.from("users").select("display_name, invite_code").eq("id", userId).maybeSingle(),
+        4_000,
+        "profile select",
+      );
+      const existing = existingResult?.data;
 
-    if (!existing?.display_name) {
-      const { data: authData } = await supabase.auth.getUser();
-      const meta = authData?.user?.user_metadata;
-      const name = meta?.full_name || meta?.name;
-      if (name) updates.display_name = name;
+      if (!existing?.display_name) {
+        const { data: authData } = await supabase.auth.getUser();
+        const meta = authData?.user?.user_metadata;
+        const name = meta?.full_name || meta?.name;
+        if (name) updates.display_name = name;
+      }
+
+      if (!existing?.invite_code) {
+        updates.invite_code = Math.random().toString(36).substring(2, 10).toUpperCase();
+      }
+
+      await withStep(
+        supabase.from("users").upsert(updates, { onConflict: "id" }),
+        4_000,
+        "profile upsert",
+      );
+      console.log("[finalizeLogin] profile upserted");
+    } catch (e) {
+      console.warn("[finalizeLogin] profile step failed (continuing):", e);
     }
 
-    if (!existing?.invite_code) {
-      updates.invite_code = Math.random().toString(36).substring(2, 10).toUpperCase();
+    // ── Step 2: guest data merge ───────────────────────────────────────────
+    try {
+      const guestUserId = await AsyncStorage.getItem(USER_ID_KEY);
+      if (guestUserId && guestUserId !== userId) {
+        console.log("[finalizeLogin] merging guest", guestUserId.slice(-6), "→", userId.slice(-6));
+        const { mergeGuestData } = await import("@/lib/guestDataMerge");
+        await withStep(mergeGuestData(guestUserId, userId), 6_000, "guest merge");
+        console.log("[finalizeLogin] guest merge complete");
+      }
+    } catch (e) {
+      console.warn("[finalizeLogin] guest merge failed (continuing):", e);
     }
 
-    await withStep(
-      supabase.from("users").upsert(updates, { onConflict: "id" }),
-      4_000,
-      "profile upsert",
-    );
-    console.log("[finalizeLogin] profile upserted");
-  } catch (e) {
-    console.warn("[finalizeLogin] profile step failed (continuing):", e);
-  }
-
-  // ── Step 2: guest data merge ─────────────────────────────────────────────
-  try {
-    const guestUserId = await AsyncStorage.getItem(USER_ID_KEY);
-    if (guestUserId && guestUserId !== userId) {
-      console.log("[finalizeLogin] merging guest", guestUserId.slice(-6), "→", userId.slice(-6));
-      const { mergeGuestData } = await import("@/lib/guestDataMerge");
-      await withStep(mergeGuestData(guestUserId, userId), 6_000, "guest merge");
-      console.log("[finalizeLogin] guest merge complete");
+    // ── Step 3: persist authenticated user ID ─────────────────────────────
+    try {
+      await AsyncStorage.setItem(USER_ID_KEY, userId);
+    } catch (e) {
+      console.warn("[finalizeLogin] AsyncStorage.setItem failed:", e);
     }
-  } catch (e) {
-    console.warn("[finalizeLogin] guest merge failed (continuing):", e);
-  }
 
-  // ── Step 3: persist authenticated user ID ───────────────────────────────
-  try {
-    await AsyncStorage.setItem(USER_ID_KEY, userId);
-  } catch (e) {
-    console.warn("[finalizeLogin] AsyncStorage.setItem failed:", e);
+    // ── Step 4: RevenueCat login (fire-and-forget) ─────────────────────────
+    // Failures are swallowed so a RevenueCat outage never blocks sign-in.
+    // Not called on web (RevenueCat is native-only).
+    if (Platform.OS !== "web") {
+      Purchases.logIn(userId)
+        .then(({ customerInfo, created }) => {
+          console.log("[finalizeLogin] RevenueCat logIn succeeded", {
+            uid: userId.slice(-6),
+            created,
+            entitlements: Object.keys(customerInfo.entitlements.active),
+          });
+        })
+        .catch((e) => console.warn("[finalizeLogin] RevenueCat logIn failed", e));
+    }
+  } finally {
+    // Always signal completion so UserContext can call loadById.
+    // This fires whether steps succeeded, partially failed, or threw unexpectedly.
+    console.log("[finalizeLogin] complete, emitting mergeComplete");
+    emitMergeComplete();
   }
-
-  // ── Step 4: RevenueCat login (fire-and-forget) ───────────────────────────
-  // Failures are swallowed so a RevenueCat outage never blocks sign-in.
-  // Not called on web (RevenueCat is native-only).
-  if (Platform.OS !== "web") {
-    Purchases.logIn(userId)
-      .then(({ customerInfo, created }) => {
-        console.log("[finalizeLogin] RevenueCat logIn succeeded", {
-          uid: userId.slice(-6),
-          created,
-          entitlements: Object.keys(customerInfo.entitlements.active),
-        });
-      })
-      .catch((e) => console.warn("[finalizeLogin] RevenueCat logIn failed", e));
-  }
-
-  // Always signal completion — even if earlier steps failed.
-  // UserContext waits for this signal before calling loadById.
-  console.log("[finalizeLogin] complete, emitting mergeComplete");
-  emitMergeComplete();
 }

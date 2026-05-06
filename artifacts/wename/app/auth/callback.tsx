@@ -8,32 +8,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fonts } from "@/constants/fonts";
 import { supabase, PENDING_PREMIUM_PURCHASE_KEY } from "@/lib/supabase";
 
-type Status = "loading" | "success" | "error";
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Status = "loading" | "success" | "error" | "timeout";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getProjectRef(): string {
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL!;
   return new URL(url).hostname.split(".")[0];
 }
 
-// Manual PKCE token exchange — bypasses @supabase/supabase-js entirely so the
-// auth-js internal lock can never deadlock the popup. We talk straight to the
-// Supabase REST endpoint, then write the session into the same localStorage
-// key auth-js reads on next load. Opener tab picks it up via the storage
-// event listener registered in _layout.tsx.
-// Race an auth SDK call against a per-call timeout so a stalled auth-lock
-// on cold start never hangs the callback screen beyond the window given.
+// Race an auth SDK call against a timeout so a stalled auth-lock on cold start
+// never hangs the callback screen beyond the given window.
 function withAuthTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
-      setTimeout(
-        () => reject(new Error(`Auth timed out (${label}) — please try again`)),
-        ms,
-      ),
+      setTimeout(() => reject(new Error(`Auth timed out (${label}) — please try again`)), ms),
     ),
   ]);
 }
 
+// Manual PKCE token exchange for web — bypasses @supabase/supabase-js so a
+// stalled auth-lock in proxied/iframe environments can never deadlock the popup.
 async function exchangeCodeWeb(code: string): Promise<void> {
   const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
   const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -44,17 +42,11 @@ async function exchangeCodeWeb(code: string): Promise<void> {
   const verifier = window.localStorage.getItem(verifierKey);
   if (!verifier) throw new Error("Code verifier missing — please try signing in again.");
 
-  const res = await fetch(
-    `${supabaseUrl}/auth/v1/token?grant_type=pkce`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: supabaseAnonKey,
-      },
-      body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
-    },
-  );
+  const res = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=pkce`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: supabaseAnonKey },
+    body: JSON.stringify({ auth_code: code, code_verifier: verifier }),
+  });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as Record<string, string>);
@@ -67,20 +59,60 @@ async function exchangeCodeWeb(code: string): Promise<void> {
   const expiresIn = Number(session.expires_in ?? 3600);
   const expiresAt = Math.floor(Date.now() / 1000) + expiresIn;
 
-  const stored = {
-    access_token: session.access_token,
-    token_type: session.token_type || "bearer",
-    expires_in: expiresIn,
-    expires_at: expiresAt,
-    refresh_token: session.refresh_token,
-    user: session.user,
-    provider_token: session.provider_token ?? null,
-    provider_refresh_token: session.provider_refresh_token ?? null,
-  };
-
-  window.localStorage.setItem(sessionKey, JSON.stringify(stored));
+  window.localStorage.setItem(
+    sessionKey,
+    JSON.stringify({
+      access_token: session.access_token,
+      token_type: session.token_type || "bearer",
+      expires_in: expiresIn,
+      expires_at: expiresAt,
+      refresh_token: session.refresh_token,
+      user: session.user,
+      provider_token: session.provider_token ?? null,
+      provider_refresh_token: session.provider_refresh_token ?? null,
+    }),
+  );
   window.localStorage.removeItem(verifierKey);
 }
+
+// Parse both query string and hash from a callback URL.
+// Manual parse avoids new URL() failures on custom scheme URLs (wename://)
+// in some React Native environments.
+function parseCallbackUrl(urlStr: string): {
+  code: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  errorDesc: string | null;
+  callbackType: "pkce" | "implicit" | "none";
+} {
+  const qIdx = urlStr.indexOf("?");
+  const hIdx = urlStr.indexOf("#");
+  const queryStr = qIdx >= 0 ? urlStr.slice(qIdx + 1, hIdx >= 0 ? hIdx : undefined) : "";
+  const hashStr = hIdx >= 0 ? urlStr.slice(hIdx + 1) : "";
+  const q = new URLSearchParams(queryStr);
+  const h = new URLSearchParams(hashStr);
+
+  // Check all possible token locations — Supabase has used different formats
+  // across SDK versions and flows (query vs hash, code vs tokens).
+  const code = q.get("code") ?? h.get("code");
+  const accessToken = h.get("access_token") ?? q.get("access_token");
+  const refreshToken = h.get("refresh_token") ?? q.get("refresh_token");
+  const errorDesc =
+    q.get("error_description") ??
+    h.get("error_description") ??
+    q.get("error") ??
+    h.get("error");
+
+  const callbackType: "pkce" | "implicit" | "none" = code
+    ? "pkce"
+    : accessToken
+      ? "implicit"
+      : "none";
+
+  return { code, accessToken, refreshToken, errorDesc, callbackType };
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AuthCallback() {
   const router = useRouter();
@@ -88,149 +120,215 @@ export default function AuthCallback() {
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // useURL() covers both cold-start (getInitialURL) and warm-start
-  // (Linking event) deep links. On web it returns the current window URL.
-  // null means "not yet resolved" — we wait before acting.
-  const url = Linking.useURL();
+  // Refs for values shared across async closures. Using refs (not closure vars)
+  // ensures we always read the latest value regardless of which closure is
+  // running — critical because the async exchange outlives a single render cycle.
+  const cancelledRef = useRef(false);
+  const safetyRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Prevents both getInitialURL() and addEventListener() from handling the
+  // same URL, and prevents any re-renders from re-triggering the exchange.
   const handledRef = useRef(false);
 
+  // Keep a stable router ref so async callbacks use the latest router
+  // without needing router in the effect dependency array.
+  const routerRef = useRef(router);
   useEffect(() => {
-    // Prevent double-handling if the hook fires multiple times
+    routerRef.current = router;
+  }, [router]);
+
+  // ── Utilities ──────────────────────────────────────────────────────────────
+
+  function clearSafety() {
+    if (safetyRef.current) {
+      clearTimeout(safetyRef.current);
+      safetyRef.current = null;
+    }
+  }
+
+  async function navigateAfterAuth() {
+    setStatus("success");
+    let destination = "/";
+    try {
+      const pending = await AsyncStorage.getItem(PENDING_PREMIUM_PURCHASE_KEY);
+      if (pending) {
+        await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY);
+        destination = "/?openPremium=1";
+      }
+    } catch {
+      /* ignore — worst case we navigate to "/" */
+    }
+    console.log("[callback] navigating to", destination);
+    setTimeout(() => {
+      if (!cancelledRef.current) routerRef.current.replace(destination as any);
+    }, 400);
+  }
+
+  // ── Native callback handler ────────────────────────────────────────────────
+  // Called once with the raw URL from either getInitialURL() or the url event.
+  // handledRef prevents this from running twice if both sources fire.
+
+  async function handleNativeUrl(urlStr: string) {
     if (handledRef.current) return;
+    handledRef.current = true;
 
-    let cancelled = false;
-    let safety: ReturnType<typeof setTimeout> | null = null;
+    // Log safely — never expose tokens
+    const safeUrl = urlStr
+      .replace(/(access_token|refresh_token)=[^&#]*/g, "$1=[redacted]")
+      .slice(0, 150);
+    console.log("[callback] native: processing URL", safeUrl || "(empty)");
 
-    // ── NATIVE ─────────────────────────────────────────────────────────────
-    // signInWithOtp() uses the client's PKCE flow — the magic link redirects
-    // to wename://auth/callback?code=XXX. We exchange the code here using the
-    // verifier that supabase.auth stored in AsyncStorage when signInWithOtp
-    // was called. We also keep the legacy implicit-flow path (hash tokens) as
-    // a fallback for any links sent by older code.
-    if (Platform.OS !== "web") {
-      // url===null means not yet resolved; wait for the next effect run
-      if (url === null) return;
+    const { code, accessToken, refreshToken, errorDesc, callbackType } =
+      parseCallbackUrl(urlStr);
 
-      handledRef.current = true;
+    console.log("[callback] native: params parsed", {
+      callbackType,
+      hasCode: !!code,
+      hasAccessToken: !!accessToken,
+      hasRefreshToken: !!refreshToken,
+      hasError: !!errorDesc,
+    });
 
-      // Safety timer — if the session exchange hangs (e.g. auth-lock contention
-      // on cold start), surface an error after 8 s instead of spinning forever.
-      let exchangeCompleted = false;
-      safety = setTimeout(() => {
-        if (cancelled || exchangeCompleted) return;
-        setErrorMsg("Sign-in timed out. Please close this screen and try again.");
-        setStatus("error");
-      }, 8_000);
+    // Auth-level errors forwarded from Supabase / OAuth provider
+    if (errorDesc) {
+      console.warn("[callback] native: auth error in URL:", errorDesc);
+      clearSafety();
+      setErrorMsg(
+        "This sign-in link is invalid or has expired. Please request a new one.",
+      );
+      setStatus("error");
+      return;
+    }
 
-      async function handleNative() {
-        try {
-          const urlStr = url!;
-          console.log("[callback] native: app opened from callback URL", urlStr.slice(0, 100));
+    try {
+      if (code) {
+        // ── PKCE flow (Google OAuth, or PKCE magic link) ──────────────────
+        console.log("[callback] native: PKCE exchange started");
+        const { data, error } = await withAuthTimeout(
+          supabase.auth.exchangeCodeForSession(code),
+          8_000,
+          "exchangeCodeForSession",
+        );
+        if (error) throw error;
+        console.log("[callback] native: PKCE exchange succeeded", {
+          uid: data?.session?.user?.id?.slice(-6),
+          email: data?.session?.user?.email,
+        });
+      } else if (accessToken && refreshToken) {
+        // ── Implicit flow (magic link via admin.generateLink / Edge Function) ──
+        // The send-magic-link Edge Function uses the Admin API which produces
+        // implicit links (no PKCE code_challenge). The redirect delivers tokens
+        // in the hash: wename://auth/callback#access_token=…&refresh_token=…
+        console.log("[callback] native: setSession started (implicit flow)");
+        const { data, error } = await withAuthTimeout(
+          supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
+          8_000,
+          "setSession",
+        );
+        if (error) throw error;
+        console.log("[callback] native: setSession succeeded", {
+          uid: data?.session?.user?.id?.slice(-6),
+          email: data?.session?.user?.email,
+        });
+      } else {
+        // ── No credentials in URL — try getSession() as fallback ──────────
+        // This covers edge cases where:
+        // a) The OS stripped the hash fragment from the URL before delivering it
+        // b) The Supabase SDK already processed the link before this mounted
+        // c) The user is already authenticated from a previous session
+        console.log("[callback] native: no credentials in URL, trying getSession fallback");
+        const { data: { session }, error } = await withAuthTimeout(
+          supabase.auth.getSession(),
+          4_000,
+          "getSession-fallback",
+        );
+        if (error || !session) {
+          throw new Error(
+            "This sign-in link appears to be invalid or expired. Please request a new one.",
+          );
+        }
+        console.log("[callback] native: getSession fallback found active session", {
+          uid: session.user.id.slice(-6),
+        });
+      }
 
-          // Parse query string and hash manually — new URL() chokes on
-          // custom schemes like wename:// on some RN environments.
-          const qIdx = urlStr.indexOf("?");
-          const hIdx = urlStr.indexOf("#");
-          const queryStr =
-            qIdx >= 0 ? urlStr.slice(qIdx + 1, hIdx >= 0 ? hIdx : undefined) : "";
-          const hashStr = hIdx >= 0 ? urlStr.slice(hIdx + 1) : "";
+      if (cancelledRef.current) return;
+      clearSafety();
+      await navigateAfterAuth();
+    } catch (e) {
+      if (cancelledRef.current) return;
+      clearSafety();
+      const msg = e instanceof Error ? e.message : "Sign-in failed. Please try again.";
+      console.error("[callback] native: exchange failed:", msg);
+      setErrorMsg(msg);
+      setStatus("error");
+    }
+  }
 
-          const queryParams = new URLSearchParams(queryStr);
-          const hashParams  = new URLSearchParams(hashStr);
+  // ── Web callback handler ───────────────────────────────────────────────────
 
-          const code         = queryParams.get("code");
-          const accessToken  = hashParams.get("access_token");
+  async function runWebCallback() {
+    if (handledRef.current) return;
+    handledRef.current = true;
+
+    const isWebPopup =
+      typeof window !== "undefined" && !!window.opener && window.opener !== window;
+
+    try {
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get("code");
+        const errorDesc = params.get("error_description") ?? params.get("error");
+
+        if (errorDesc) throw new Error(errorDesc);
+
+        if (code) {
+          // PKCE flow (Google OAuth)
+          console.log("[callback] web: PKCE exchange started");
+          await exchangeCodeWeb(code);
+          console.log("[callback] web: PKCE exchange succeeded");
+        } else {
+          // Implicit flow (magic link) — tokens in hash fragment
+          const hash = window.location.hash.slice(1);
+          const hashParams = new URLSearchParams(hash);
+          const accessToken = hashParams.get("access_token");
           const refreshToken = hashParams.get("refresh_token");
 
-          console.log("[callback] native: params parsed", {
+          console.log("[callback] web: params parsed", {
             hasCode: !!code,
-            hasTokens: !!(accessToken && refreshToken),
+            hasAccessToken: !!accessToken,
+            hasRefreshToken: !!refreshToken,
+            isPopup: isWebPopup,
           });
 
-          if (code) {
-            // PKCE flow — only reached for links sent before the implicit-flow
-            // switch; exchangeCodeForSession reads the verifier from AsyncStorage.
-            console.log("[callback] native: exchanging PKCE code");
-            const { data: exchangeData, error } = await withAuthTimeout(
-              supabase.auth.exchangeCodeForSession(code),
-              6_000,
-              "exchangeCodeForSession",
-            );
-            if (error) throw error;
-            console.log("[callback] native: PKCE exchange complete", {
-              uid: exchangeData?.session?.user?.id?.slice(-6),
-              email: exchangeData?.session?.user?.email,
-            });
-          } else if (accessToken && refreshToken) {
-            // Implicit flow — tokens come in the hash fragment.
-            // The send-magic-link edge function (admin.generateLink) produces
-            // this format since it doesn't include a PKCE code_challenge.
-            console.log("[callback] native: calling setSession with hash tokens");
-            const { data: sessionData, error } = await withAuthTimeout(
-              supabase.auth.setSession({
-                access_token: accessToken,
-                refresh_token: refreshToken,
-              }),
+          if (accessToken && refreshToken) {
+            console.log("[callback] web: setSession started (implicit flow)");
+            const { error } = await withAuthTimeout(
+              supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }),
               6_000,
               "setSession",
             );
             if (error) throw error;
-            console.log("[callback] native: setSession complete", {
-              uid: sessionData?.session?.user?.id?.slice(-6),
-              email: sessionData?.session?.user?.email,
-            });
+            console.log("[callback] web: setSession succeeded");
           } else {
-            throw new Error("No sign-in credentials found in the link. It may have expired — please request a new one.");
-          }
-
-          exchangeCompleted = true;
-          if (cancelled) return;
-          if (safety) clearTimeout(safety);
-          setStatus("success");
-
-          // Check for a pending premium purchase intent written by PremiumModal
-          // before the user tapped "Continue with Email". If found, navigate
-          // back to the swipe screen with ?openPremium=1 so the modal re-opens
-          // at the purchase step instead of the sign-in step.
-          let destination: string = "/";
-          try {
-            const pending = await AsyncStorage.getItem(PENDING_PREMIUM_PURCHASE_KEY);
-            if (pending) {
-              await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY);
-              destination = "/?openPremium=1";
+            // No credentials — check for an existing active session as fallback
+            console.log("[callback] web: no credentials, trying getSession fallback");
+            const { data: { session }, error } = await supabase.auth.getSession();
+            if (error || !session) {
+              throw new Error(
+                "This sign-in link appears to be invalid or expired. Please request a new one.",
+              );
             }
-          } catch { /* ignore — worst case we navigate to "/" */ }
-
-          console.log("[callback] native: navigating to", destination);
-          setTimeout(() => {
-            if (!cancelled) router.replace(destination as any);
-          }, 400);
-        } catch (e) {
-          if (cancelled) return;
-          if (safety) clearTimeout(safety);
-          setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
-          setStatus("error");
+            console.log("[callback] web: getSession fallback found active session");
+          }
         }
       }
 
-      handleNative();
-      return () => {
-        cancelled = true;
-        if (safety) clearTimeout(safety);
-      };
-    }
+      if (cancelledRef.current) return;
+      clearSafety();
 
-    // ── WEB ────────────────────────────────────────────────────────────────
-    handledRef.current = true;
-
-    const isWebPopup =
-      typeof window !== "undefined" &&
-      !!window.opener &&
-      window.opener !== window;
-
-    async function notifyAndClose() {
-      if (Platform.OS !== "web" || typeof window === "undefined") return;
       if (isWebPopup) {
+        setStatus("success");
+        console.log("[callback] web: notifying opener and closing popup");
         try {
           window.opener.postMessage(
             { type: "wename:auth:signed_in" },
@@ -244,98 +342,90 @@ export default function AuthCallback() {
         } catch {
           /* may be blocked */
         }
-        // If close was blocked, send the popup home so the user sees something useful.
         setTimeout(() => {
-          if (!cancelled) router.replace("/");
+          if (!cancelledRef.current) routerRef.current.replace("/");
         }, 250);
       } else {
-        // Direct navigation (e.g. email magic link). Check for a pending
-        // premium purchase intent so we can re-open PremiumModal at the
-        // purchase step instead of the sign-in step.
-        let destination: string = "/";
-        try {
-          const pending = await AsyncStorage.getItem(PENDING_PREMIUM_PURCHASE_KEY);
-          if (pending) {
-            await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY);
-            destination = "/?openPremium=1";
-          }
-        } catch { /* ignore */ }
-        console.log("[callback] web: navigating to", destination);
-        router.replace(destination as any);
+        await navigateAfterAuth();
       }
-    }
-
-    // OUTER SAFETY: if the token exchange hasn't completed in 5 seconds we
-    // surface an error rather than pretend success.
-    let exchangeCompleted = false;
-    safety = setTimeout(() => {
-      if (cancelled || exchangeCompleted) return;
-      console.warn("[auth/callback] safety timer fired — exchange did not complete");
-      setErrorMsg("Sign-in is taking longer than expected. Please close this window and try again.");
+    } catch (e) {
+      if (cancelledRef.current) return;
+      clearSafety();
+      const msg = e instanceof Error ? e.message : "Sign-in failed. Please try again.";
+      console.error("[callback] web: exchange failed:", msg);
+      setErrorMsg(msg);
       setStatus("error");
-    }, 5000);
+    }
+  }
 
-    async function run() {
-      try {
-        if (typeof window !== "undefined") {
-          const params = new URLSearchParams(window.location.search);
-          const code = params.get("code");
-          const errorDesc = params.get("error_description");
+  // ── Main effect ────────────────────────────────────────────────────────────
+  //
+  // CRITICAL: This effect has NO dependencies ([]) so it runs exactly once on
+  // mount. Previous versions used `useEffect([url])` which depended on the
+  // Linking.useURL() hook. That hook starts null then resolves to the real URL,
+  // causing a second effect run whose cleanup set cancelled=true and cleared the
+  // safety timer — all while the async exchange from the first run was still
+  // in flight. Every `if (cancelled) return` guard then fired, setStatus was
+  // never called, and the result was an infinite spinner.
+  //
+  // Fix: Get the URL imperatively via Linking.getInitialURL() inside the effect,
+  // and subscribe to Linking events for warm starts. The cancelled/safety state
+  // is managed via refs so it is never stale across async boundaries.
 
-          if (errorDesc) throw new Error(errorDesc);
+  useEffect(() => {
+    cancelledRef.current = false;
+    handledRef.current = false;
 
-          if (code) {
-            // PKCE flow (Google OAuth)
-            await exchangeCodeWeb(code);
-          } else {
-            // Implicit flow (magic link) — tokens in hash fragment
-            const hash = window.location.hash.slice(1);
-            const hashParams = new URLSearchParams(hash);
-            const accessToken = hashParams.get("access_token");
-            const refreshToken = hashParams.get("refresh_token");
+    // Hard timeout — no matter what happens, never spin indefinitely.
+    // 10 s is generous for any network call; if we're still loading after
+    // that, something is fundamentally broken and the user needs a way out.
+    safetyRef.current = setTimeout(() => {
+      if (cancelledRef.current) return;
+      console.warn("[callback] safety timeout fired — showing recovery UI");
+      setStatus("timeout");
+    }, 10_000);
 
-            if (accessToken && refreshToken) {
-              // supabase.auth.setSession writes the session to localStorage
-              // and fires onAuthStateChange so the opener tab picks it up.
-              console.log("[callback] web: calling setSession with hash tokens");
-              const { error } = await withAuthTimeout(
-                supabase.auth.setSession({
-                  access_token: accessToken,
-                  refresh_token: refreshToken,
-                }),
-                6_000,
-                "setSession",
-              );
-              if (error) throw error;
-              console.log("[callback] web: setSession complete");
-            }
-          }
-        }
+    if (Platform.OS !== "web") {
+      // Cold start: get the launch URL imperatively
+      Linking.getInitialURL()
+        .then((initialUrl) => {
+          if (cancelledRef.current) return;
+          console.log("[callback] native: getInitialURL resolved", initialUrl ? "with URL" : "(null)");
+          handleNativeUrl(initialUrl ?? "");
+        })
+        .catch((err) => {
+          if (cancelledRef.current) return;
+          console.error("[callback] native: getInitialURL failed", err);
+          clearSafety();
+          setErrorMsg("Could not read sign-in link. Please try again.");
+          setStatus("error");
+        });
 
-        exchangeCompleted = true;
-        if (cancelled) return;
-        if (safety) clearTimeout(safety);
-        setStatus("success");
+      // Warm start: app was already running when the link was tapped
+      const sub = Linking.addEventListener("url", ({ url }) => {
+        if (cancelledRef.current) return;
+        console.log("[callback] native: warm-start URL received");
+        handleNativeUrl(url);
+      });
 
-        setTimeout(() => {
-          if (!cancelled) notifyAndClose();
-        }, 400);
-      } catch (e) {
-        if (cancelled) return;
-        if (safety) clearTimeout(safety);
-        setErrorMsg(e instanceof Error ? e.message : "Sign-in failed.");
-        setStatus("error");
-      }
+      return () => {
+        cancelledRef.current = true;
+        clearSafety();
+        sub.remove();
+      };
     }
 
-    run();
+    // Web path
+    runWebCallback();
 
     return () => {
-      cancelled = true;
-      if (safety) clearTimeout(safety);
+      cancelledRef.current = true;
+      clearSafety();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url]);
+  }, []);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <View
@@ -364,8 +454,8 @@ export default function AuthCallback() {
         </View>
       )}
 
-      {status === "error" && (
-        <View style={{ alignItems: "center", gap: 20 }}>
+      {(status === "error" || status === "timeout") && (
+        <View style={{ alignItems: "center", gap: 14, width: "100%" }}>
           <View
             style={[
               styles.iconBox,
@@ -374,18 +464,42 @@ export default function AuthCallback() {
           >
             <Text style={{ fontSize: 28, color: "#dc2626" }}>✕</Text>
           </View>
-          <Text style={[styles.heading, { color: "#1a1a1a" }]}>Sign-in failed</Text>
-          <Text style={styles.subtext}>
-            {errorMsg || "Your link may have expired. Please try again."}
+
+          <Text style={[styles.heading, { color: "#1a1a1a" }]}>
+            {status === "timeout"
+              ? "Sign-in is taking longer than expected"
+              : "Sign-in failed"}
           </Text>
-          <Pressable onPress={() => router.replace("/")} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>Back to app</Text>
+
+          <Text style={styles.subtext}>
+            {status === "timeout"
+              ? "Your link may have expired, or something went wrong loading your account."
+              : errorMsg || "Your link may have expired. Please try again."}
+          </Text>
+
+          <Pressable
+            onPress={() => {
+              // Navigate home so the user can open the auth modal and request a fresh link.
+              routerRef.current.replace("/");
+            }}
+            style={[styles.actionBtn, { backgroundColor: "#5aabdf", marginTop: 8 }]}
+          >
+            <Text style={styles.actionBtnPrimaryText}>Request a new link</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => routerRef.current.replace("/")}
+            style={[styles.actionBtn, { backgroundColor: "transparent", borderWidth: 1, borderColor: "#d1c9b8" }]}
+          >
+            <Text style={styles.actionBtnSecondaryText}>Continue as guest</Text>
           </Pressable>
         </View>
       )}
     </View>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   root: {
@@ -423,17 +537,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 21,
   },
-  backBtn: {
-    marginTop: 8,
+  actionBtn: {
     width: "100%",
     paddingVertical: 14,
-    backgroundColor: "#5aabdf",
     borderRadius: 12,
     alignItems: "center",
   },
-  backBtnText: {
+  actionBtnPrimaryText: {
     fontFamily: fonts.displayBold,
     fontSize: 14,
     color: "#fff",
+  },
+  actionBtnSecondaryText: {
+    fontFamily: fonts.displayBold,
+    fontSize: 14,
+    color: "#7a6f60",
   },
 });

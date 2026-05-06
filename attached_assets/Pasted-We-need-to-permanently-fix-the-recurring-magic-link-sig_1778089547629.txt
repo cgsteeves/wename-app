@@ -1,0 +1,248 @@
+We need to permanently fix the recurring magic link sign-in bug in WeName without introducing regressions.
+
+Problem:
+When a user signs in or creates an account via email magic link:
+1. User enters email.
+2. User receives the magic link email.
+3. User taps the link.
+4. The app opens.
+5. The app gets stuck forever on the “Signing you in” spinner.
+
+This has been attempted multiple times already, but the issue keeps recurring. Please do not make another narrow patch. Do a careful end-to-end audit and make the auth callback flow deterministic, observable, and impossible to leave stuck.
+
+Important context from the previous attempted fix:
+- Magic link opens at something like:
+  wename://auth/callback#access_token=...&refresh_token=...
+- Supabase magic links may use implicit flow tokens in the hash, not only PKCE code exchange.
+- Previous code only looked for ?code= and used exchangeCodeForSession(code), which fails for implicit magic links.
+- Previous fix attempted to support:
+  - PKCE: ?code=...
+  - Implicit flow: #access_token=...&refresh_token=...
+- Previous fix also attempted to manually parse custom scheme URLs because new URL(urlStr) can fail or drop the hash in React Native/Capacitor environments.
+- finalizeLogin may still be stalling or throwing before the app user context finishes loading.
+- The previous “fix” added an 8-second timeout, but the issue is still recurring, so assume there is still a broken async/state/navigation path.
+
+Goal:
+Make email magic link auth work reliably on iOS/TestFlight, Android, and web. The app must never stay on an infinite spinner. If sign-in fails, show a recoverable error. If sign-in succeeds but profile/RevenueCat/onboarding fails, still route the user into the app with safe defaults.
+
+Please do the following:
+
+1. Audit the full magic link request flow
+- Find the exact code that sends the magic link.
+- Confirm whether it uses Supabase signInWithOtp, an Edge Function, or admin.generateLink.
+- Confirm which auth flow is being produced:
+  - PKCE code flow
+  - implicit hash token flow
+  - or both depending on platform
+- Confirm the redirect URL being used for native and web.
+- Ensure the redirect URL is one of the allowed redirect URLs in Supabase Auth settings.
+- Ensure the native redirect is exactly compatible with the app’s configured scheme/deep link handler.
+
+2. Audit the full auth callback flow
+Find every place that handles:
+- wename://auth/callback
+- app links / universal links
+- Supabase auth callbacks
+- OAuth callbacks
+- magic link callbacks
+
+There should not be multiple competing callback handlers that race each other or leave state inconsistent.
+
+Create one single, reliable callback handler that:
+- Receives the full raw callback URL.
+- Logs the first safe portion of the URL without exposing tokens.
+- Parses both query params and hash params manually.
+- Supports these formats:
+  - ?code=...
+  - #access_token=...&refresh_token=...
+  - ?access_token=...&refresh_token=...
+  - error and error_description params
+- Does not rely only on new URL() for custom scheme URLs.
+- Does not assume magic links always use PKCE.
+- Does not assume tokens always appear in the same place.
+
+3. Implement deterministic session handling
+The callback handler should follow this order:
+
+A. If callback contains an auth error:
+- Stop loading.
+- Show a clear error: “This sign-in link is invalid or expired. Please request a new link.”
+- Provide button: “Back to sign in”
+
+B. Else if callback has code:
+- Call supabase.auth.exchangeCodeForSession(code)
+- Confirm returned session exists.
+- Continue to post-auth completion.
+
+C. Else if callback has access_token and refresh_token:
+- Call supabase.auth.setSession({
+    access_token,
+    refresh_token
+  })
+- Confirm returned session exists.
+- Continue to post-auth completion.
+
+D. Else:
+- Check supabase.auth.getSession() once as a fallback.
+- If a valid session exists, continue.
+- If no session exists, stop loading and show:
+  “We could not complete sign-in. The link may have expired. Please request a new link.”
+
+Important:
+Do not keep waiting for auth state changes indefinitely. The callback screen should own the completion flow.
+
+4. Refactor finalizeLogin so it can never block the spinner
+Audit finalizeLogin or equivalent post-auth logic.
+
+It may include:
+- fetching/creating Supabase profile
+- migrating guest swipes/likes/matches
+- writing AsyncStorage
+- RevenueCat login
+- RevenueCat entitlement checks
+- onboarding checks
+- premium purchase continuation
+- partner linking
+- loading daily limits
+- loading selected name pack
+
+None of these should be able to block sign-in completion forever.
+
+Required behavior:
+- Auth/session establishment is the only required step for sign-in success.
+- Profile fetch/create should be attempted, but if it fails, create safe local fallback state and let the app continue.
+- RevenueCat must never block sign-in.
+- Entitlement checks must never block sign-in.
+- Guest data migration must never block sign-in.
+- Partner linking must never block sign-in.
+- Name pack loading must never block sign-in.
+
+Use try/catch around each independent step.
+Use timeouts around network calls.
+Always reach a final completion state.
+
+5. Fix user context / loading state coordination
+Audit UserContext or whatever global auth/user provider controls loading.
+
+The bug may be caused by:
+- callback completes but UserContext keeps waiting
+- finalizeLogin never emits mergeComplete
+- loadById never resolves
+- auth state listener and callback handler conflict
+- loading state is set true in one place and never set false
+- navigation happens before user context is ready
+- guest-to-account migration deadlocks
+
+Fix this by making the state machine explicit.
+
+Suggested states:
+- unauthenticated
+- authenticating
+- authenticated_session_ready
+- profile_loading
+- ready
+- error_recoverable
+
+Rules:
+- No state should last forever.
+- Every async path must transition to ready or error_recoverable.
+- Add a hard max timeout for the entire callback flow, e.g. 10 seconds.
+- On timeout, stop the spinner and show a recovery screen.
+- Do not rely on a single event like mergeComplete unless it is guaranteed to fire in finally.
+
+6. Add finally blocks for completion signals
+Wherever the app currently emits:
+- mergeComplete
+- authComplete
+- profileLoaded
+- userLoaded
+- navigationReady
+
+Make sure the unblock signal is emitted in a finally block, not only after successful steps.
+
+Example pattern:
+try {
+  await doPostAuthWork()
+} catch (error) {
+  console.warn("Post-auth work failed", error)
+} finally {
+  emitAuthCompletion()
+  setLoading(false)
+}
+
+7. Add a proper recovery UI
+Replace endless spinner with a real recovery state.
+
+If the callback takes longer than 10 seconds, show:
+
+Title:
+“Sign-in is taking longer than expected”
+
+Body:
+“Your link may have expired, or something went wrong loading your account.”
+
+Buttons:
+- “Try again”
+- “Request a new link”
+- “Continue as guest”
+
+Also add a dev/debug-only option to reset local auth/session state if appropriate.
+
+8. Add safe logging without exposing tokens
+Add structured logs for every step.
+
+Log:
+- Magic link requested
+- Email submitted
+- Redirect URL used
+- Callback URL received
+- Parsed callback params:
+  - hasCode
+  - hasAccessToken
+  - hasRefreshToken
+  - hasError
+  - callbackType
+- PKCE exchange started/succeeded/failed
+- setSession started/succeeded/failed
+- getSession fallback started/succeeded/failed
+- finalizeLogin started
+- profile fetch/create started/succeeded/failed
+- guest migration started/succeeded/failed
+- RevenueCat login started/succeeded/failed
+- user context load started/succeeded/failed
+- navigation destination selected
+- callback completed
+- callback timed out
+
+Do not log raw access tokens, refresh tokens, or full magic links.
+
+9. Add platform-specific validation
+Test and verify:
+- iOS TestFlight magic link from Mail app
+- iOS TestFlight magic link from Gmail app
+- iOS TestFlight magic link from Safari
+- Web browser magic link
+- Existing user
+- New user
+- User with existing profile
+- User missing profile row
+- User with premium RevenueCat entitlement
+- User without premium
+
+10. Avoid introducing new bugs
+Do not change unrelated purchase logic, swipe logic, matching logic, partner linking logic, or premium entitlement rules except where they are blocking login.
+
+Do not grant premium access during sign-in.
+Do not mark a user premium unless RevenueCat confirms an active entitlement.
+Do not delete guest data until migration has succeeded.
+Do not force logout unless the callback truly fails.
+
+Expected outcome:
+- User taps email magic link.
+- App opens.
+- Callback parses the URL correctly.
+- Session is established using either PKCE code exchange or implicit access/refresh tokens.
+- Post-auth work runs safely with timeouts.
+- UserContext is unblocked no matter what.
+- User is routed into the app or shown a recoverable error.
+- The app never gets stuck forever on “Signing you in.”

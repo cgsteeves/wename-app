@@ -433,26 +433,49 @@ export default function AuthCallback() {
     }, 10_000);
 
     if (Platform.OS !== "web") {
-      // Cold start: get the launch URL imperatively.
-      // Warm start: getInitialURL() returns null — fall back to the URL that
-      // was captured at module level in warmStartUrl.ts before this screen
-      // mounted (the Linking url event fires before component mount on warm start).
+      // Cold start: getInitialURL() returns the launch URL.
+      // Warm start: getInitialURL() returns null — fall back to the URL
+      // captured at module level by warmStartUrl.ts before this screen mounted.
+      //
+      // If getInitialURL() is null AND no captured URL is immediately available,
+      // wait up to 200 ms for the warm-start url event to land (edge case where
+      // the event is slightly behind the component mount timing). Only after that
+      // window do we give up and show INITIAL_URL_NULL_NO_CAPTURED_URL.
       Linking.getInitialURL()
-        .then((initialUrl) => {
+        .then(async (initialUrl) => {
           if (cancelledRef.current) return;
           const wasNull = initialUrl === null;
 
-          // Recover the warm-start URL if getInitialURL came back empty.
-          const resolvedUrl = initialUrl ?? takeCapturedUrl();
-          const effectivelyNull = !resolvedUrl;
+          let resolvedUrl: string | null = initialUrl;
+          let startPath = "COLD_START_INITIAL_URL";
 
-          console.log("[callback] native: getInitialURL resolved", {
+          if (!resolvedUrl) {
+            // Try the immediately captured warm-start URL first.
+            resolvedUrl = takeCapturedUrl();
+
+            if (resolvedUrl) {
+              startPath = "WARM_START_CAPTURED_URL";
+            } else {
+              // Brief wait — covers the edge case where the url event arrives
+              // just after getInitialURL() resolves but before our in-component
+              // addEventListener fires. 200 ms is imperceptible to the user and
+              // well inside the 10 s safety timeout.
+              console.log("[callback] native: no URL yet — waiting 200 ms for warm-start capture");
+              await new Promise<void>((resolve) => setTimeout(resolve, 200));
+              if (cancelledRef.current) return;
+
+              resolvedUrl = takeCapturedUrl();
+              startPath = resolvedUrl ? "WARM_START_CAPTURED_URL" : "INITIAL_URL_NULL_NO_CAPTURED_URL";
+            }
+          }
+
+          console.log("[callback] native: URL resolved", {
+            startPath,
             getInitialURLWasNull: wasNull,
-            recoveredFromCapture: wasNull && !!resolvedUrl,
             hasResolvedUrl: !!resolvedUrl,
           });
 
-          handleNativeUrl(resolvedUrl ?? "", effectivelyNull);
+          handleNativeUrl(resolvedUrl ?? "", !resolvedUrl);
         })
         .catch((err) => {
           if (cancelledRef.current) return;

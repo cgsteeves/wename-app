@@ -1,0 +1,113 @@
+I fixed the malformed Supabase Redirect URL row. The redirect URLs are now separated properly, and the native callback URL is present:
+
+wename://auth/callback
+
+However, email magic link sign-in still needs to be debugged because the latest TestFlight build opened the app but showed:
+
+“Sign-in failed”
+“This sign-in link appears to be invalid or expired. Please request a new one.”
+
+Please do not rewrite the whole auth flow. The infinite spinner is already fixed. Now we need to identify exactly why the magic link callback fails.
+
+Focus only on diagnosing the callback URL and Supabase session exchange.
+
+Requirements:
+
+1. Confirm redirect URL configuration in code
+- Confirm the native magic link flow is generating links with:
+  redirectTo: "wename://auth/callback"
+- Confirm no old malformed redirect URL is hardcoded anywhere.
+- Confirm no web-only redirect URL is being used for native/TestFlight.
+- Confirm the Edge Function / magic link sender uses the correct Supabase project.
+
+2. Add temporary debug codes to the auth callback error screen
+When magic link sign-in fails, show one of these debug codes on the error screen:
+
+- NO_CALLBACK_CREDENTIALS
+- CALLBACK_ERROR_PARAM
+- SET_SESSION_FAILED
+- EXCHANGE_CODE_FAILED
+- INITIAL_URL_NULL
+- SESSION_FALLBACK_EMPTY
+- UNKNOWN_CALLBACK_ERROR
+
+This should be visible in TestFlight so I can report exactly which branch failed.
+
+3. Log the callback shape, without logging tokens
+When the app receives the callback URL, log only:
+
+- getInitialURL returned true/false
+- received callback path
+- hasQuery
+- hasHash
+- hasCode
+- hasAccessToken
+- hasRefreshToken
+- hasError
+- callbackType
+- error
+- error_description
+
+Do not log raw access_token, refresh_token, full magic link, or full session.
+
+4. Identify which callback format the app receives
+We need to know whether the app receives one of these:
+
+A) wename://auth/callback#access_token=...&refresh_token=...
+B) wename://auth/callback?code=...
+C) wename://auth/callback with no credentials
+D) wename://auth/callback?error=...
+E) no callback URL at all
+
+The next TestFlight result should make this obvious from the visible debug code and logs.
+
+5. Verify Supabase exchange behavior
+If access_token and refresh_token are present:
+- call supabase.auth.setSession
+- if it fails, show SET_SESSION_FAILED
+- log the Supabase error message safely
+
+If code is present:
+- call supabase.auth.exchangeCodeForSession
+- if it fails, show EXCHANGE_CODE_FAILED
+- log the Supabase error message safely
+
+If neither tokens nor code are present:
+- call getSession once as fallback
+- if no session exists, show NO_CALLBACK_CREDENTIALS or SESSION_FALLBACK_EMPTY
+
+6. Check whether SendGrid or email client is consuming/wrapping the link
+Please inspect the magic link email sending setup.
+
+Confirm:
+- SendGrid click tracking is disabled for magic link emails
+- the email href points to the intended Supabase action link
+- the link is not being rewritten in a way that strips query/hash params
+- the link is not being prefetched/consumed before the user taps it
+
+7. Check Supabase Auth logs
+For the tested email address, check whether Supabase sees the OTP/magic link as:
+- successfully verified
+- expired
+- already used
+- invalid token
+- redirected to the native callback successfully
+
+8. Test fresh links only
+For testing:
+- request a brand-new link
+- tap it once
+- do not reuse old links
+- test from Apple Mail and Gmail
+- test with app fully closed and app in background
+
+Expected result:
+After this change, if sign-in fails again, the TestFlight screen should show an exact debug code telling us whether the failure is:
+- missing callback credentials
+- Supabase error param
+- setSession failure
+- code exchange failure
+- no initial URL
+- empty session fallback
+
+The goal is to identify the actual failure point now that the malformed redirect URL has been fixed.

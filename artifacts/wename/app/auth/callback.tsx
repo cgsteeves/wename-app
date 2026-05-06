@@ -119,6 +119,16 @@ export default function AuthCallback() {
   const insets = useSafeAreaInsets();
   const [status, setStatus] = useState<Status>("loading");
   const [errorMsg, setErrorMsg] = useState("");
+  const [debugCode, setDebugCode] = useState<string | null>(null);
+
+  // Set a named debug code + message and transition to error state.
+  // The code appears on screen in TestFlight so the exact failure branch
+  // can be reported without needing a device log capture.
+  function fail(code: string, msg: string) {
+    setDebugCode(code);
+    setErrorMsg(msg);
+    setStatus("error");
+  }
 
   // Refs for values shared across async closures. Using refs (not closure vars)
   // ensures we always read the latest value regardless of which closure is
@@ -167,7 +177,7 @@ export default function AuthCallback() {
   // Called once with the raw URL from either getInitialURL() or the url event.
   // handledRef prevents this from running twice if both sources fire.
 
-  async function handleNativeUrl(urlStr: string) {
+  async function handleNativeUrl(urlStr: string, wasInitialUrlNull = false) {
     if (handledRef.current) {
       console.log("[callback] native: URL already handled — ignoring duplicate");
       return;
@@ -183,22 +193,32 @@ export default function AuthCallback() {
     const { code, accessToken, refreshToken, errorDesc, callbackType } =
       parseCallbackUrl(urlStr);
 
-    console.log("[callback] native: params parsed", {
-      callbackType,
+    // Full URL shape log — safe to report in TestFlight / bug reports.
+    // Token values are never logged; only their presence is recorded.
+    const qIdx = urlStr.indexOf("?");
+    const hIdx = urlStr.indexOf("#");
+    const pathOnly = urlStr.split("?")[0].split("#")[0];
+    console.log("[callback] native: URL shape", {
+      getInitialURLReturned: !wasInitialUrlNull,
+      path: pathOnly || "(none)",
+      hasQuery: qIdx >= 0,
+      hasHash: hIdx >= 0,
       hasCode: !!code,
       hasAccessToken: !!accessToken,
       hasRefreshToken: !!refreshToken,
       hasError: !!errorDesc,
+      callbackType,
+      error: errorDesc ?? null,
     });
 
     // Auth-level errors forwarded from Supabase / OAuth provider
     if (errorDesc) {
       console.warn("[callback] native: auth error in URL:", errorDesc);
       clearSafety();
-      setErrorMsg(
+      fail(
+        "CALLBACK_ERROR_PARAM",
         "This sign-in link is invalid or has expired. Please request a new one.",
       );
-      setStatus("error");
       return;
     }
 
@@ -211,7 +231,12 @@ export default function AuthCallback() {
           8_000,
           "exchangeCodeForSession",
         );
-        if (error) throw error;
+        if (error) {
+          console.error("[callback] native: PKCE exchange failed:", error.message);
+          clearSafety();
+          fail("EXCHANGE_CODE_FAILED", error.message || "Code exchange failed. Please try again.");
+          return;
+        }
         console.log("[callback] native: PKCE exchange succeeded", {
           uid: data?.session?.user?.id?.slice(-6),
           email: data?.session?.user?.email,
@@ -227,7 +252,12 @@ export default function AuthCallback() {
           8_000,
           "setSession",
         );
-        if (error) throw error;
+        if (error) {
+          console.error("[callback] native: setSession failed:", error.message);
+          clearSafety();
+          fail("SET_SESSION_FAILED", error.message || "Session setup failed. Please try again.");
+          return;
+        }
         console.log("[callback] native: setSession succeeded", {
           uid: data?.session?.user?.id?.slice(-6),
           email: data?.session?.user?.email,
@@ -238,16 +268,26 @@ export default function AuthCallback() {
         // a) The OS stripped the hash fragment from the URL before delivering it
         // b) The Supabase SDK already processed the link before this mounted
         // c) The user is already authenticated from a previous session
-        console.log("[callback] native: no credentials in URL, trying getSession fallback");
+        const noCredCode = wasInitialUrlNull ? "INITIAL_URL_NULL" : "NO_CALLBACK_CREDENTIALS";
+        console.log("[callback] native: no credentials in URL, trying getSession fallback", {
+          debugCode: noCredCode,
+        });
         const { data: { session }, error } = await withAuthTimeout(
           supabase.auth.getSession(),
           4_000,
           "getSession-fallback",
         );
         if (error || !session) {
-          throw new Error(
+          console.warn("[callback] native: getSession fallback returned no session", {
+            debugCode: noCredCode,
+            supabaseError: error?.message ?? null,
+          });
+          clearSafety();
+          fail(
+            noCredCode === "INITIAL_URL_NULL" ? "INITIAL_URL_NULL" : "SESSION_FALLBACK_EMPTY",
             "This sign-in link appears to be invalid or expired. Please request a new one.",
           );
+          return;
         }
         console.log("[callback] native: getSession fallback found active session", {
           uid: session.user.id.slice(-6),
@@ -262,8 +302,7 @@ export default function AuthCallback() {
       clearSafety();
       const msg = e instanceof Error ? e.message : "Sign-in failed. Please try again.";
       console.error("[callback] native: exchange failed:", msg);
-      setErrorMsg(msg);
-      setStatus("error");
+      fail("UNKNOWN_CALLBACK_ERROR", msg);
     }
   }
 
@@ -397,15 +436,15 @@ export default function AuthCallback() {
       Linking.getInitialURL()
         .then((initialUrl) => {
           if (cancelledRef.current) return;
-          console.log("[callback] native: getInitialURL resolved", initialUrl ? "with URL" : "(null)");
-          handleNativeUrl(initialUrl ?? "");
+          const wasNull = initialUrl === null;
+          console.log("[callback] native: getInitialURL resolved", wasNull ? "(null)" : "with URL");
+          handleNativeUrl(initialUrl ?? "", wasNull);
         })
         .catch((err) => {
           if (cancelledRef.current) return;
           console.error("[callback] native: getInitialURL failed", err);
           clearSafety();
-          setErrorMsg("Could not read sign-in link. Please try again.");
-          setStatus("error");
+          fail("INITIAL_URL_NULL", "Could not read sign-in link. Please try again.");
         });
 
       // Warm start: app was already running when the link was tapped
@@ -484,6 +523,14 @@ export default function AuthCallback() {
               : errorMsg || "Your link may have expired. Please try again."}
           </Text>
 
+          {/* Debug code — visible in TestFlight to identify the exact failure branch */}
+          {!!debugCode && (
+            <View style={styles.debugCodeBox}>
+              <Text style={styles.debugCodeLabel}>Debug code</Text>
+              <Text style={styles.debugCodeText}>{debugCode}</Text>
+            </View>
+          )}
+
           <Pressable
             onPress={() => {
               // Navigate home so the user can open the auth modal and request a fresh link.
@@ -559,5 +606,28 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displayBold,
     fontSize: 14,
     color: "#7a6f60",
+  },
+  debugCodeBox: {
+    width: "100%",
+    backgroundColor: "#1a1a1a",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: "center",
+    gap: 4,
+  },
+  debugCodeLabel: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: "#9ca3af",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  debugCodeText: {
+    fontFamily: "monospace" as any,
+    fontSize: 15,
+    color: "#f87171",
+    fontWeight: "700",
+    letterSpacing: 0.5,
   },
 });

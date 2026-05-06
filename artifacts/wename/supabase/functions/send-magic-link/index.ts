@@ -165,6 +165,16 @@ Deno.serve(async (req: Request): Promise<Response> => {
       { type: "text/plain", value: plainText },
       { type: "text/html", value: htmlBody },
     ],
+    // CRITICAL: click tracking MUST be disabled for magic link emails.
+    // SendGrid's click-tracking wraps every URL in its redirect service
+    // (https://u.sendgrid.net/…), which strips the hash fragment that carries
+    // the access_token and refresh_token in the implicit flow. The app would
+    // receive wename://auth/callback with no credentials and fail every time.
+    // Open tracking is also disabled to prevent any link prefetch/consumption.
+    tracking_settings: {
+      click_tracking: { enable: false, enable_text: false },
+      open_tracking: { enable: false },
+    },
   };
 
   const sgResponse = await fetch("https://api.sendgrid.com/v3/mail/send", {

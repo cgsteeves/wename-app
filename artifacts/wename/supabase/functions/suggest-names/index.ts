@@ -175,6 +175,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     excludeNames?: string[];
     style?: string | null;
     lastName?: string;
+    tuningPreferences?: string[];
   };
   try {
     body = await req.json();
@@ -190,9 +191,48 @@ Deno.serve(async (req: Request): Promise<Response> => {
     excludeNames: rawExclude = [],
     style = null,
     lastName = "",
+    tuningPreferences: rawTuning = [],
   } = body;
 
   const excludeNames = rawExclude.slice(0, 50);
+
+  // ── Tuning preferences ───────────────────────────────────────────────────
+  // Free-form chip selections from the client. We map each known label to a
+  // concrete prompt instruction; unknown labels are silently dropped.
+  const TUNING_INSTRUCTIONS: Record<string, string> = {
+    "Short": "Prefer short names (1-2 syllables, 3-5 letters when possible).",
+    "Easy to pronounce":
+      "Avoid names that are hard for English speakers to pronounce; favour intuitive, phonetic spellings.",
+    "Rare but usable":
+      "Favour uncommon names that are still recognisable as names — rare, not bizarre or unwearable.",
+    "Meaningful":
+      "Prioritise names with rich, evocative meanings or strong etymological roots.",
+    "Spiritual":
+      "Prefer names with spiritual, religious, or sacred origins (any tradition).",
+    "Modern":
+      "Lean toward fresh, contemporary names that feel current.",
+    "Classic":
+      "Lean toward timeless, traditional names with long histories.",
+    "Soft sounding":
+      "Prefer gentle phonetics — flowing vowels, soft consonants like L, M, N.",
+    "Strong sounding":
+      "Prefer bold phonetics — strong consonants, decisive sounds.",
+    "Works with last name":
+      "Pay extra attention to flow, rhythm, and syllable count alongside the last name.",
+  };
+  const tuningPreferences = (Array.isArray(rawTuning) ? rawTuning : [])
+    .filter((p): p is string => typeof p === "string" && p in TUNING_INSTRUCTIONS)
+    .slice(0, 10);
+
+  console.log("[suggest-names] request", {
+    gender,
+    style,
+    likedCount: likedNames.length,
+    matchedCount: matchedNames.length,
+    partnerLikedCount: partnerLikedNames.length,
+    excludeCount: excludeNames.length,
+    tuningPreferences,
+  });
 
   // ── Deno KV cache ─────────────────────────────────────────────────────────
   // Key: hash of the deterministic request fingerprint (taste + style, not
@@ -205,6 +245,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     p: partnerLikedNames.slice(0, 8).slice().sort(),
     s: style ?? null,
     ln: lastName ?? "",
+    tp: tuningPreferences.slice().sort(),
   });
   const cacheKey = await sha256Short(cacheFingerprint);
 
@@ -292,10 +333,21 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ? `\nIMPORTANT: Do NOT suggest any of these names (they have already been seen or swiped): ${excludeNames.join(", ")}.`
       : "";
 
+  // ── Tuning preferences context ───────────────────────────────────────────
+  const tuningContext =
+    tuningPreferences.length > 0
+      ? "\nUser preferences (apply each, but never below 8 results — relax constraints if they conflict):\n" +
+        tuningPreferences
+          .map((p) => `- ${TUNING_INSTRUCTIONS[p]}`)
+          .join("\n")
+      : "";
+
   // Request 12 names so the cache has a larger pool to filter from on
   // subsequent requests with different exclude lists.
   const prompt = `You are a helpful baby name expert. Suggest 12 unique baby ${gender} names.
-${tasteContext}${styleContext}${lastNameContext}${excludeContext}
+${tasteContext}${styleContext}${lastNameContext}${tuningContext}${excludeContext}
+
+Always return at least 8 names. If the constraints conflict with each other, relax the weakest ones — never return fewer than 8.
 
 Return ONLY a JSON array of objects, nothing else. Each object must have:
 - "name": the baby name (string)

@@ -1,0 +1,112 @@
+Improve the AI Suggestions UX by adding “Tune my suggestions” controls so users can guide the type of names they receive.
+
+Current behavior:
+The AI Suggestions tab has basic style filters:
+- Classic
+- Modern
+- Unique
+
+Goal:
+Give premium users more control over AI recommendations so refreshes feel intentional, not random.
+
+Add a small “Tune my suggestions” section above the suggestion cards.
+
+Suggested UI:
+Title:
+“Tune my suggestions”
+
+Subtitle:
+“Choose what you want more of.”
+
+Chips:
+- Short
+- Easy to pronounce
+- Rare but usable
+- Meaningful
+- Spiritual
+- Modern
+- Classic
+- Soft sounding
+- Strong sounding
+- Works with last name
+
+Keep the UI compact and consistent with the existing WeName style.
+
+Requirements:
+
+1. Add selectable preference chips
+Users should be able to select one or more chips.
+
+Selected chips should visually appear active.
+
+The existing Classic / Modern / Unique filters can remain, but avoid making the top of the screen too crowded. If needed:
+- keep Classic / Modern / Unique as the primary style row
+- add “Tune my suggestions” as a second compact chip row below it
+
+2. Send selected preferences to the AI
+Update the client call to /functions/v1/suggest-names to include a new field:
+
+tuningPreferences
+
+Example:
+tuningPreferences: ["Short", "Easy to pronounce", "Meaningful"]
+
+3. Update the Supabase Edge Function prompt
+Modify the AI prompt so selected tuningPreferences influence the generated names.
+
+Examples:
+- If “Short” is selected, prefer shorter names.
+- If “Easy to pronounce” is selected, avoid names that are difficult for English speakers to say.
+- If “Rare but usable” is selected, avoid extremely obscure names while still avoiding overly common names.
+- If “Works with last name” is selected and lastName exists, consider name flow.
+- If “Spiritual” is selected, prefer names with spiritual, religious, or meaningful roots.
+- If “Strong sounding” is selected, prefer names with bold consonants or strong phonetic feel.
+- If “Soft sounding” is selected, prefer gentler sounds.
+
+4. Refresh behavior
+When the user changes chips:
+- do not automatically wipe the current list unless that feels better in the current architecture
+- add a clear action like “Refresh suggestions” or “Apply”
+- new request should include the selected chips
+- excludeNames should still prevent repeats
+
+5. Persist preferences locally
+Save selected tuning preferences locally so they remain selected when the user returns to AI Suggestions.
+
+Use AsyncStorage or the existing local settings pattern.
+
+6. Empty state / guidance
+If the user has fewer than 3 liked names, keep the existing gate, but improve the copy:
+
+“Like at least 3 names so WeName can learn your style.”
+
+Show progress if possible:
+“2 of 3 likes needed”
+
+7. Prevent over-filtering
+If the user selects many chips and the AI struggles to generate suggestions:
+- still return reasonable names
+- do not error
+- relax constraints if needed
+- show friendly copy if no suggestions are returned
+
+8. Logging
+Add safe logs for:
+- selected style
+- tuningPreferences selected
+- number of suggestions returned
+- refresh triggered
+
+Do not log auth tokens or private credentials.
+
+9. Do not change unrelated areas
+Do not modify:
+- purchase gating
+- RevenueCat entitlement logic
+- magic link auth
+- partner linking
+- swipe mechanics
+- onboarding
+
+Expected outcome:
+AI Suggestions should feel more interactive and valuable. Users can guide the AI toward names that are short, meaningful, easy to pronounce, rare but usable, spiritual, modern, classic, or better matched with their last name.

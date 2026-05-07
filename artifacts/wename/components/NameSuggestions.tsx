@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ImageBackground } from "expo-image";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -15,6 +16,26 @@ const boyCardBg = require("../assets/images/boy-card-bg.jpg");
 
 // ── Types ────────────────────────────────────────────────────────────────────
 type StyleFilter = "classic" | "modern" | "unique" | null;
+
+// Preference chips users can toggle to guide the AI.
+// The string values are sent verbatim to the Edge Function, which maps them
+// to prompt instructions — keep them in sync if you change the labels.
+const TUNING_OPTIONS: readonly string[] = [
+  "Short",
+  "Easy to pronounce",
+  "Rare but usable",
+  "Meaningful",
+  "Spiritual",
+  "Modern",
+  "Classic",
+  "Soft sounding",
+  "Strong sounding",
+  "Works with last name",
+];
+
+const TUNING_STORAGE_KEY = "wename_tuning_preferences";
+
+const sortKey = (arr: readonly string[]): string => [...arr].sort().join("|");
 
 interface Suggestion {
   name: string;
@@ -89,8 +110,46 @@ export function NameSuggestions({
   // Separate timeout handle for the per-request wall-clock deadline.
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Tuning preferences (chip selections). Persisted via AsyncStorage so they
+  // survive app restarts. Read inside fetchSuggestions via ref to avoid
+  // re-creating the callback on every toggle.
+  const [tuningPrefs, setTuningPrefs] = useState<string[]>([]);
+  const [tuningLoaded, setTuningLoaded] = useState(false);
+  const tuningPrefsRef = useRef<string[]>([]);
+  // Tracks the tuning prefs that were active during the last successful fetch.
+  // The Apply button appears whenever current prefs differ from this snapshot.
+  const lastAppliedTuningRef = useRef<string[]>([]);
+
   // Keep ref in sync with state so fetchSuggestions always reads the latest set
   useEffect(() => { shownNamesRef.current = shownNames; }, [shownNames]);
+  useEffect(() => { tuningPrefsRef.current = tuningPrefs; }, [tuningPrefs]);
+
+  // Load persisted tuning preferences once on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(TUNING_STORAGE_KEY);
+        if (!cancelled && raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter(
+              (p): p is string =>
+                typeof p === "string" && TUNING_OPTIONS.includes(p),
+            );
+            setTuningPrefs(valid);
+            tuningPrefsRef.current = valid;
+            lastAppliedTuningRef.current = valid;
+          }
+        }
+      } catch {
+        // Storage read failure is non-fatal — start with empty prefs.
+      } finally {
+        if (!cancelled) setTuningLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Cancel any pending timers and in-flight request on unmount.
   useEffect(() => () => {
@@ -139,6 +198,18 @@ export function NameSuggestions({
       ? [...excludeNames, ...Array.from(shownNamesRef.current)]
       : [...excludeNames];
 
+    const tuningForRequest = [...tuningPrefsRef.current];
+
+    if (attempt === 0) {
+      console.log("[NameSuggestions] fetch", {
+        isRefresh,
+        style: selectedStyle,
+        tuningPreferences: tuningForRequest,
+        likedCount: likedNames.length,
+        excludeCount: excludeForRequest.length,
+      });
+    }
+
     const scheduleRetry = () => {
       // Keep skeleton visible; silently retry after 3 s
       retryTimeoutRef.current = setTimeout(
@@ -165,6 +236,7 @@ export function NameSuggestions({
             excludeNames: excludeForRequest,
             style: selectedStyle,
             lastName: user.baby_last_name ?? "",
+            tuningPreferences: tuningForRequest,
           }),
         },
       );
@@ -237,7 +309,12 @@ export function NameSuggestions({
       if (fetched.length === 0) {
         if (attempt === 0) { scheduleRetry(); return; }
         setError("Could not load suggestions. Please try again.");
+      } else {
+        // Snapshot tuning prefs only on a successful, non-empty response so a
+        // failed/timed-out request keeps the Apply button visible for retry.
+        lastAppliedTuningRef.current = [...tuningPrefsRef.current];
       }
+      console.log("[NameSuggestions] received", { count: fetched.length });
       setStreamingDone(true);
     } catch (err) {
       clearFetchTimeout();
@@ -273,14 +350,16 @@ export function NameSuggestions({
     }
   }
 
-  // Auto-fetch on mount if enough likes
+  // Auto-fetch on mount if enough likes — gated on tuningLoaded so the first
+  // request includes the user's persisted preferences.
   useEffect(() => {
+    if (!tuningLoaded) return;
     if (!hasFetchedOnMount.current && likedNames.length >= 3) {
       hasFetchedOnMount.current = true;
       fetchSuggestions(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [likedNames.length]);
+  }, [likedNames.length, tuningLoaded]);
 
   // Auto-refetch when style changes (only after first fetch)
   const isFirstStyleRender = useRef(true);
@@ -309,6 +388,21 @@ export function NameSuggestions({
   function toggleStyle(style: "classic" | "modern" | "unique") {
     setSelectedStyle((prev) => (prev === style ? null : style));
   }
+
+  function toggleTuning(opt: string) {
+    setTuningPrefs((prev) => {
+      const next = prev.includes(opt)
+        ? prev.filter((p) => p !== opt)
+        : [...prev, opt];
+      AsyncStorage.setItem(TUNING_STORAGE_KEY, JSON.stringify(next)).catch(
+        () => { /* persistence is best-effort */ },
+      );
+      return next;
+    });
+  }
+
+  const hasUnappliedTuning =
+    sortKey(tuningPrefs) !== sortKey(lastAppliedTuningRef.current);
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -342,6 +436,67 @@ export function NameSuggestions({
         })}
       </View>
 
+      {/* Tune my suggestions */}
+      {!tooFewNames && (
+        <View style={styles.tuneSection}>
+          <Text style={[styles.tuneTitle, { color: accent }]}>
+            Tune my suggestions
+          </Text>
+          <Text style={[styles.tuneSubtitle, { color: MUTED }]}>
+            Choose what you want more of.
+          </Text>
+          <View style={styles.chipWrap}>
+            {TUNING_OPTIONS.map((opt) => {
+              const active = tuningPrefs.includes(opt);
+              return (
+                <Pressable
+                  key={opt}
+                  onPress={() => toggleTuning(opt)}
+                  style={[
+                    styles.chip,
+                    {
+                      backgroundColor: active
+                        ? a(accent, 0.12)
+                        : "rgba(255,255,255,0.5)",
+                      borderColor: active
+                        ? a(accent, 0.3)
+                        : `hsla(35,22%,80%,0.4)`,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      { color: active ? accent : MUTED },
+                    ]}
+                  >
+                    {opt}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {hasUnappliedTuning && hasLoaded && (
+            <Pressable
+              onPress={() => fetchSuggestions(false)}
+              style={({ pressed }) => [
+                styles.applyBtn,
+                {
+                  backgroundColor: a(accent, 0.12),
+                  borderColor: a(accent, 0.3),
+                  opacity: pressed ? 0.8 : 1,
+                },
+              ]}
+            >
+              <Feather name="check" size={12} color={accent} />
+              <Text style={[styles.applyBtnText, { color: accent }]}>
+                Apply changes
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
       {/* Too few names card */}
       {tooFewNames && !hasLoaded && (
         <View
@@ -365,8 +520,10 @@ export function NameSuggestions({
               { color: MUTED },
             ]}
           >
-            Like a few more names while swiping to unlock personalized
-            suggestions.
+            Like at least 3 names so WeName can learn your style.
+          </Text>
+          <Text style={[styles.tooFewProgress, { color: accent }]}>
+            {Math.min(likedNames.length, 3)} of 3 likes needed
           </Text>
         </View>
       )}
@@ -764,6 +921,59 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     lineHeight: 20,
+  },
+  tooFewProgress: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 12,
+    marginTop: 6,
+    textAlign: "center",
+  },
+
+  tuneSection: {
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  tuneTitle: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  tuneSubtitle: {
+    fontFamily: fonts.display,
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  chipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  chip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  chipText: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 10,
+  },
+  applyBtn: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  applyBtnText: {
+    fontFamily: fonts.displayMedium,
+    fontSize: 11,
   },
 
   skeletonTile: {

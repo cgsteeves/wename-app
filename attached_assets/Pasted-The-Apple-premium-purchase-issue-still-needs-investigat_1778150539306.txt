@@ -1,0 +1,142 @@
+The Apple premium purchase issue still needs investigation, but RevenueCat now shows activity for today.
+
+Context:
+In RevenueCat sandbox data, the affected customer has:
+- Active entitlement: Premium Access
+- Product: premium_lifetime
+- Unlimited duration
+- Total spent: USD 5.88
+- Customer history says purchases were transferred from an anonymous RevenueCat App User ID to the signed-in App User ID
+- App User IDs include:
+  - original anonymous ID
+  - signed-in Supabase user ID alias
+
+This suggests the app may be receiving a valid RevenueCat entitlement because a previous sandbox purchase was transferred/restored, not because the app is incorrectly unlocking premium.
+
+However, the user experience still feels wrong:
+- Tapping the premium button appears to grant access without showing the Apple payment sheet.
+- We need to determine whether this is:
+  A) a real bug where premium unlocks without entitlement/payment, or
+  B) expected RevenueCat sandbox behavior because the Apple ID already owns the lifetime product and RevenueCat transfers/restores the entitlement.
+
+Please investigate carefully without making broad unrelated changes.
+
+Requirements:
+
+1. Determine whether purchasePackage is being called
+Add logs around every premium CTA / buy action:
+
+- Premium CTA tapped
+- User auth state: guest / signed-in
+- RevenueCat App User ID before purchase
+- Supabase user ID
+- is anonymous RevenueCat user true/false
+- hasPremiumEntitlement before purchase
+- current customerInfo entitlements before purchase
+- offerings fetched
+- package selected
+- purchasePackage called true/false
+- Apple payment sheet expected to open
+- purchasePackage returned
+- purchase cancelled
+- purchase failed
+- purchase returned entitlement active true/false
+- premium unlock applied true/false
+
+Goal:
+We need to know whether the app is actually calling Purchases.purchasePackage(), or whether it sees an existing entitlement and skips purchase.
+
+2. Do not show purchase CTA if user already has entitlement
+If hasPremiumEntitlement is already true before tapping buy:
+- Do not call purchasePackage.
+- Do not show “Buy Premium.”
+- Show “Premium Active” / “You already have Premium.”
+- Log: PURCHASE_SKIPPED_ALREADY_ENTITLED
+
+This avoids the appearance that tapping buy granted premium.
+
+3. Distinguish purchase vs restore/transfer
+RevenueCat can transfer purchases from an anonymous App User ID to a signed-in user after Purchases.logIn(userId).
+
+Please explicitly log when Purchases.logIn causes customerInfo to return an active entitlement.
+
+If entitlement becomes active immediately after logIn, log:
+ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER
+
+In that case:
+- This is not a new Apple payment sheet flow.
+- It is RevenueCat transferring/restoring an existing sandbox purchase.
+- The UI should explain that Premium was restored, not purchased.
+
+4. Confirm App User ID behavior
+Verify the app does this sequence correctly:
+
+Guest app launch:
+- RevenueCat may have an anonymous App User ID.
+
+User signs in:
+- app calls Purchases.logIn(supabaseUser.id)
+
+After login:
+- if RevenueCat transfers prior anonymous purchases, entitlement may become active immediately.
+
+Please confirm this is expected and log it.
+
+5. Add a clean test path for a truly new Apple sandbox purchase
+To verify the real purchase sheet flow, test with:
+
+- a fresh Supabase user
+- a fresh Apple sandbox tester that has never purchased premium_lifetime
+- no existing RevenueCat anonymous entitlement on the device
+- delete app before test
+- optionally reset RevenueCat customer / sandbox purchase history if possible
+
+Expected:
+- guest taps premium → sign-in required
+- signed-in free user taps buy → Apple payment sheet opens
+- user completes Apple sandbox purchase
+- RevenueCat returns active premium entitlement
+- only then premium unlocks
+
+6. Test existing purchaser path separately
+For an Apple sandbox account that already purchased premium_lifetime:
+
+Expected:
+- after sign-in / RevenueCat logIn, entitlement may be restored/transferred
+- app may unlock premium without showing payment sheet
+- UI should show “Premium restored” or “Premium Active”
+- this should not be treated as a bug if RevenueCat entitlement is active
+
+7. Prevent accidental premium unlock from Supabase
+Reconfirm that even in this case:
+- Supabase plan_tier alone does not unlock premium
+- only hasPremiumEntitlement from RevenueCat unlocks premium
+- if RevenueCat has no active entitlement, user remains free
+
+8. Add visible debug info in TestFlight temporarily
+On the Premium screen/paywall, for debug builds only, show:
+
+- hasPremiumEntitlement: true/false
+- isPurchaseEligible: true/false
+- RevenueCat App User ID shortened
+- Supabase user ID shortened
+- current offering/package ID
+- last premium event:
+  - ALREADY_ENTITLED
+  - PURCHASE_PACKAGE_CALLED
+  - PURCHASE_CANCELLED
+  - PURCHASE_FAILED
+  - PURCHASE_SUCCEEDED_WITH_ENTITLEMENT
+  - PURCHASE_RETURNED_NO_ENTITLEMENT
+  - ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER
+  - BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT
+
+9. Do not change unrelated flows
+Do not modify magic link auth, Google auth, Apple auth, swipe mechanics, partner linking, onboarding, or UI styling unless directly required for purchase diagnostics.
+
+Expected outcome:
+We need to clearly determine whether the remaining issue is an actual unauthorized premium unlock, or expected RevenueCat sandbox restore/transfer behavior from an existing Apple sandbox purchase.
+
+If entitlement is already active before purchase, the app should not present this as a new purchase. It should show Premium Active / Restored.
+
+If entitlement is not active, tapping buy must open the Apple payment sheet and premium must remain locked unless RevenueCat returns active entitlement "premium".

@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { ImageBackground } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import React from "react";
+import React, { useState } from "react";
 import {
   Alert,
   ActivityIndicator,
@@ -22,6 +22,10 @@ import { useSubscription, REVENUECAT_ENTITLEMENT_IDENTIFIER } from "@/lib/revenu
 
 const paperTexture = require("../../../assets/images/paper-texture.jpg");
 const girlBg = require("../../../assets/images/girl-card-bg.jpg");
+
+// ── Debug overlay ──────────────────────────────────────────────────────────
+// Set to false before App Store release.
+const SHOW_PREMIUM_DEBUG = true;
 
 const GRASS = "hsl(145,45%,35%)";
 const GRASS_BG = "hsla(145,45%,35%,0.08)";
@@ -64,6 +68,7 @@ export default function PremiumScreen() {
     hasPremiumEntitlement,
     customerInfo,
   } = useSubscription();
+  const [lastEvent, setLastEvent] = useState("—");
 
   if (!user) return null;
   // isPremium must always come from RevenueCat, never from user.plan_tier.
@@ -76,6 +81,7 @@ export default function PremiumScreen() {
 
   async function handleUpgrade() {
     if (!pkg) return;
+
     if (!isPurchaseEligible) {
       // Guest — must sign in before purchasing so the purchase is tied to
       // their account and can be restored across devices.
@@ -86,17 +92,44 @@ export default function PremiumScreen() {
       });
       return;
     }
+
+    // Req 2: If the entitlement is already active, never call purchasePackage.
+    // This prevents the appearance of granting premium "without payment" when
+    // RevenueCat has already transferred/restored an existing purchase.
+    if (hasPremiumEntitlement) {
+      console.log("PURCHASE_SKIPPED_ALREADY_ENTITLED", {
+        caller: "PremiumScreen/handleUpgrade",
+        rcAppUserId: customerInfo?.originalAppUserId,
+        activeEntitlements: Object.keys(customerInfo?.entitlements?.active ?? {}),
+        note: "User tapped Buy but entitlement was already active — purchase skipped.",
+      });
+      setLastEvent("PURCHASE_SKIPPED_ALREADY_ENTITLED");
+      // The UI branch already shows "You're on Premium" when isPremium is true,
+      // so this path should not normally be reached. Guard is defensive.
+      return;
+    }
+
     console.log("[PremiumScreen] upgrade tapped", {
       pkg: pkg.identifier,
+      productId: pkg.product.identifier,
+      price: pkg.product.priceString,
       isPurchaseEligible,
-      hasPremiumEntitlement,
-      rcUserId: customerInfo?.originalAppUserId,
+      hasPremiumEntitlementBefore: hasPremiumEntitlement,
+      supabaseUserId: user?.id?.slice(-8),
+      rcAppUserId: customerInfo?.originalAppUserId,
+      activeEntitlementsBefore: Object.keys(customerInfo?.entitlements?.active ?? {}),
+      offeringId: offerings?.current?.identifier,
+      purchasePackageWillBeCalled: true,
+      applePaymentSheetExpected: true,
     });
+    setLastEvent("PURCHASE_PACKAGE_CALLED");
+
     try {
       const purchasedCustomerInfo = await purchase(pkg);
       if (!purchasedCustomerInfo) {
         // DEV mode only: user dismissed the test-store dialog.
         console.log("[PremiumScreen] purchase cancelled (test-store dismissed)");
+        setLastEvent("PURCHASE_CANCELLED");
         return;
       }
       // Defensive guard: only write to Supabase when RC confirms active entitlement.
@@ -108,16 +141,18 @@ export default function PremiumScreen() {
           {
             caller: "PremiumScreen/handleUpgrade",
             currentPlanTier: user?.plan_tier,
-            hasPremiumEntitlement,
-            entitlements: purchasedCustomerInfo.entitlements.active,
+            hasPremiumEntitlementBefore: hasPremiumEntitlement,
+            activeEntitlementsAfter: purchasedCustomerInfo.entitlements.active,
           },
         );
+        setLastEvent("PURCHASE_RETURNED_NO_ENTITLEMENT");
         Alert.alert(
           "Purchase Incomplete",
           "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
         );
         return;
       }
+      setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
       console.log("[PremiumScreen] premium entitlement confirmed after purchase — unlocking");
       console.log("[PremiumScreen] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
       await updateUser({ plan_tier: "premium" });
@@ -125,25 +160,33 @@ export default function PremiumScreen() {
     } catch (e: any) {
       if (e?.userCancelled) {
         console.log("[PremiumScreen] purchase cancelled by user");
+        setLastEvent("PURCHASE_CANCELLED");
         return;
       }
       console.error("[PremiumScreen] purchase failed:", e?.message);
+      setLastEvent("PURCHASE_FAILED");
       const msg = e?.message ?? "Something went wrong. Please try again.";
       Alert.alert("Purchase Failed", msg);
     }
   }
 
   async function handleRestore() {
-    console.log("[PremiumScreen] restore tapped", { hasPremiumEntitlement });
+    console.log("[PremiumScreen] restore tapped", {
+      hasPremiumEntitlement,
+      rcAppUserId: customerInfo?.originalAppUserId,
+    });
+    setLastEvent("RESTORE_CALLED");
     try {
       const restoredInfo = await restore();
       const hasPremiumEntitlementAfterRestore =
         restoredInfo?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      console.log("[PremiumScreen] restore result: hasPremiumEntitlementAfterRestore =", hasPremiumEntitlementAfterRestore);
+      console.log("[PremiumScreen] restore result", {
+        hasPremiumEntitlementAfterRestore,
+        activeEntitlements: Object.keys(restoredInfo?.entitlements?.active ?? {}),
+      });
       if (hasPremiumEntitlementAfterRestore) {
-        // Defensive guard: entitlement confirmed from the restore result.
+        setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
         console.log("[PremiumScreen] premium entitlement confirmed after restore — unlocking");
-        console.log("[PremiumScreen] updateUser: start", { plan_tier: "premium", caller: "handleRestore" });
         await updateUser({ plan_tier: "premium" });
         console.log("[PremiumScreen] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
       } else {
@@ -152,14 +195,15 @@ export default function PremiumScreen() {
           {
             caller: "PremiumScreen/handleRestore",
             currentPlanTier: user?.plan_tier,
-            hasPremiumEntitlement,
-            entitlements: restoredInfo?.entitlements?.active,
+            activeEntitlementsAfter: restoredInfo?.entitlements?.active,
           },
         );
+        setLastEvent("PURCHASE_RETURNED_NO_ENTITLEMENT");
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {
       console.error("[PremiumScreen] restore failed:", e?.message);
+      setLastEvent("PURCHASE_FAILED");
       const msg = e?.message ?? "Something went wrong. Please try again.";
       Alert.alert("Restore Failed", msg);
     }
@@ -283,6 +327,20 @@ export default function PremiumScreen() {
               No subscriptions. Pay once, use forever.
             </Text>
           </>
+        )}
+
+        {/* ── Debug overlay (remove before App Store release) ─────────────── */}
+        {SHOW_PREMIUM_DEBUG && (
+          <View style={styles.debugPanel}>
+            <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
+            <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
+            <Text style={styles.debugLine}>isPurchaseEligible: <Text style={styles.debugVal}>{String(isPurchaseEligible)}</Text></Text>
+            <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
+            <Text style={styles.debugLine}>Supabase: <Text style={styles.debugVal}>{user?.id?.slice(-10) ?? "—"}</Text></Text>
+            <Text style={styles.debugLine}>offering: <Text style={styles.debugVal}>{offerings?.current?.identifier ?? "—"}</Text></Text>
+            <Text style={styles.debugLine}>package: <Text style={styles.debugVal}>{pkg?.identifier ?? "—"}</Text></Text>
+            <Text style={styles.debugLine}>lastEvent: <Text style={styles.debugVal}>{lastEvent}</Text></Text>
+          </View>
         )}
       </ScrollView>
     </View>
@@ -408,5 +466,32 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 16,
     paddingHorizontal: 16,
+  },
+  debugPanel: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.15)",
+    gap: 4,
+  },
+  debugTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 9,
+    color: "#b45309",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  debugLine: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: TEXT_DARK,
+    opacity: 0.8,
+  },
+  debugVal: {
+    fontFamily: fonts.displayBold,
+    color: TEXT_DARK,
   },
 });

@@ -61,6 +61,12 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
   },
 ];
 
+// ── Debug overlay ──────────────────────────────────────────────────────────
+// Set to false before App Store release.
+// Shown in all builds (including TestFlight) while the purchase investigation
+// is ongoing. Helps determine transfer vs new-purchase vs skipped scenarios.
+const SHOW_PREMIUM_DEBUG = true;
+
 const GRASS        = "hsl(145,45%,35%)";
 const GRASS_BG     = "hsla(145,45%,35%,0.08)";
 const GRASS_BORDER = "hsl(145,45%,60%)";
@@ -331,6 +337,7 @@ export function PremiumModal({
   // Track the current step of the sign-in → purchase flow.
   // Initialised to "auth"; corrected in the open-change useEffect below.
   const [step, setStep] = useState<PurchaseStep>("auth");
+  const [lastEvent, setLastEvent] = useState("—");
   // Marks whether the modal was opened when the user was a guest, so we
   // know to advance through the signed-in step when auth completes.
   const openedAsGuestRef = useRef(false);
@@ -392,19 +399,43 @@ export function PremiumModal({
 
   async function handleUpgrade() {
     if (!pkg) return;
+
+    // Req 2: If the entitlement is already active, never call purchasePackage.
+    // This prevents the appearance of granting premium "without payment" when
+    // RevenueCat has already transferred/restored an existing purchase on logIn.
+    if (hasPremiumEntitlement) {
+      console.log("PURCHASE_SKIPPED_ALREADY_ENTITLED", {
+        caller: "PremiumModal/handleUpgrade",
+        rcAppUserId: customerInfo?.originalAppUserId,
+        activeEntitlements: Object.keys(customerInfo?.entitlements?.active ?? {}),
+        note: "User tapped Buy but entitlement was already active — purchase skipped.",
+      });
+      setLastEvent("PURCHASE_SKIPPED_ALREADY_ENTITLED");
+      return;
+    }
+
     console.log("[PremiumModal] upgrade tapped", {
       pkg: pkg.identifier,
+      productId: pkg.product.identifier,
+      price: pkg.product.priceString,
       isPurchaseEligible,
-      hasPremiumEntitlement,
-      currentPlanTier: user?.plan_tier,
+      hasPremiumEntitlementBefore: hasPremiumEntitlement,
+      supabaseUserId: user?.id?.slice(-8),
       rcAppUserId: customerInfo?.originalAppUserId,
+      activeEntitlementsBefore: Object.keys(customerInfo?.entitlements?.active ?? {}),
+      offeringId: offerings?.current?.identifier,
+      purchasePackageWillBeCalled: true,
+      applePaymentSheetExpected: true,
     });
+    setLastEvent("PURCHASE_PACKAGE_CALLED");
+
     try {
       const purchasedCustomerInfo = await purchase(pkg);
       if (!purchasedCustomerInfo) {
         // DEV mode only: user dismissed the test-store dialog — purchase()
         // returns undefined instead of throwing. Do NOT grant premium.
         console.log("[PremiumModal] purchase cancelled (test-store dismissed)");
+        setLastEvent("PURCHASE_CANCELLED");
         return;
       }
       // Defensive guard: only write to Supabase when RC confirms active entitlement.
@@ -418,16 +449,18 @@ export function PremiumModal({
           {
             caller: "PremiumModal/handleUpgrade",
             currentPlanTier: user?.plan_tier,
-            hasPremiumEntitlement,
-            entitlements: purchasedCustomerInfo.entitlements.active,
+            hasPremiumEntitlementBefore: hasPremiumEntitlement,
+            activeEntitlementsAfter: purchasedCustomerInfo.entitlements.active,
           },
         );
+        setLastEvent("PURCHASE_RETURNED_NO_ENTITLEMENT");
         Alert.alert(
           "Purchase Incomplete",
           "Your payment was received but the premium entitlement hasn't activated yet. Please tap Restore Purchase in a moment.",
         );
         return;
       }
+      setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
       console.log("[PremiumModal] premium entitlement confirmed after purchase — unlocking");
       console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
       await updateUser({ plan_tier: "premium" });
@@ -437,24 +470,32 @@ export function PremiumModal({
     } catch (e: any) {
       if (e?.userCancelled) {
         console.log("[PremiumModal] purchase cancelled by user");
+        setLastEvent("PURCHASE_CANCELLED");
         return;
       }
       console.error("[PremiumModal] purchase failed:", e?.message);
+      setLastEvent("PURCHASE_FAILED");
       Alert.alert("Purchase Failed", e?.message ?? "Something went wrong. Please try again.");
     }
   }
 
   async function handleRestore() {
-    console.log("[PremiumModal] restore tapped", { hasPremiumEntitlement });
+    console.log("[PremiumModal] restore tapped", {
+      hasPremiumEntitlement,
+      rcAppUserId: customerInfo?.originalAppUserId,
+    });
+    setLastEvent("RESTORE_CALLED");
     try {
       const restoredInfo = await restore();
       const hasPremiumEntitlementAfterRestore =
         restoredInfo?.entitlements?.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      console.log("[PremiumModal] restore result: hasPremiumEntitlementAfterRestore =", hasPremiumEntitlementAfterRestore);
+      console.log("[PremiumModal] restore result", {
+        hasPremiumEntitlementAfterRestore,
+        activeEntitlements: Object.keys(restoredInfo?.entitlements?.active ?? {}),
+      });
       if (hasPremiumEntitlementAfterRestore) {
-        // Defensive guard: entitlement confirmed from the restore result.
+        setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
         console.log("[PremiumModal] premium entitlement confirmed after restore — unlocking");
-        console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleRestore" });
         await updateUser({ plan_tier: "premium" });
         console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
         onClose();
@@ -465,14 +506,15 @@ export function PremiumModal({
           {
             caller: "PremiumModal/handleRestore",
             currentPlanTier: user?.plan_tier,
-            hasPremiumEntitlement,
-            entitlements: restoredInfo?.entitlements?.active,
+            activeEntitlementsAfter: restoredInfo?.entitlements?.active,
           },
         );
+        setLastEvent("PURCHASE_RETURNED_NO_ENTITLEMENT");
         Alert.alert("No Purchase Found", "We couldn't find a previous purchase on this Apple ID.");
       }
     } catch (e: any) {
       console.error("[PremiumModal] restore failed:", e?.message);
+      setLastEvent("PURCHASE_FAILED");
       Alert.alert("Restore Failed", e?.message ?? "Something went wrong. Please try again.");
     }
   }
@@ -532,62 +574,111 @@ export function PremiumModal({
           >
             <Text style={styles.headline}>Keep the momentum going</Text>
             <View style={styles.divider} />
-            <Text style={styles.subText}>
-              You're finding names you love — don't slow down now.
-            </Text>
 
-            <View style={styles.features}>
-              {FEATURES.map((f) => (
-                <View key={f.label} style={styles.featureRow}>
-                  <Feather name={f.icon} size={15} color={GRASS} style={styles.featureIcon} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.featureLabel}>{f.label}</Text>
-                    <Text style={[styles.featureValue, { color: TEXT_DARK }]}>{f.value}</Text>
-                  </View>
+            {/* Req 2 & 3: If entitlement is already active (e.g. from an
+                ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER), show "Premium Active"
+                instead of the buy button. This prevents the appearance that
+                tapping Buy granted premium without payment. */}
+            {hasPremiumEntitlement ? (
+              <>
+                <Text style={styles.subText}>
+                  Your premium access is already active — enjoy everything!
+                </Text>
+                <View style={styles.alreadyActiveBox}>
+                  <Text style={{ fontSize: 28 }}>🌿</Text>
+                  <Text style={styles.alreadyActiveTitle}>Premium Active</Text>
+                  <Text style={styles.alreadyActiveBody}>
+                    A previous purchase was found and restored to your account.
+                    No new payment is needed.
+                  </Text>
                 </View>
-              ))}
-            </View>
+                <Pressable
+                  onPress={onClose}
+                  style={styles.cta}
+                >
+                  <LinearGradient
+                    colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <Text style={styles.ctaText}>Got it — start exploring</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={styles.subText}>
+                  You're finding names you love — don't slow down now.
+                </Text>
 
-            {offeringsError && (
-              <Text style={[styles.offeringsError, { color: "#dc2626" }]}>
-                Could not load pricing. Check your connection and try again.
-              </Text>
+                <View style={styles.features}>
+                  {FEATURES.map((f) => (
+                    <View key={f.label} style={styles.featureRow}>
+                      <Feather name={f.icon} size={15} color={GRASS} style={styles.featureIcon} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.featureLabel}>{f.label}</Text>
+                        <Text style={[styles.featureValue, { color: TEXT_DARK }]}>{f.value}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+
+                {offeringsError && (
+                  <Text style={[styles.offeringsError, { color: "#dc2626" }]}>
+                    Could not load pricing. Check your connection and try again.
+                  </Text>
+                )}
+
+                <Pressable
+                  onPress={handleUpgrade}
+                  disabled={ctaDisabled}
+                  style={({ pressed }) => [
+                    styles.cta,
+                    { opacity: ctaDisabled || pressed ? 0.5 : 1 },
+                  ]}
+                >
+                  <LinearGradient
+                    colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {isPurchasing || isLoadingOfferings ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.ctaText}>
+                      {pkg ? `One-time purchase — ${priceString}` : "Pricing unavailable"}
+                    </Text>
+                  )}
+                </Pressable>
+
+                <Pressable style={styles.restore} onPress={handleRestore} disabled={isRestoring}>
+                  {isRestoring ? (
+                    <ActivityIndicator color={TEXT_MID} size="small" />
+                  ) : (
+                    <Text style={[styles.restoreText, { color: TEXT_MID }]}>Restore purchase</Text>
+                  )}
+                </Pressable>
+
+                <Text style={[styles.legal, { color: TEXT_MID }]}>
+                  No subscriptions. Pay once, use forever.
+                </Text>
+              </>
             )}
 
-            <Pressable
-              onPress={handleUpgrade}
-              disabled={ctaDisabled}
-              style={({ pressed }) => [
-                styles.cta,
-                { opacity: ctaDisabled || pressed ? 0.5 : 1 },
-              ]}
-            >
-              <LinearGradient
-                colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
-              {isPurchasing || isLoadingOfferings ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.ctaText}>
-                  {pkg ? `One-time purchase — ${priceString}` : "Pricing unavailable"}
-                </Text>
-              )}
-            </Pressable>
-
-            <Pressable style={styles.restore} onPress={handleRestore} disabled={isRestoring}>
-              {isRestoring ? (
-                <ActivityIndicator color={TEXT_MID} size="small" />
-              ) : (
-                <Text style={[styles.restoreText, { color: TEXT_MID }]}>Restore purchase</Text>
-              )}
-            </Pressable>
-
-            <Text style={[styles.legal, { color: TEXT_MID }]}>
-              No subscriptions. Pay once, use forever.
-            </Text>
+            {/* ── Debug overlay (remove before App Store release) ─────────── */}
+            {SHOW_PREMIUM_DEBUG && (
+              <View style={styles.debugPanel}>
+                <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
+                <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
+                <Text style={styles.debugLine}>isPurchaseEligible: <Text style={styles.debugVal}>{String(isPurchaseEligible)}</Text></Text>
+                <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
+                <Text style={styles.debugLine}>Supabase: <Text style={styles.debugVal}>{user?.id?.slice(-10) ?? "—"}</Text></Text>
+                <Text style={styles.debugLine}>offering: <Text style={styles.debugVal}>{offerings?.current?.identifier ?? "—"}</Text></Text>
+                <Text style={styles.debugLine}>package: <Text style={styles.debugVal}>{pkg?.identifier ?? "—"}</Text></Text>
+                <Text style={styles.debugLine}>lastEvent: <Text style={styles.debugVal}>{lastEvent}</Text></Text>
+              </View>
+            )}
           </ScrollView>
         )}
       </View>
@@ -752,4 +843,54 @@ const styles = StyleSheet.create({
   emailBtnText: { fontFamily: fonts.displayBold, fontSize: 14, color: "#fff" },
   microError: { fontFamily: fonts.display, fontSize: 10, lineHeight: 16, textAlign: "center" },
   legal: { fontFamily: fonts.display, fontSize: 10, textAlign: "center", lineHeight: 16, paddingHorizontal: 16 },
+  alreadyActiveBox: {
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 14,
+    backgroundColor: "hsla(145,45%,35%,0.08)",
+    borderWidth: 1,
+    borderColor: "hsl(145,45%,60%)",
+  },
+  alreadyActiveTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 18,
+    color: GRASS,
+  },
+  alreadyActiveBody: {
+    fontFamily: fonts.display,
+    fontSize: 13,
+    color: TEXT_MID,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  debugPanel: {
+    marginTop: 20,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(0,0,0,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.15)",
+    gap: 4,
+  },
+  debugTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 9,
+    color: "#b45309",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+    textTransform: "uppercase",
+  },
+  debugLine: {
+    fontFamily: fonts.display,
+    fontSize: 10,
+    color: TEXT_DARK,
+    opacity: 0.8,
+  },
+  debugVal: {
+    fontFamily: fonts.displayBold,
+    color: TEXT_DARK,
+  },
 });

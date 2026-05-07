@@ -1,0 +1,104 @@
+Important clarification for the premium Apple payment issue:
+
+I am testing with a “new” app user/email, for example:
+steevesy11+11@gmail.com
+
+But I am testing on the same physical device and likely with the same Apple sandbox/TestFlight purchase environment.
+
+RevenueCat shows today’s activity and says purchases were transferred from an anonymous RevenueCat App User ID to the signed-in App User ID. This suggests the app may be transferring/restoring a previous anonymous/device purchase after Purchases.logIn(), rather than incorrectly granting premium without payment.
+
+Please investigate this exact scenario.
+
+Requirements:
+
+1. Determine whether this is expected RevenueCat transfer behavior
+Check whether the same device already has an anonymous RevenueCat App User ID with an active premium_lifetime entitlement.
+
+When a new Supabase user signs in on the same device, the app calls:
+Purchases.logIn(supabaseUser.id)
+
+Please confirm whether that call is transferring the existing anonymous purchase to the new signed-in user.
+
+Add logs around Purchases.logIn:
+- current anonymous RevenueCat App User ID before login
+- Supabase user ID being logged in
+- customerInfo before login entitlement active true/false
+- customerInfo after login entitlement active true/false
+- whether RevenueCat reports created/alias/transfer behavior
+- log ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER if entitlement appears immediately after login
+
+2. Distinguish “new app user” from “new purchaser”
+A new Supabase email is not necessarily a new Apple purchaser if:
+- same device is used
+- same Apple sandbox account is used
+- same RevenueCat anonymous customer has previous purchases
+- RevenueCat transfers purchases from anonymous to signed-in IDs
+
+Please document this in the validation notes.
+
+3. Fix the UI so this does not look like a skipped purchase
+If hasPremiumEntitlement is already true before the user taps Buy:
+- do not show “Buy Premium”
+- do not call purchasePackage
+- show “Premium Active” or “Premium Restored”
+- log PURCHASE_SKIPPED_ALREADY_ENTITLED
+
+If entitlement becomes active immediately after sign-in/logIn:
+- show “Premium restored” instead of “Getting your upgrade ready” or purchase success
+- do not imply a new Apple payment was completed
+
+4. Verify no unauthorized unlock is happening
+Even in this same-device/new-email scenario, confirm:
+- Supabase plan_tier alone does not unlock premium
+- pending_premium_purchase does not unlock premium
+- isPurchaseEligible does not unlock premium
+- sign-in completion does not unlock premium
+- only RevenueCat customerInfo.entitlements.active["premium"] unlocks premium
+
+5. Add clear diagnostic labels in TestFlight temporarily
+On the Premium page/modal, show debug info in test builds:
+- hasPremiumEntitlement true/false
+- RevenueCat App User ID shortened
+- Supabase user ID shortened
+- entitlement source:
+  - NONE
+  - ACTIVE_BEFORE_PURCHASE
+  - ACTIVE_AFTER_LOGIN_TRANSFER
+  - ACTIVE_AFTER_PURCHASE
+  - ACTIVE_AFTER_RESTORE
+- last event:
+  - PURCHASE_PACKAGE_CALLED
+  - PURCHASE_SKIPPED_ALREADY_ENTITLED
+  - ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER
+  - PURCHASE_CANCELLED
+  - PURCHASE_FAILED
+  - PURCHASE_SUCCEEDED_WITH_ENTITLEMENT
+  - PURCHASE_RETURNED_NO_ENTITLEMENT
+  - BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT
+
+6. Create a truly clean purchase test
+Please provide exact steps for testing a truly new Apple payment sheet flow.
+
+Likely required:
+- use a brand-new Apple sandbox tester that has never purchased premium_lifetime
+- delete the app
+- possibly reset RevenueCat customer data / avoid transferring anonymous purchases
+- sign out of sandbox purchasing account if needed
+- reinstall TestFlight build
+- create a new Supabase user
+- confirm customerInfo has no active entitlement before tapping Buy
+- tap Buy
+- verify Apple payment sheet appears
+
+7. Check RevenueCat restore/transfer settings
+Review RevenueCat project settings for restore behavior / transfer behavior.
+Confirm whether purchases are configured to transfer to a new App User ID when logging in from anonymous.
+
+Please report the current setting and whether it explains this behavior.
+
+Expected outcome:
+We need to determine whether the current behavior is actually expected RevenueCat sandbox transfer behavior caused by using the same device/sandbox purchase history.
+
+If so, fix the UI/diagnostics so it shows Premium Restored / Already Active rather than appearing like the app granted premium without payment.
+
+If customerInfo has no active entitlement and the app still unlocks premium, then that is still a bug and must be blocked.

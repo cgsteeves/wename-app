@@ -406,14 +406,59 @@ export async function finalizeLogin(userId: string, email: string): Promise<void
     // ── Step 4: RevenueCat login (fire-and-forget) ─────────────────────────
     // Failures are swallowed so a RevenueCat outage never blocks sign-in.
     // Not called on web (RevenueCat is native-only).
+    //
+    // IMPORTANT: We fetch customerInfo BEFORE calling logIn so we can detect
+    // whether the entitlement appeared as a result of the login transfer
+    // (i.e. an anonymous purchase was transferred to the signed-in App User ID).
+    // This is RevenueCat's normal behaviour when a device already has a prior
+    // sandbox or production purchase under an anonymous ID and the user then
+    // signs in — logIn() merges the two customers and the entitlement appears
+    // immediately without any new Apple payment sheet.
     if (Platform.OS !== "web") {
-      Purchases.logIn(userId)
-        .then(({ customerInfo, created }) => {
+      Purchases.getCustomerInfo()
+        .then(async (infoBefore) => {
+          const anonId = infoBefore.originalAppUserId;
+          const hadPremiumBefore =
+            infoBefore.entitlements.active?.["premium"] !== undefined;
+
+          console.log("[finalizeLogin] RC: state before logIn", {
+            rcAnonId: anonId,
+            supabaseUid: userId.slice(-6),
+            hadPremiumEntitlement: hadPremiumBefore,
+            activeEntitlements: Object.keys(infoBefore.entitlements.active),
+          });
+
+          const { customerInfo, created } = await Purchases.logIn(userId);
+          const hasPremiumAfter =
+            customerInfo.entitlements.active?.["premium"] !== undefined;
+          const isTransfer = !hadPremiumBefore && hasPremiumAfter;
+
           console.log("[finalizeLogin] RevenueCat logIn succeeded", {
             uid: userId.slice(-6),
             created,
-            entitlements: Object.keys(customerInfo.entitlements.active),
+            hadPremiumBefore,
+            hasPremiumAfter,
+            isLoginTransfer: isTransfer,
+            activeEntitlements: Object.keys(customerInfo.entitlements.active),
           });
+
+          if (isTransfer) {
+            // This is the key diagnostic: the entitlement did NOT come from a
+            // new Apple payment. RevenueCat transferred/merged an existing
+            // purchase from the anonymous App User ID to the signed-in one.
+            // Expected for: same device, same Apple sandbox account, prior
+            // anonymous purchase of premium_lifetime.
+            console.log("ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER", {
+              description:
+                "RevenueCat transferred an existing purchase from anonymous ID to " +
+                "signed-in user. This is NOT a new Apple payment — it is a " +
+                "restore/transfer of an existing sandbox or production purchase.",
+              fromAnonId: anonId,
+              toSupabaseId: userId.slice(-6),
+              created,
+              activeEntitlements: Object.keys(customerInfo.entitlements.active),
+            });
+          }
         })
         .catch((e) => console.warn("[finalizeLogin] RevenueCat logIn failed", e));
     }

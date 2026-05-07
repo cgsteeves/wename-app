@@ -126,18 +126,41 @@ function useSubscriptionContext() {
 
   const purchaseMutation = useMutation({
     mutationFn: async (pkg: PurchasesPackage) => {
-      console.log("[RevenueCat] purchasePackage: called", {
+      console.log("PURCHASE_PACKAGE_CALLED", {
         packageId: pkg.identifier,
         productId: pkg.product.identifier,
         price: pkg.product.priceString,
+        note: "Apple payment sheet should open now (production/sandbox). If it does not, check for existing entitlement or sandbox restore.",
       });
-      const { customerInfo } = await Purchases.purchasePackage(pkg);
+      let customerInfo;
+      try {
+        ({ customerInfo } = await Purchases.purchasePackage(pkg));
+      } catch (e: any) {
+        if (e?.userCancelled) {
+          console.log("PURCHASE_CANCELLED", { packageId: pkg.identifier });
+        } else {
+          console.error("PURCHASE_FAILED", {
+            packageId: pkg.identifier,
+            error: e?.message ?? String(e),
+            code: e?.code,
+          });
+        }
+        throw e;
+      }
       const hasPremium =
         customerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
-      console.log("[RevenueCat] purchasePackage: complete", {
-        hasPremiumEntitlement: hasPremium,
-        activeEntitlements: Object.keys(customerInfo.entitlements.active),
-      });
+      if (hasPremium) {
+        console.log("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT", {
+          packageId: pkg.identifier,
+          activeEntitlements: Object.keys(customerInfo.entitlements.active),
+        });
+      } else {
+        console.warn("PURCHASE_RETURNED_NO_ENTITLEMENT", {
+          packageId: pkg.identifier,
+          activeEntitlements: Object.keys(customerInfo.entitlements.active),
+          note: "Receipt accepted by Apple but entitlement not yet active. Caller should prompt user to restore.",
+        });
+      }
       return customerInfo;
     },
     onSuccess: () => customerInfoQuery.refetch(),

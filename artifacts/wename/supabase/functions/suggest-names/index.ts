@@ -20,6 +20,139 @@ function jsonError(msg: string, status = 500): Response {
   });
 }
 
+// ── Cache key ────────────────────────────────────────────────────────────────
+async function sha256Short(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 32);
+}
+
+// ── Static fallback names ─────────────────────────────────────────────────────
+// Served when OpenAI is unavailable so the tab is never completely empty.
+interface FallbackName {
+  name: string;
+  meaning: string;
+  reason: string;
+}
+const FALLBACK: Record<"boy" | "girl", Record<"classic" | "modern" | "unique", FallbackName[]>> = {
+  boy: {
+    classic: [
+      { name: "William", meaning: "Germanic origin meaning 'resolute protector'.", reason: "A strong, timeless choice with royal heritage." },
+      { name: "James", meaning: "Hebrew origin meaning 'supplanter', a classic apostle's name.", reason: "Elegant and enduring, beloved across centuries." },
+      { name: "Henry", meaning: "Germanic origin meaning 'ruler of the home'.", reason: "Regal and classic, never feels dated." },
+      { name: "Arthur", meaning: "Celtic origin, possibly meaning 'bear' or 'noble'.", reason: "Timeless and storied with legendary charm." },
+      { name: "George", meaning: "Greek origin meaning 'farmer' or 'earth-worker'.", reason: "Solidly classic with quiet dignity." },
+      { name: "Charles", meaning: "Germanic origin meaning 'free man'.", reason: "Distinguished with centuries of history." },
+      { name: "Thomas", meaning: "Aramaic origin meaning 'twin'.", reason: "Dependably classic with gentle strength." },
+      { name: "Edward", meaning: "Old English meaning 'wealthy guardian'.", reason: "A noble classic that wears well through time." },
+      { name: "Frederick", meaning: "Germanic meaning 'peaceful ruler'.", reason: "Stately, with the warm nickname Freddie." },
+      { name: "Edmund", meaning: "Old English meaning 'fortunate protector'.", reason: "Underused yet unmistakably classic." },
+    ],
+    modern: [
+      { name: "Liam", meaning: "Irish form of William, meaning 'strong-willed warrior'.", reason: "Crisp and modern with enduring warmth." },
+      { name: "Noah", meaning: "Hebrew origin meaning 'rest' or 'comfort'.", reason: "Gentle yet strong — a modern staple." },
+      { name: "Elijah", meaning: "Hebrew origin meaning 'my God is Yahweh'.", reason: "Lyrical and contemporary with spiritual depth." },
+      { name: "Mason", meaning: "English occupational name for a stonemason.", reason: "Modern and grounded with an artisan feel." },
+      { name: "Logan", meaning: "Scottish origin meaning 'little hollow'.", reason: "Cool and current with easy-going style." },
+      { name: "Lucas", meaning: "Greek and Latin origin meaning 'light'.", reason: "Sleek and modern with timeless roots." },
+      { name: "Ethan", meaning: "Hebrew origin meaning 'strong' or 'firm'.", reason: "Solid and fresh-feeling at once." },
+      { name: "Carter", meaning: "English occupational name for a cart driver.", reason: "Confident and modern with strong sounds." },
+      { name: "Wyatt", meaning: "English origin meaning 'brave in war'.", reason: "Bold and current with a frontier spirit." },
+      { name: "Finn", meaning: "Irish origin meaning 'fair' or 'white'.", reason: "Short, bright, and effortlessly appealing." },
+    ],
+    unique: [
+      { name: "Caspian", meaning: "Named after the Caspian Sea, of uncertain ancient origin.", reason: "Rare and adventurous with literary magic." },
+      { name: "Soren", meaning: "Scandinavian origin meaning 'stern'.", reason: "Distinctive yet effortlessly wearable." },
+      { name: "Leander", meaning: "Greek origin meaning 'lion man'.", reason: "Rare and romantic with classical roots." },
+      { name: "Evander", meaning: "Scottish and Greek origin meaning 'good man'.", reason: "Uncommon with a heroic, mythological ring." },
+      { name: "Idris", meaning: "Arabic and Welsh origin meaning 'ardent lord'.", reason: "Striking and rare with multicultural appeal." },
+      { name: "Theron", meaning: "Greek origin meaning 'hunter'.", reason: "Powerful and rare — heard once, remembered." },
+      { name: "Stellan", meaning: "Scandinavian origin, possibly meaning 'calm'.", reason: "Cool and rare with a celestial feel." },
+      { name: "Caius", meaning: "Latin origin meaning 'rejoice', an ancient Roman name.", reason: "Brief, rare, and quietly striking." },
+      { name: "Emrys", meaning: "Welsh origin meaning 'immortal', the wizard name of Merlin.", reason: "Mythical and deeply rare — truly one of a kind." },
+      { name: "Raffael", meaning: "Hebrew origin meaning 'God has healed', an artistic variant.", reason: "Distinctive and creative with Renaissance flair." },
+    ],
+  },
+  girl: {
+    classic: [
+      { name: "Eleanor", meaning: "Greek origin meaning 'bright, shining one'.", reason: "Elegant and timeless with effortless grace." },
+      { name: "Margaret", meaning: "Greek origin meaning 'pearl'.", reason: "A classic that carries quiet, enduring beauty." },
+      { name: "Catherine", meaning: "Greek origin meaning 'pure'.", reason: "Regal and classic with royal heritage." },
+      { name: "Charlotte", meaning: "French feminine form of Charles, meaning 'free woman'.", reason: "Perfectly classic with a gentle, charming lilt." },
+      { name: "Vivienne", meaning: "Latin origin meaning 'alive'.", reason: "Sophisticated and classic with French elegance." },
+      { name: "Beatrice", meaning: "Latin origin meaning 'she who brings happiness'.", reason: "Literary and luminous — a Dante classic." },
+      { name: "Rosalind", meaning: "Germanic origin meaning 'gentle horse', later linked to 'rose'.", reason: "Romantic and classic with Shakespearean charm." },
+      { name: "Cecily", meaning: "Latin origin from the patron saint of music.", reason: "Refined and underused — quietly beautiful." },
+      { name: "Harriet", meaning: "Germanic origin meaning 'ruler of the home'.", reason: "Strong and classic — literary, dignified, lovely." },
+      { name: "Dorothea", meaning: "Greek origin meaning 'gift of God'.", reason: "Warm and classic — due for a graceful comeback." },
+    ],
+    modern: [
+      { name: "Olivia", meaning: "Latin origin meaning 'olive tree', symbolising peace.", reason: "Graceful and modern with universal appeal." },
+      { name: "Isla", meaning: "Scottish origin from the River Isla, meaning 'island'.", reason: "Soft and contemporary with natural beauty." },
+      { name: "Luna", meaning: "Latin origin meaning 'moon'.", reason: "Dreamy and modern with celestial charm." },
+      { name: "Willow", meaning: "English nature name from the graceful willow tree.", reason: "Gentle and current with a poetic feel." },
+      { name: "Aria", meaning: "Italian origin meaning 'air' or 'song' in music.", reason: "Lyrical and fresh — melodic to say and hear." },
+      { name: "Stella", meaning: "Latin origin meaning 'star'.", reason: "Bright and modern with timeless stellar beauty." },
+      { name: "Aurora", meaning: "Latin origin meaning 'dawn'.", reason: "Radiant and contemporary with mythological warmth." },
+      { name: "Hazel", meaning: "English nature name from the hazel tree.", reason: "Warm and modern with a soft vintage edge." },
+      { name: "Freya", meaning: "Norse origin, the goddess of love and fertility.", reason: "Modern and mythological — strong and feminine." },
+      { name: "Quinn", meaning: "Irish origin meaning 'wisdom' or 'chief'.", reason: "Crisp and current — confident and cool." },
+    ],
+    unique: [
+      { name: "Seraphina", meaning: "Hebrew origin meaning 'fiery ones', an angelic name.", reason: "Luminous and rare with angelic grandeur." },
+      { name: "Isolde", meaning: "Celtic origin possibly meaning 'ice ruler' or 'beautiful'.", reason: "Deeply rare with tragic romantic legend." },
+      { name: "Elowen", meaning: "Cornish origin meaning 'elm tree'.", reason: "Rare and ethereal — whisper-soft and lovely." },
+      { name: "Vesper", meaning: "Latin origin meaning 'evening star'.", reason: "Rare and atmospheric — quietly enchanting." },
+      { name: "Calliope", meaning: "Greek origin meaning 'beautiful voice', the muse of epic poetry.", reason: "Rare and musical — bold, mythological, stunning." },
+      { name: "Thessaly", meaning: "Greek origin from the ancient region of Thessaly.", reason: "Rare and geographic with a magical quality." },
+      { name: "Celestine", meaning: "Latin origin meaning 'heavenly'.", reason: "Rare and celestial with old-world grace." },
+      { name: "Ondine", meaning: "Latin origin from Undine, the spirit of water.", reason: "Rare and mythical — hauntingly beautiful." },
+      { name: "Araminta", meaning: "Possibly Hebrew origin meaning 'lofty mountain'.", reason: "Victorian rare, whimsical, and wholly distinctive." },
+      { name: "Marisol", meaning: "Spanish compound meaning 'sea and sun'.", reason: "Rare and radiant — warm, vivid, memorable." },
+    ],
+  },
+};
+
+function buildFallbackText(
+  gender: string,
+  style: string | null,
+  excludeNames: string[],
+): string {
+  const gKey = gender === "girl" ? "girl" : "boy";
+  const excludeSet = new Set(excludeNames.map((n) => n.toLowerCase()));
+
+  let pool: FallbackName[];
+  if (style === "classic" || style === "modern" || style === "unique") {
+    pool = FALLBACK[gKey][style];
+  } else {
+    pool = [
+      ...FALLBACK[gKey].classic.slice(0, 4),
+      ...FALLBACK[gKey].modern.slice(0, 3),
+      ...FALLBACK[gKey].unique.slice(0, 3),
+    ];
+  }
+
+  const available = pool.filter((n) => !excludeSet.has(n.name.toLowerCase()));
+  const selected = available.slice(0, 8);
+  return selected
+    .map((n) => JSON.stringify({ name: n.name, meaning: n.meaning, gender: gKey, reason: n.reason }))
+    .join("\n") + "\n";
+}
+
+function plainResponse(text: string): Response {
+  return new Response(text, {
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "no-cache",
+    },
+  });
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -59,8 +192,59 @@ Deno.serve(async (req: Request): Promise<Response> => {
     lastName = "",
   } = body;
 
-  // Cap the exclude list to keep the prompt short — 50 names is plenty.
   const excludeNames = rawExclude.slice(0, 50);
+
+  // ── Deno KV cache ─────────────────────────────────────────────────────────
+  // Key: hash of the deterministic request fingerprint (taste + style, not
+  // exclude list since that changes per-refresh but the taste profile doesn't).
+  // TTL: 20 minutes — balances freshness with avoiding redundant OpenAI calls.
+  const cacheFingerprint = JSON.stringify({
+    g: gender,
+    l: likedNames.slice(0, 15).slice().sort(),
+    m: matchedNames.slice(0, 10).slice().sort(),
+    p: partnerLikedNames.slice(0, 8).slice().sort(),
+    s: style ?? null,
+    ln: lastName ?? "",
+  });
+  const cacheKey = await sha256Short(cacheFingerprint);
+
+  let kv: Deno.Kv | null = null;
+  try {
+    kv = await Deno.openKv();
+  } catch {
+    // KV unavailable in this environment — skip caching
+  }
+
+  if (kv) {
+    try {
+      const cached = await kv.get<string>(["sg", cacheKey]);
+      if (cached.value) {
+        // Filter out any names the user has already seen in this session
+        const excludeSet = new Set(excludeNames.map((n) => n.toLowerCase()));
+        const filtered = cached.value
+          .split("\n")
+          .filter((line) => {
+            if (!line.trim()) return false;
+            try {
+              const obj = JSON.parse(line) as { name: string };
+              return !excludeSet.has(obj.name.toLowerCase());
+            } catch {
+              return false;
+            }
+          })
+          .join("\n") + "\n";
+
+        // Only use the cache if at least 4 names survive the exclusion filter
+        const count = filtered.split("\n").filter((l) => l.trim()).length;
+        if (count >= 4) {
+          return plainResponse(filtered);
+        }
+        // Otherwise fall through and fetch fresh results
+      }
+    } catch {
+      // KV read error — continue to OpenAI
+    }
+  }
 
   // ── Taste context ────────────────────────────────────────────────────────
   let tasteContext: string;
@@ -108,7 +292,9 @@ Deno.serve(async (req: Request): Promise<Response> => {
       ? `\nIMPORTANT: Do NOT suggest any of these names (they have already been seen or swiped): ${excludeNames.join(", ")}.`
       : "";
 
-  const prompt = `You are a helpful baby name expert. Suggest 8 unique baby ${gender} names.
+  // Request 12 names so the cache has a larger pool to filter from on
+  // subsequent requests with different exclude lists.
+  const prompt = `You are a helpful baby name expert. Suggest 12 unique baby ${gender} names.
 ${tasteContext}${styleContext}${lastNameContext}${excludeContext}
 
 Return ONLY a JSON array of objects, nothing else. Each object must have:
@@ -122,11 +308,15 @@ Example format:
 
 Do not include markdown, code blocks, or any text outside the JSON array.`;
 
-  // ── Call OpenAI with streaming ───────────────────────────────────────────
+  // ── Call OpenAI with streaming + 10 s timeout ────────────────────────────
+  const openaiController = new AbortController();
+  const openaiTimeout = setTimeout(() => openaiController.abort(), 10_000);
+
   let openaiRes: Response;
   try {
     openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
+      signal: openaiController.signal,
       headers: {
         Authorization: `Bearer ${openaiKey}`,
         "Content-Type": "application/json",
@@ -134,27 +324,21 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 1200,
+        max_tokens: 1800,
         temperature: 0.8,
         stream: true,
       }),
     });
-  } catch (e) {
-    return jsonError(String(e));
+  } catch {
+    clearTimeout(openaiTimeout);
+    // OpenAI unreachable or timed out — return static fallback
+    return plainResponse(buildFallbackText(gender, style, excludeNames));
+  } finally {
+    clearTimeout(openaiTimeout);
   }
 
   if (!openaiRes.ok) {
-    const errText = await openaiRes.text();
-    return new Response(
-      JSON.stringify({
-        error: `OpenAI error: ${openaiRes.status}`,
-        detail: errText,
-      }),
-      {
-        status: 500,
-        headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
-      },
-    );
+    return plainResponse(buildFallbackText(gender, style, excludeNames));
   }
 
   // ── Stream back parsed suggestion objects ────────────────────────────────
@@ -166,14 +350,14 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
     const reader = openaiRes.body!.getReader();
     const decoder = new TextDecoder();
     let jsonBuffer = "";
+    // Accumulate the full output for caching after the stream ends.
+    let cacheAccumulator = "";
 
     const flush = async () => {
       let i = 0;
       while (i < jsonBuffer.length) {
-        // Skip until we find the start of a JSON object
         if (jsonBuffer[i] !== "{") { i++; continue; }
 
-        // Walk forward tracking depth, respecting string boundaries
         let depth = 0;
         let inString = false;
         let escaped = false;
@@ -190,12 +374,13 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
             else if (ch === "}") {
               depth--;
               if (depth === 0) {
-                // Complete object found
                 const slice = jsonBuffer.slice(i, j + 1);
                 try {
                   const obj = JSON.parse(slice);
                   if (obj.name && obj.gender) {
-                    await writer.write(encoder.encode(JSON.stringify(obj) + "\n"));
+                    const line = JSON.stringify(obj) + "\n";
+                    await writer.write(encoder.encode(line));
+                    cacheAccumulator += line;
                   }
                 } catch {
                   // invalid slice — skip
@@ -209,10 +394,8 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
           j++;
         }
 
-        // If we didn't finish a complete object the buffer is incomplete — stop
         if (!foundComplete) break;
       }
-      // Trim everything we've already processed
       jsonBuffer = jsonBuffer.slice(i);
     };
 
@@ -241,6 +424,17 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       }
     } finally {
       await writer.close();
+
+      // Persist to KV cache (20-minute TTL) after the stream completes.
+      if (kv && cacheAccumulator) {
+        try {
+          await kv.set(["sg", cacheKey], cacheAccumulator, {
+            expireIn: 20 * 60 * 1000,
+          });
+        } catch {
+          // Cache write failed — not critical
+        }
+      }
     }
   })();
 

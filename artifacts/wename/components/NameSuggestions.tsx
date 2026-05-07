@@ -38,6 +38,10 @@ const a = (base: string, alpha: number) =>
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
+// Fetch timeout in milliseconds. Matches the OpenAI server-side timeout (10 s)
+// plus a small buffer for network round-trip.
+const FETCH_TIMEOUT_MS = 13_000;
+
 // ────────────────────────────────────────────────────────────────────────────
 // Props
 // ────────────────────────────────────────────────────────────────────────────
@@ -79,13 +83,20 @@ export function NameSuggestions({
   const [streamingDone, setStreamingDone] = useState(false);
   const hasFetchedOnMount = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AbortController for the in-flight fetch. Replaced on every new top-level
+  // request (attempt === 0) and aborted on unmount or when a newer request starts.
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // Separate timeout handle for the per-request wall-clock deadline.
+  const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep ref in sync with state so fetchSuggestions always reads the latest set
   useEffect(() => { shownNamesRef.current = shownNames; }, [shownNames]);
 
-  // Cancel any pending retry on unmount
+  // Cancel any pending timers and in-flight request on unmount.
   useEffect(() => () => {
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    if (fetchTimeoutRef.current) clearTimeout(fetchTimeoutRef.current);
+    abortControllerRef.current?.abort("cancelled");
   }, []);
 
   const tooFewNames = likedNames.length < 3;
@@ -95,18 +106,34 @@ export function NameSuggestions({
   // On the first failure the function silently retries once after 3 s so that
   // Supabase Edge Function cold-starts are invisible to the user.
   const fetchSuggestions = useCallback(async (isRefresh: boolean, attempt = 0) => {
-    // Cancel any queued retry when a new explicit fetch begins
     if (attempt === 0) {
+      // Cancel any queued retry and previous in-flight request.
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+        fetchTimeoutRef.current = null;
+      }
+      abortControllerRef.current?.abort("cancelled");
+
+      // Fresh controller + wall-clock deadline for this request.
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      fetchTimeoutRef.current = setTimeout(() => {
+        controller.abort("timeout");
+      }, FETCH_TIMEOUT_MS);
+
       setLoading(true);
       setError("");
       setSuggestions([]);
       setAddedIds(new Set());
       setStreamingDone(false);
     }
+
+    // Use the controller that was set up for attempt 0 of this request.
+    const signal = abortControllerRef.current?.signal;
 
     const excludeForRequest = isRefresh
       ? [...excludeNames, ...Array.from(shownNamesRef.current)]
@@ -125,6 +152,7 @@ export function NameSuggestions({
         `${SUPABASE_URL}/functions/v1/suggest-names`,
         {
           method: "POST",
+          signal,
           headers: {
             Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
             "Content-Type": "application/json",
@@ -143,6 +171,7 @@ export function NameSuggestions({
 
       if (!response.ok) {
         if (attempt === 0) { scheduleRetry(); return; }
+        clearFetchTimeout();
         setLoading(false);
         setHasLoaded(true);
         setError("Could not load suggestions. Please try again.");
@@ -151,6 +180,7 @@ export function NameSuggestions({
       }
 
       // Transition: skeleton → streaming
+      clearFetchTimeout();
       setLoading(false);
       setHasLoaded(true);
 
@@ -194,7 +224,10 @@ export function NameSuggestions({
         } else {
           throw new Error("no reader");
         }
-      } catch {
+      } catch (streamErr) {
+        // If the request was aborted during streaming, propagate so the outer
+        // catch can handle it cleanly rather than trying response.text().
+        if (isAbortError(streamErr)) throw streamErr;
         // Fallback: read full response text at once
         const text = await response.text().catch(() => "");
         buffer = text + "\n";
@@ -206,7 +239,24 @@ export function NameSuggestions({
         setError("Could not load suggestions. Please try again.");
       }
       setStreamingDone(true);
-    } catch {
+    } catch (err) {
+      clearFetchTimeout();
+
+      // Handle abort (cancelled by new request) silently.
+      if (isAbortError(err)) {
+        const reason = abortControllerRef.current?.signal.reason ?? signal?.reason;
+        if (reason === "cancelled") {
+          // A newer request has taken over — this one can safely exit.
+          return;
+        }
+        // Timeout — inform the user.
+        setLoading(false);
+        setHasLoaded(true);
+        setError("Request timed out. Check your connection and try again.");
+        setStreamingDone(true);
+        return;
+      }
+
       if (attempt === 0) { scheduleRetry(); return; }
       setLoading(false);
       setHasLoaded(true);
@@ -215,6 +265,13 @@ export function NameSuggestions({
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [excludeNames, likedNames, matchedNames, partnerLikedNames, selectedStyle, settingsGender, user.baby_last_name]);
+
+  function clearFetchTimeout() {
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+  }
 
   // Auto-fetch on mount if enough likes
   useEffect(() => {
@@ -419,6 +476,14 @@ export function NameSuggestions({
         <Text style={styles.errorText}>{error}</Text>
       )}
     </View>
+  );
+}
+
+// ── Abort error helper ────────────────────────────────────────────────────────
+function isAbortError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === "AbortError" || err.name === "TimeoutError")
   );
 }
 

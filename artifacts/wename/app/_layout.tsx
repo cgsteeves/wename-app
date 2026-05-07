@@ -25,6 +25,15 @@ import { initializeRevenueCat, SubscriptionProvider, useSubscription } from "@/l
 // warm-start deep-link URLs before any screen component mounts.
 import "@/lib/warmStartUrl";
 
+// Keep the suggest-names Edge Function warm so the first fetch is fast.
+// Fires once at bundle-load time on native (web uses a local dev server, so
+// cold-start latency isn't a concern there).
+if (Platform.OS !== "web" && process.env.EXPO_PUBLIC_SUPABASE_URL) {
+  void fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/suggest-names`, {
+    method: "OPTIONS",
+  }).catch(() => { /* ignore — this is best-effort */ });
+}
+
 const TextAny = Text as any;
 TextAny.defaultProps = TextAny.defaultProps || {};
 TextAny.defaultProps.style = [{ fontFamily: fonts.display }, TextAny.defaultProps.style];

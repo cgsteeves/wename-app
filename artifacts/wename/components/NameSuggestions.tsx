@@ -91,7 +91,7 @@ export function NameSuggestions({
   const isBoy = settingsGender === "boy";
   const accent = isBoy ? BOY : GIRL;
 
-  const [selectedStyle, setSelectedStyle] = useState<StyleFilter>(null);
+  const selectedStyle: StyleFilter = null;
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -361,21 +361,6 @@ export function NameSuggestions({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [likedNames.length, tuningLoaded]);
 
-  // Auto-refetch when style changes (only after first fetch)
-  const isFirstStyleRender = useRef(true);
-  useEffect(() => {
-    if (isFirstStyleRender.current) {
-      isFirstStyleRender.current = false;
-      return;
-    }
-    if (hasFetchedOnMount.current) {
-      setSuggestions([]);
-      setAddedIds(new Set());
-      fetchSuggestions(false);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStyle]);
-
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleAddToLiked(s: Suggestion) {
     const key = s.name + s.gender;
@@ -383,10 +368,6 @@ export function NameSuggestions({
     setAddedIds((prev) => new Set([...prev, key]));
     setShownNames((prev) => new Set([...prev, s.name]));
     onNameAdded(s.name, s.gender);
-  }
-
-  function toggleStyle(style: "classic" | "modern" | "unique") {
-    setSelectedStyle((prev) => (prev === style ? null : style));
   }
 
   function toggleTuning(opt: string) {
@@ -407,35 +388,6 @@ export function NameSuggestions({
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <View>
-      {/* Style filter pills */}
-      <View style={styles.pillRow}>
-        {(["classic", "modern", "unique"] as const).map((s) => {
-          const active = selectedStyle === s;
-          return (
-            <Pressable
-              key={s}
-              onPress={() => toggleStyle(s)}
-              style={[
-                styles.pill,
-                {
-                  backgroundColor: active ? a(accent, 0.1) : "rgba(255,255,255,0.4)",
-                  borderColor: active ? a(accent, 0.2) : `hsla(35,22%,80%,0.3)`,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.pillText,
-                  { color: active ? accent : MUTED },
-                ]}
-              >
-                {s.charAt(0).toUpperCase() + s.slice(1)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
       {/* Tune my suggestions */}
       {!tooFewNames && (
         <View style={styles.tuneSection}>
@@ -891,23 +843,6 @@ function TileContent({
 // Styles
 // ────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  pillRow: {
-    flexDirection: "row",
-    gap: 8,
-    paddingVertical: 8,
-  },
-  pill: {
-    flex: 1,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  pillText: {
-    fontFamily: fonts.displayMedium,
-    fontSize: 10,
-  },
 
   tooFewCard: {
     borderRadius: 12,

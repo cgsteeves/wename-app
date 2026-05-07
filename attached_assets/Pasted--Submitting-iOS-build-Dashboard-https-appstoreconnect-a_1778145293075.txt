@@ -1,0 +1,71 @@
+⌛️ Submitting iOS build...
+- Dashboard:    https://appstoreconnect.apple.com/apps/6764540022/distribution
+- App:          WeName (app.wename.mobile)
+- Build number: 15
+- Binary path:  ./ios/build/WeName.ipa
+-------------------
+--- Step: pilot ---
+-------------------
+Creating authorization token for App Store Connect API
+Ready to upload new build to TestFlight (App: 6764540022)...
+Going to upload updated app to App Store Connect
+This might take a few minutes. Please don't interrupt the script.
+[altool] Running altool at path '/Applications/Xcode.app/Contents/SharedFrameworks/ContentDeliveryServices.framework/Frameworks/AppStoreService.framework/Support/altool'...
+[altool] 
+[altool] 2026-05-06 17:38:48.071 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] CREATE BUILD (ASSET_UPLOAD): received status code 500; internal server error. (CXGOU4USBB4XMXOI53YGQLL5KA) (500) Internal Server Error
+[altool] 
+[altool] Request ID: CXGOU4USBB4XMXOI53YGQLL5KA.0.0
+[altool] 
+[altool] 2026-05-06 17:38:48.172 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] CREATE BUILD (ASSET_UPLOAD): received status code 500; internal server error. (Z5A4ORK2VOTUFJURWPKFZRMJEE) (500) Internal Server Error
+[altool] 
+[altool] Request ID: .0
+[altool] 
+[altool] 2026-05-06 17:38:48.259 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] CREATE BUILD (ASSET_UPLOAD): received status code 500; internal server error. (TULXQ6PXZJ3HLVECT744PC4PSI) (500) Internal Server Error
+[altool] 
+[altool] Request ID: TULXQ6PXZJ3HLVECT744PC4PSI.0.0
+[altool] 
+[altool] 2026-05-06 17:38:48.438 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] The server returned unexpected content. (-19237) Internal Server Error
+[altool] 
+[altool] Request ID: CXGOU4USBB4XMXOI53YGQLL5KA.0.0
+[altool] 
+[altool] 2026-05-06 17:38:48.438 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] The server returned unexpected content. (-19237) Internal Server Error
+[altool] 
+[altool] Request ID: .0
+[altool] 
+[altool] 2026-05-06 17:38:48.438 ERROR: [altool.600003578140] [ContentDelivery.Uploader.600003578140] The server returned unexpected content. (-19237) Internal Server Error
+[altool] 
+[altool] Request ID: TULXQ6PXZJ3HLVECT744PC4PSI.0.0
+[altool] 
+[altool] 2026-05-06 17:38:48.439 ERROR: [altool.600003578140] Error uploading '/var/folders/5_/4knlryn57n39p2c_jw8567z00000gn/T/cee5ca22-6d08-4829-a218-e0b4f5d64d46.ipa'.
+[altool] 2026-05-06 17:38:48.439 ERROR: [altool.600003578140] The server returned unexpected content. Internal Server Error
+[altool] 
+[altool] Request ID: CXGOU4USBB4XMXOI53YGQLL5KA.0.0
+[altool]  (-19237)
+[altool]  {
+[altool]     NSLocalizedDescription = "The server returned unexpected content.";
+[altool]     NSLocalizedFailureReason = "Internal Server Error\n\nRequest ID: CXGOU4USBB4XMXOI53YGQLL5KA.0.0\n";
+[altool] }
+[altool] 2026-05-06 17:38:48.439 ERROR: [altool.600003578140] The server returned unexpected content. Internal Server Error
+[altool] 
+[altool] Request ID: .0
+[altool]  (-19237)
+[altool]  {
+[altool]     NSLocalizedDescription = "The server returned unexpected content.";
+[altool]     NSLocalizedFailureReason = "Internal Server Error\n\nRequest ID: .0\n";
+[altool] }
+[altool] 2026-05-06 17:38:48.439 ERROR: [altool.600003578140] The server returned unexpected content. Internal Server Error
+[altool] 
+[altool] Request ID: TULXQ6PXZJ3HLVECT744PC4PSI.0.0
+[altool]  (-19237)
+[altool]  {
+[altool]     NSLocalizedDescription = "The server returned unexpected content.";
+[altool]     NSLocalizedFailureReason = "Internal Server Error\n\nRequest ID: TULXQ6PXZJ3HLVECT744PC4PSI.0.0\n";
+[altool] }
+Application Loader output above ^
+The call to the altool completed with a non-zero exit status: 1. This indicates a failure.
+Could not download/upload from App Store Connect!
+[!] Error uploading ipa file: 
+ [Application Loader Error Output]: The call to the altool completed with a non-zero exit status: 1. This indicates a failure.
+Error: fastlane run pilot ipa:../../app-d014402c-90f7-4ae3-9120-c32561b0cd56.ipa apple_id:6764540022 skip_waiting_for_build_processing:true api_key_path:asc_api_key-9e2be265-e7a7-4d24-9cc0-3c50ca2f99cc.json exited with non-zero code: 1
+/bin/bash -eo pipefail /var/folders/5_/4knlryn57n39p2c_jw8567z00000gn/T/eas-build/9ef2d882-56ee-44e2-b1cd-b7c1f90026af/steps/step-017/scripts/f36c3cb0-6fa7-4c5d-8ca3-72c520d03b67.sh exited with non-zero code: 1
+

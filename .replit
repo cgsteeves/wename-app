@@ -64,3 +64,4 @@ EXPO_PUBLIC_APP_URL = "https://wename.app"
 
 [nix]
 channel = "stable-25_05"
+packages = ["supabase-cli"]

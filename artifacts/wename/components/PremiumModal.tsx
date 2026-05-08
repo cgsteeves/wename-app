@@ -90,9 +90,11 @@ function GoogleIcon() {
 function SignInPanel({
   onClose,
   onMagicLinkSent,
+  limitType,
 }: {
   onClose: () => void;
   onMagicLinkSent?: () => void;
+  limitType?: LimitType;
 }) {
   const insets = useSafeAreaInsets();
   const [appleAvailable, setAppleAvailable] = useState(false);
@@ -172,7 +174,15 @@ function SignInPanel({
       ]}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.headline}>Create an account first</Text>
+      <Text style={styles.headline}>
+        {limitType === "swipe"
+          ? "Upgrade to Premium for unlimited swipes"
+          : limitType === "like"
+          ? "Upgrade to Premium for unlimited likes"
+          : limitType === "match"
+          ? "Upgrade to Premium to reveal all matches"
+          : "Upgrade to Premium"}
+      </Text>
       <View style={styles.divider} />
       <Text style={styles.subText}>
         Sign in to purchase — your premium access will be linked to your account and restored on any device.
@@ -545,7 +555,7 @@ export function PremiumModal({
 
         {/* Step: auth — guest, must sign in first */}
         {step === "auth" && (
-          <SignInPanel onClose={onClose} />
+          <SignInPanel onClose={onClose} limitType={limitType} />
         )}
 
         {/* Step: signed-in — brief confirmation before showing purchase UI */}

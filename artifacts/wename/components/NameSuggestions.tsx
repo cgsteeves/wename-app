@@ -60,9 +60,9 @@ const a = (base: string, alpha: number) =>
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-// Fetch timeout in milliseconds. Matches the OpenAI server-side timeout (10 s)
-// plus a small buffer for network round-trip.
-const FETCH_TIMEOUT_MS = 13_000;
+// Fetch timeout in milliseconds. Matches the OpenAI server-side timeout (25 s)
+// plus a buffer for Edge Function cold-start and network round-trip.
+const FETCH_TIMEOUT_MS = 30_000;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Props
@@ -330,7 +330,7 @@ export function NameSuggestions({
         // Timeout — inform the user.
         setLoading(false);
         setHasLoaded(true);
-        setError("Request timed out. Check your connection and try again.");
+        setError("Taking too long — tap Try Again to reload.");
         setStreamingDone(true);
         return;
       }

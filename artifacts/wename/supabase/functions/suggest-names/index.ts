@@ -136,7 +136,9 @@ function buildFallbackText(
   }
 
   const available = pool.filter((n) => !excludeSet.has(n.name.toLowerCase()));
-  const selected = available.slice(0, 8);
+  // If the exclude list has exhausted the pool, serve all names anyway so
+  // the user always gets something rather than an empty screen.
+  const selected = (available.length >= 4 ? available : pool).slice(0, 8);
   return selected
     .map((n) => JSON.stringify({ name: n.name, meaning: n.meaning, gender: gKey, reason: n.reason }))
     .join("\n") + "\n";
@@ -345,12 +347,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
           .join("\n")
       : "";
 
-  // Request 12 names so the cache has a larger pool to filter from on
-  // subsequent requests with different exclude lists.
-  const prompt = `You are a helpful baby name expert. Suggest 12 unique baby ${gender} names.
+  // Request 8 names — enough for a good set, fewer tokens means faster response.
+  const prompt = `You are a helpful baby name expert. Suggest 8 unique baby ${gender} names.
 ${tasteContext}${styleContext}${lastNameContext}${tuningContext}${excludeContext}
 
-Always return at least 8 names. If the constraints conflict with each other, relax the weakest ones — never return fewer than 8.
+Always return exactly 8 names. If constraints conflict, relax the weakest ones to reach 8.
 
 Return ONLY a JSON array of objects, nothing else. Each object must have:
 - "name": the baby name (string)
@@ -363,9 +364,9 @@ Example format:
 
 Do not include markdown, code blocks, or any text outside the JSON array.`;
 
-  // ── Call OpenAI with streaming + 10 s timeout ────────────────────────────
+  // ── Call OpenAI with streaming + 25 s timeout ────────────────────────────
   const openaiController = new AbortController();
-  const openaiTimeout = setTimeout(() => openaiController.abort(), 10_000);
+  const openaiTimeout = setTimeout(() => openaiController.abort(), 25_000);
 
   let openaiRes: Response;
   try {
@@ -379,8 +380,8 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 1800,
-        temperature: 0.8,
+        max_tokens: 1100,
+        temperature: 0.75,
         stream: true,
       }),
     });

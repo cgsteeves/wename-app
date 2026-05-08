@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Link } from "wouter";
 
 const base = import.meta.env.BASE_URL;
-const SUPPORT_EMAIL = "support@wename.app";
+const SUPPORT_EMAIL = "wenameapp@gmail.com";
 
 const FadeIn = ({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) => (
   <motion.div

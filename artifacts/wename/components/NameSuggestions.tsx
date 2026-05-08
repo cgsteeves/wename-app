@@ -21,16 +21,17 @@ type StyleFilter = "classic" | "modern" | "unique" | null;
 // The string values are sent verbatim to the Edge Function, which maps them
 // to prompt instructions — keep them in sync if you change the labels.
 const TUNING_OPTIONS: readonly string[] = [
-  "Short",
+  "Short names",
   "Easy to pronounce",
-  "Rare but usable",
-  "Meaningful",
-  "Spiritual",
+  "Rare but not weird",
+  "Traditional",
   "Modern",
-  "Classic",
+  "Spiritual",
+  "Arabic origin",
+  "Hebrew origin",
+  "Works in English/French",
+  "Strong meaning",
   "Soft sounding",
-  "Strong sounding",
-  "Works with last name",
 ];
 
 const TUNING_STORAGE_KEY = "wename_tuning_preferences";

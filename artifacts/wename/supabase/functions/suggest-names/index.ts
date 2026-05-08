@@ -200,29 +200,32 @@ Deno.serve(async (req: Request): Promise<Response> => {
   // Free-form chip selections from the client. We map each known label to a
   // concrete prompt instruction; unknown labels are silently dropped.
   const TUNING_INSTRUCTIONS: Record<string, string> = {
-    "Short": "Prefer short names (1-2 syllables, 3-5 letters when possible).",
+    "Short names":
+      "Prefer short names — ideally 1-2 syllables and no more than 5 letters.",
     "Easy to pronounce":
-      "Avoid names that are hard for English speakers to pronounce; favour intuitive, phonetic spellings.",
-    "Rare but usable":
-      "Favour uncommon names that are still recognisable as names — rare, not bizarre or unwearable.",
-    "Meaningful":
-      "Prioritise names with rich, evocative meanings or strong etymological roots.",
-    "Spiritual":
-      "Prefer names with spiritual, religious, or sacred origins (any tradition).",
+      "Choose names that are immediately intuitive to pronounce for English speakers — avoid ambiguous or counter-intuitive spellings.",
+    "Rare but not weird":
+      "Favour names that are uncommon and distinctive but still clearly recognisable as a real name — not bizarre or unwearable.",
+    "Traditional":
+      "Lean toward timeless, classical names with long histories across cultures.",
     "Modern":
-      "Lean toward fresh, contemporary names that feel current.",
-    "Classic":
-      "Lean toward timeless, traditional names with long histories.",
+      "Lean toward fresh, contemporary names that feel current and stylish.",
+    "Spiritual":
+      "Prefer names with spiritual, religious, or sacred origins from any tradition.",
+    "Arabic origin":
+      "Prioritise names with Arabic origin or strong Arabic heritage.",
+    "Hebrew origin":
+      "Prioritise names with Hebrew origin or strong Hebrew/Biblical heritage.",
+    "Works in English/French":
+      "Choose names that sound natural and are easy to use in both English and French-speaking contexts.",
+    "Strong meaning":
+      "Prioritise names with powerful, rich, or uplifting meanings — the meaning should feel significant.",
     "Soft sounding":
-      "Prefer gentle phonetics — flowing vowels, soft consonants like L, M, N.",
-    "Strong sounding":
-      "Prefer bold phonetics — strong consonants, decisive sounds.",
-    "Works with last name":
-      "Pay extra attention to flow, rhythm, and syllable count alongside the last name.",
+      "Prefer names with gentle, melodic phonetics — flowing vowels and soft consonants like L, M, N, R.",
   };
   const tuningPreferences = (Array.isArray(rawTuning) ? rawTuning : [])
     .filter((p): p is string => typeof p === "string" && p in TUNING_INSTRUCTIONS)
-    .slice(0, 10);
+    .slice(0, 11);
 
   console.log("[suggest-names] request", {
     gender,

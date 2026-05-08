@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import JoinRedirect from "@/pages/join";
+import Support from "@/pages/support";
 
 const queryClient = new QueryClient();
 
@@ -13,6 +14,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/join/:token" component={JoinRedirect} />
+      <Route path="/support" component={Support} />
       <Route component={NotFound} />
     </Switch>
   );

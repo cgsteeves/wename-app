@@ -1,5 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 
 const base = import.meta.env.BASE_URL;
@@ -248,9 +249,9 @@ export default function Home() {
         <div className="w-full px-6 flex flex-col md:flex-row justify-between items-center text-sm text-[#897a72] border-t border-[#897a72]/20 pt-6 pb-6 z-10">
           <p>Made for couples choosing a name together.</p>
           <div className="flex gap-4 mt-4 md:mt-0">
-            <a href="/privacy" className="hover:text-[#42342c]">Privacy Policy</a>
-            <a href="/terms" className="hover:text-[#42342c]">Terms</a>
-            <a href="/support" className="hover:text-[#42342c]">Support</a>
+            <Link href="/privacy" className="hover:text-[#42342c]">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-[#42342c]">Terms</Link>
+            <Link href="/support" className="hover:text-[#42342c]">Support</Link>
           </div>
         </div>
       </section>

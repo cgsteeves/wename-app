@@ -178,9 +178,9 @@ export default function Support() {
         <div className="max-w-2xl mx-auto flex flex-col md:flex-row justify-between items-center text-sm text-[#897a72] gap-4">
           <p>Made for couples choosing a name together.</p>
           <div className="flex gap-4">
-            <a href="/privacy" className="hover:text-[#42342c] transition-colors">Privacy Policy</a>
-            <a href="/terms" className="hover:text-[#42342c] transition-colors">Terms</a>
-            <a href="/support" className="text-[#42342c] font-medium">Support</a>
+            <Link href="/privacy" className="hover:text-[#42342c] transition-colors">Privacy Policy</Link>
+            <Link href="/terms" className="hover:text-[#42342c] transition-colors">Terms</Link>
+            <Link href="/support" className="text-[#42342c] font-medium">Support</Link>
           </div>
         </div>
       </footer>

@@ -59,9 +59,7 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
   },
 ];
 
-// ── Debug overlay ──────────────────────────────────────────────────────────
-// Set to false before App Store release.
-const SHOW_PREMIUM_DEBUG = true;
+const SHOW_PREMIUM_DEBUG = false;
 
 const GRASS        = "hsl(145,45%,35%)";
 const GRASS_BG     = "hsla(145,45%,35%,0.08)";

@@ -59,7 +59,7 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
   },
 ];
 
-const SHOW_PREMIUM_DEBUG = false;
+const SHOW_PREMIUM_DEBUG = true;
 
 const GRASS        = "hsl(145,45%,35%)";
 const GRASS_BG     = "hsla(145,45%,35%,0.08)";

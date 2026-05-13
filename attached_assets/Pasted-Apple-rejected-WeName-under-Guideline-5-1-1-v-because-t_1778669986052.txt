@@ -1,0 +1,140 @@
+Apple rejected WeName under Guideline 5.1.1(v) because they could not verify the full account deletion flow. The app already has a Delete Account option under Settings > Account > Danger Zone, but after deletion there is no clear success screen confirming completion.
+
+Please add a clear post-deletion success screen/state after the account is permanently deleted.
+
+Goal:
+After the user confirms account deletion and the deletion completes successfully, the app should show a dedicated success screen confirming that the account and app data were deleted. This will make the flow clear for App Review and for users.
+
+Requirements:
+
+1. Keep the existing Delete Account entry point
+The current location should remain:
+Settings → Account → Danger Zone → Delete Account
+
+Do not move or hide the Delete Account button.
+
+2. Add confirmation before deletion
+If not already present, tapping Delete Account should show a confirmation modal/screen.
+
+Suggested copy:
+Title:
+“Delete your account?”
+
+Body:
+“This will permanently delete your account, saved names, likes, matches, partner links, and app data. This action cannot be undone.”
+
+Buttons:
+- “Cancel”
+- “Delete Account”
+
+Use destructive styling for the final delete action.
+
+3. Perform the actual deletion
+After the user confirms deletion:
+- delete or anonymize the user’s app data as currently implemented
+- delete the Supabase auth user if the current implementation supports that
+- clear local session/auth state
+- clear local user/profile state
+- clear any relevant AsyncStorage/local cached user data
+- log out of Supabase
+- if relevant, log out/reset RevenueCat identity safely without breaking guest mode
+
+Do not delete or cancel Apple/RevenueCat purchase records. Account deletion should delete the app account/data, not attempt to cancel App Store purchases.
+
+4. Add a success screen after deletion
+After deletion completes, navigate to a new success screen instead of immediately dumping the user into guest mode with no explanation.
+
+Success screen copy:
+
+Title:
+“Account deleted”
+
+Body:
+“Your WeName account and saved app data have been deleted.”
+
+Secondary body:
+“You can continue using WeName in guest mode or create a new account anytime.”
+
+Primary button:
+“Continue as guest”
+
+Optional secondary button:
+“Create a new account”
+
+5. Success screen behavior
+When the user taps “Continue as guest”:
+- return them to the main Swipe screen in guest mode
+- ensure no deleted user data is still visible
+- ensure the app does not immediately re-authenticate the deleted user
+
+When the user taps “Create a new account”:
+- take them to the sign-in/account creation flow
+
+6. Error handling
+If account deletion fails:
+- do not show the success screen
+- show a clear error message:
+  “We couldn’t delete your account. Please try again.”
+- provide:
+  - Try again
+  - Cancel
+- log the error safely
+
+7. App Review clarity
+Make the flow visually obvious for App Review:
+Settings → Account → Delete Account → Confirm Delete → Account deleted success screen
+
+8. Logging
+Add safe logs:
+- DELETE_ACCOUNT_TAPPED
+- DELETE_ACCOUNT_CONFIRMATION_SHOWN
+- DELETE_ACCOUNT_CONFIRMED
+- DELETE_ACCOUNT_STARTED
+- DELETE_ACCOUNT_SUCCESS
+- DELETE_ACCOUNT_FAILED
+- DELETE_ACCOUNT_SUCCESS_SCREEN_SHOWN
+- DELETE_ACCOUNT_CONTINUE_AS_GUEST
+
+Do not log auth tokens or sensitive data.
+
+9. Do not change unrelated flows
+Do not modify:
+- magic link auth
+- Apple/Google sign-in
+- premium purchase logic
+- RevenueCat entitlement gating
+- AI suggestions
+- swipe mechanics
+- partner linking
+- name packs
+unless directly required to clear deleted user state safely.
+
+10. Testing
+Please test:
+
+A) Signed-in user deletes account
+Expected:
+- confirmation appears
+- deletion completes
+- success screen appears
+- tapping Continue as guest returns to guest mode
+- old user email/name/data no longer appears
+
+B) User cancels deletion
+Expected:
+- account remains active
+- user stays on Account screen
+
+C) Deletion fails
+Expected:
+- success screen is not shown
+- user sees retry/cancel error state
+
+D) App restart after deletion
+Expected:
+- deleted user is not signed in
+- app opens in guest mode
+- deleted user data is not visible
+
+Expected outcome:
+Apple App Review should be able to see a complete in-app account deletion flow ending in a clear “Account deleted” success screen.

@@ -1,9 +1,10 @@
 import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -35,12 +36,17 @@ const BORDER_60    = "rgba(206,197,185,0.60)";
 const BORDER_50    = "rgba(206,197,185,0.50)";
 const GRASS        = "hsl(145,45%,35%)";
 const GRASS_10     = "rgba(49,107,70,0.10)";
+const GRASS_50     = "hsl(138,100%,97%)";
 const BOY_BLUE     = "hsl(214,55%,42%)";
 const DESTRUCTIVE  = "hsl(0,72%,50%)";
 const DESTRUCT_30  = "rgba(200,50,50,0.30)";
 const DESTRUCT_05  = "rgba(200,50,50,0.05)";
+const DESTRUCT_10  = "rgba(200,50,50,0.10)";
 const SLATE_100    = "#f1f5f9";
 const SLATE_500    = "#64748b";
+const GREEN_600    = "#16a34a";
+
+type DeleteStep = "idle" | "confirm" | "deleting" | "error";
 
 function GoogleIcon() {
   return (
@@ -66,28 +72,34 @@ function GoogleIcon() {
 }
 
 export default function AccountScreen() {
-  const insets = useSafeAreaInsets();
+  const insets   = useSafeAreaInsets();
+  const router   = useRouter();
   const { isAuthenticated, authUser, signOut, deleteAccount } = useAuth();
 
-  // Guest state
+  // Top-level flag — once set, renders the success screen regardless of auth state.
+  // Must be checked before the isAuthenticated branch so the success view stays
+  // visible even after the Supabase session clears.
+  const [accountDeleted, setAccountDeleted] = useState(false);
+
+  // Guest sign-in state
   const [appleAvailable, setAppleAvailable] = useState(false);
-  const [appleLoading,  setAppleLoading]  = useState(false);
-  const [appleError,    setAppleError]    = useState("");
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const [googleError,   setGoogleError]   = useState("");
-  const [email,         setEmail]         = useState("");
-  const [emailLoading,  setEmailLoading]  = useState(false);
-  const [emailError,    setEmailError]    = useState("");
-  const [emailSent,     setEmailSent]     = useState(false);
+  const [appleLoading,   setAppleLoading]   = useState(false);
+  const [appleError,     setAppleError]     = useState("");
+  const [googleLoading,  setGoogleLoading]  = useState(false);
+  const [googleError,    setGoogleError]    = useState("");
+  const [email,          setEmail]          = useState("");
+  const [emailLoading,   setEmailLoading]   = useState(false);
+  const [emailError,     setEmailError]     = useState("");
+  const [emailSent,      setEmailSent]      = useState(false);
 
   useEffect(() => {
     isAppleAuthAvailable().then(setAppleAvailable).catch(() => setAppleAvailable(false));
   }, []);
 
   // Signed-in state
-  const [signingOut,    setSigningOut]    = useState(false);
-  const [deletePending, setDeletePending] = useState(false);
-  const [deleteError,   setDeleteError]   = useState("");
+  const [signingOut,   setSigningOut]   = useState(false);
+  const [deleteStep,   setDeleteStep]   = useState<DeleteStep>("idle");
+  const [deleteError,  setDeleteError]  = useState("");
 
   const anyLoading = appleLoading || googleLoading || emailLoading;
 
@@ -98,29 +110,12 @@ export default function AccountScreen() {
       const result = await signInWithGoogle();
 
       if (result.kind === "web-url") {
-        // Web: open the OAuth URL in a popup (best UX). Allowed because
-        // we're still inside the user-gesture stack frame from the press.
         let popup: Window | null = null;
-        try {
-          popup = window.open(result.url, "_blank");
-        } catch {
-          // window.open may throw in sandboxed contexts; fall through.
-        }
-        if (!popup || popup.closed) {
-          // Tier 2 (bulletproof): popup blocked. Same-tab nav cannot be blocked.
-          window.location.href = result.url;
-        }
-        // Loading stays true: SIGNED_IN auth state change closes it.
+        try { popup = window.open(result.url, "_blank"); } catch { /* sandboxed */ }
+        if (!popup || popup.closed) window.location.href = result.url;
         return;
       }
-
-      if (result.kind === "native-cancelled") {
-        // User backed out of the in-app browser. Silent reset, no error.
-        setGoogleLoading(false);
-        return;
-      }
-
-      // native-success — SIGNED_IN listener will refresh the UI.
+      if (result.kind === "native-cancelled") { setGoogleLoading(false); return; }
       setGoogleLoading(false);
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
@@ -133,15 +128,9 @@ export default function AccountScreen() {
     setAppleError("");
     try {
       const result = await signInWithApple();
-      if (result === "cancelled") {
-        setAppleLoading(false);
-      }
-      // "success" — UI refreshes automatically via AuthContext session change.
+      if (result === "cancelled") setAppleLoading(false);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error ? e.message : "Apple sign-in failed. Please try again.";
-      console.error("[AccountScreen] Apple sign-in error:", msg);
-      setAppleError(msg);
+      setAppleError(e instanceof Error ? e.message : "Apple sign-in failed. Please try again.");
       setAppleLoading(false);
     }
   }
@@ -158,45 +147,89 @@ export default function AccountScreen() {
       await signInWithEmailMagicLink(trimmed);
       setEmailSent(true);
     } catch (e) {
-      setEmailError(
-        e instanceof Error ? e.message : "Something went wrong. Please try again.",
-      );
+      setEmailError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     }
     setEmailLoading(false);
   }
 
   async function handleSignOut() {
     setSigningOut(true);
+    try { await signOut(); } finally { setSigningOut(false); }
+  }
+
+  function handleDeleteTap() {
+    console.log("DELETE_ACCOUNT_TAPPED");
+    setDeleteStep("confirm");
+    console.log("DELETE_ACCOUNT_CONFIRMATION_SHOWN");
+  }
+
+  async function handleConfirmDelete() {
+    console.log("DELETE_ACCOUNT_CONFIRMED");
+    setDeleteStep("deleting");
+    setDeleteError("");
+    console.log("DELETE_ACCOUNT_STARTED");
     try {
-      await signOut();
-    } finally {
-      setSigningOut(false);
+      await deleteAccount();
+      console.log("DELETE_ACCOUNT_SUCCESS");
+      // Set accountDeleted BEFORE auth state propagates so the success screen
+      // is shown instead of the guest-mode sign-in panel.
+      setAccountDeleted(true);
+      console.log("DELETE_ACCOUNT_SUCCESS_SCREEN_SHOWN");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "We couldn't delete your account. Please try again.";
+      console.error("DELETE_ACCOUNT_FAILED", { error: msg });
+      setDeleteError(msg);
+      setDeleteStep("error");
     }
   }
 
-  async function handleDeleteAccount() {
-    Alert.alert(
-      "Delete account?",
-      "This permanently deletes all your data and cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setDeletePending(true);
-            setDeleteError("");
-            try {
-              await deleteAccount();
-            } catch (e) {
-              setDeleteError(
-                e instanceof Error ? e.message : "Account deletion is not yet available.",
-              );
-            }
-            setDeletePending(false);
-          },
-        },
-      ],
+  // ── Success screen (shown after deletion, regardless of auth state) ───────
+  if (accountDeleted) {
+    return (
+      <View style={{ flex: 1, backgroundColor: PARCHMENT }}>
+        <SubPageHeader title="Account" />
+        <View style={[styles.centeredContent, { paddingBottom: insets.bottom + 24 }]}>
+          <View style={[styles.iconBox, { backgroundColor: GRASS_50, borderColor: GREEN_600 + "33" }]}>
+            <Feather name="check-circle" size={32} color={GREEN_600} />
+          </View>
+
+          <Text style={[styles.cardTitle, { color: FOREGROUND, fontSize: 20, textAlign: "center" }]}>
+            Account deleted
+          </Text>
+
+          <Text style={[styles.bodyText, { color: MUTED_FG, textAlign: "center" }]}>
+            Your WeName account and saved app data have been deleted.
+          </Text>
+
+          <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center", lineHeight: 20 }]}>
+            You can continue using WeName in guest mode or create a new account anytime.
+          </Text>
+
+          {/* Continue as guest */}
+          <Pressable
+            onPress={() => {
+              console.log("DELETE_ACCOUNT_CONTINUE_AS_GUEST");
+              router.replace("/(tabs)");
+            }}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              { backgroundColor: GRASS },
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Feather name="arrow-right" size={16} color="#fff" />
+            <Text style={styles.primaryBtnText}>Continue as guest</Text>
+          </Pressable>
+
+          {/* Create a new account */}
+          <Pressable
+            onPress={() => setAccountDeleted(false)}
+            style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={[styles.secondaryBtnText, { color: BOY_BLUE }]}>Create a new account</Text>
+          </Pressable>
+        </View>
+      </View>
     );
   }
 
@@ -215,7 +248,6 @@ export default function AccountScreen() {
         {!isAuthenticated ? (
           /* ─── GUEST MODE ─── */
           <View style={[styles.card, { borderColor: BORDER_60 }]}>
-            {/* Header row */}
             <View style={styles.cardHeaderRow}>
               <View style={[styles.avatarCircle, { backgroundColor: SLATE_100 }]}>
                 <Feather name="shield" size={18} color={SLATE_500} />
@@ -232,7 +264,6 @@ export default function AccountScreen() {
               Create a free account to back up your names, sync across devices, and never lose your matches.
             </Text>
 
-            {/* Apple button — iOS only, hidden when unavailable */}
             {appleAvailable && (
               <>
                 <View
@@ -267,7 +298,6 @@ export default function AccountScreen() {
               </>
             )}
 
-            {/* Google button */}
             <Pressable
               onPress={handleGoogleSignIn}
               disabled={googleLoading || appleLoading}
@@ -278,11 +308,7 @@ export default function AccountScreen() {
                 pressed && !googleLoading && !appleLoading && { transform: [{ scale: 0.95 }] },
               ]}
             >
-              {googleLoading ? (
-                <ActivityIndicator size="small" color={MUTED_FG} />
-              ) : (
-                <GoogleIcon />
-              )}
+              {googleLoading ? <ActivityIndicator size="small" color={MUTED_FG} /> : <GoogleIcon />}
               <Text style={styles.providerBtnTextBold}>
                 {googleLoading ? "Connecting to Google…" : "Continue with Google"}
               </Text>
@@ -294,14 +320,12 @@ export default function AccountScreen() {
               </Text>
             )}
 
-            {/* Divider */}
             <View style={styles.divider}>
               <View style={[styles.dividerLine, { backgroundColor: BORDER_60 }]} />
               <Text style={[styles.microText, { color: MUTED_FG }]}>or</Text>
               <View style={[styles.dividerLine, { backgroundColor: BORDER_60 }]} />
             </View>
 
-            {/* Email form OR email-sent confirmation */}
             {emailSent ? (
               <View style={{ alignItems: "center", gap: 4, paddingVertical: 8 }}>
                 <Text style={[styles.bodyText, { color: FOREGROUND, fontFamily: fonts.displaySemibold }]}>
@@ -329,23 +353,17 @@ export default function AccountScreen() {
                     editable={!anyLoading}
                     style={[
                       styles.emailInput,
-                      {
-                        color: FOREGROUND,
-                        borderColor: BORDER,
-                        backgroundColor: CARD_BG,
-                      },
+                      { color: FOREGROUND, borderColor: BORDER, backgroundColor: CARD_BG },
                       anyLoading && { opacity: 0.6 },
                     ]}
                   />
                 </View>
-
                 {!!emailError && (
                   <View style={styles.errorRow}>
                     <Feather name="alert-circle" size={12} color={DESTRUCTIVE} />
                     <Text style={[styles.microText, { color: DESTRUCTIVE }]}>{emailError}</Text>
                   </View>
                 )}
-
                 <Pressable
                   onPress={handleEmailSubmit}
                   disabled={anyLoading || !email.trim()}
@@ -391,7 +409,6 @@ export default function AccountScreen() {
 
             {/* Actions card */}
             <View style={[styles.actionsCard, { borderColor: BORDER_60 }]}>
-              {/* Email row (info only) */}
               <View style={[styles.actionRow, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: BORDER_50 }]}>
                 <Feather name="mail" size={15} color={MUTED_FG} style={{ flexShrink: 0 }} />
                 <View style={{ flex: 1 }}>
@@ -402,7 +419,6 @@ export default function AccountScreen() {
                 </View>
               </View>
 
-              {/* Sign Out */}
               <Pressable
                 onPress={handleSignOut}
                 disabled={signingOut}
@@ -419,44 +435,122 @@ export default function AccountScreen() {
               </Pressable>
             </View>
 
-            {/* Danger zone */}
+            {/* ── Danger Zone ──────────────────────────────────────────────── */}
             <View style={{ gap: 12 }}>
               <Text style={styles.dangerLabel}>DANGER ZONE</Text>
 
-              <Pressable
-                onPress={handleDeleteAccount}
-                disabled={deletePending}
-                style={({ pressed }) => [
-                  styles.dangerBtn,
-                  { borderColor: DESTRUCT_30, backgroundColor: DESTRUCT_05 },
-                  deletePending && { opacity: 0.6 },
-                  pressed && !deletePending && { transform: [{ scale: 0.95 }] },
-                ]}
-              >
-                <Feather name="trash-2" size={15} color={DESTRUCTIVE} />
-                <Text style={[styles.actionLabel, { color: DESTRUCTIVE }]}>
-                  {deletePending ? "Deleting…" : "Delete Account"}
-                </Text>
-              </Pressable>
-
-              {deleteError ? (
-                <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center", paddingHorizontal: 8 }]}>
-                  {deleteError}
-                </Text>
-              ) : (
-                <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center" }]}>
-                  This permanently deletes all your data and cannot be undone
-                </Text>
+              {/* Idle: show Delete Account button */}
+              {deleteStep === "idle" && (
+                <Pressable
+                  onPress={handleDeleteTap}
+                  style={({ pressed }) => [
+                    styles.dangerBtn,
+                    { borderColor: DESTRUCT_30, backgroundColor: DESTRUCT_05 },
+                    pressed && { transform: [{ scale: 0.95 }] },
+                  ]}
+                >
+                  <Feather name="trash-2" size={15} color={DESTRUCTIVE} />
+                  <Text style={[styles.actionLabel, { color: DESTRUCTIVE }]}>Delete Account</Text>
+                </Pressable>
               )}
 
-              <Pressable onPress={() => Linking.openURL("https://wename.app/delete-account")}>
-                <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center", paddingTop: 4 }]}>
-                  You can also request deletion at{" "}
-                  <Text style={{ color: "#0284c7", textDecorationLine: "underline" }}>
-                    wename.app/delete-account
+              {/* Confirm: show confirmation panel */}
+              {deleteStep === "confirm" && (
+                <View style={[styles.confirmCard, { borderColor: DESTRUCT_30, backgroundColor: DESTRUCT_10 }]}>
+                  <View style={styles.confirmTitleRow}>
+                    <Feather name="alert-triangle" size={18} color={DESTRUCTIVE} />
+                    <Text style={[styles.cardTitle, { color: DESTRUCTIVE, flex: 1 }]}>
+                      Delete your account?
+                    </Text>
+                  </View>
+                  <Text style={[styles.bodyText, { color: FOREGROUND }]}>
+                    This will permanently delete your account, saved names, likes, matches, partner links, and app data. This action cannot be undone.
                   </Text>
-                </Text>
-              </Pressable>
+                  <View style={styles.confirmBtnRow}>
+                    <Pressable
+                      onPress={() => setDeleteStep("idle")}
+                      style={({ pressed }) => [
+                        styles.cancelBtn,
+                        { borderColor: BORDER_60, backgroundColor: CARD_BG },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={[styles.actionLabel, { color: MUTED_FG }]}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleConfirmDelete}
+                      style={({ pressed }) => [
+                        styles.deleteConfirmBtn,
+                        { backgroundColor: DESTRUCTIVE },
+                        pressed && { transform: [{ scale: 0.95 }] },
+                      ]}
+                    >
+                      <Text style={[styles.actionLabel, { color: "#fff" }]}>Delete Account</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {/* Deleting: spinner */}
+              {deleteStep === "deleting" && (
+                <View style={{ alignItems: "center", paddingVertical: 16, gap: 12 }}>
+                  <ActivityIndicator size="small" color={DESTRUCTIVE} />
+                  <Text style={[styles.bodyText, { color: MUTED_FG }]}>Deleting your account…</Text>
+                </View>
+              )}
+
+              {/* Error: message with retry / cancel */}
+              {deleteStep === "error" && (
+                <View style={[styles.confirmCard, { borderColor: DESTRUCT_30, backgroundColor: DESTRUCT_10 }]}>
+                  <View style={styles.confirmTitleRow}>
+                    <Feather name="alert-circle" size={18} color={DESTRUCTIVE} />
+                    <Text style={[styles.cardTitle, { color: DESTRUCTIVE, flex: 1 }]}>
+                      Deletion failed
+                    </Text>
+                  </View>
+                  <Text style={[styles.bodyText, { color: FOREGROUND }]}>
+                    {deleteError || "We couldn't delete your account. Please try again."}
+                  </Text>
+                  <View style={styles.confirmBtnRow}>
+                    <Pressable
+                      onPress={() => { setDeleteStep("idle"); setDeleteError(""); }}
+                      style={({ pressed }) => [
+                        styles.cancelBtn,
+                        { borderColor: BORDER_60, backgroundColor: CARD_BG },
+                        pressed && { opacity: 0.7 },
+                      ]}
+                    >
+                      <Text style={[styles.actionLabel, { color: MUTED_FG }]}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleConfirmDelete}
+                      style={({ pressed }) => [
+                        styles.deleteConfirmBtn,
+                        { backgroundColor: DESTRUCTIVE },
+                        pressed && { transform: [{ scale: 0.95 }] },
+                      ]}
+                    >
+                      <Text style={[styles.actionLabel, { color: "#fff" }]}>Try again</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+
+              {deleteStep === "idle" && (
+                <>
+                  <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center" }]}>
+                    This permanently deletes all your data and cannot be undone
+                  </Text>
+                  <Pressable onPress={() => Linking.openURL("https://wename.app/delete-account")}>
+                    <Text style={[styles.microText, { color: MUTED_FG, textAlign: "center", paddingTop: 4 }]}>
+                      You can also request deletion at{" "}
+                      <Text style={{ color: "#0284c7", textDecorationLine: "underline" }}>
+                        wename.app/delete-account
+                      </Text>
+                    </Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </>
         )}
@@ -466,6 +560,26 @@ export default function AccountScreen() {
 }
 
 const styles = StyleSheet.create({
+  centeredContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    gap: 16,
+  },
+  iconBox: {
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
   card: {
     backgroundColor: CARD_BG,
     borderWidth: 1,
@@ -477,6 +591,27 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+  },
+  confirmCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  confirmTitleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  confirmBtnRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
   },
   cardHeaderRow: {
     flexDirection: "row",
@@ -576,6 +711,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#fff",
   },
+  secondaryBtn: {
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  secondaryBtnText: {
+    fontFamily: fonts.displaySemibold,
+    fontSize: 14,
+    textDecorationLine: "underline",
+  },
   actionsCard: {
     backgroundColor: CARD_BG,
     borderWidth: 1,
@@ -615,6 +759,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 16,
     borderWidth: 1,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  deleteConfirmBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: "center",
   },
   microText: {
     fontFamily: fonts.display,

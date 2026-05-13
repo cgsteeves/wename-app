@@ -323,6 +323,15 @@ export async function authDeleteAccount(): Promise<void> {
   await AsyncStorage.removeItem(USER_ID_KEY);
   await AsyncStorage.removeItem("post_auth_redirect");
   await supabase.auth.signOut();
+
+  // Log out of RevenueCat so the next guest session gets a fresh anonymous
+  // App User ID. Fire-and-forget — an RC outage must never block account
+  // deletion. Only runs on native (RC is not used on web).
+  if (Platform.OS !== "web") {
+    Purchases.logOut().catch((e: unknown) =>
+      console.warn("[authDeleteAccount] RevenueCat logOut failed (non-fatal):", e),
+    );
+  }
 }
 
 // Race a promise-like against a ms timeout. Accepts PromiseLike<T> (which

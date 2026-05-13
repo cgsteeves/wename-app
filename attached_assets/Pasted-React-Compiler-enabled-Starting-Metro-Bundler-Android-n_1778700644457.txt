@@ -1,0 +1,26 @@
+React Compiler enabled
+Starting Metro Bundler
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓░░░░░░░░░░░░░ 21.8% ( 54/217)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓░░░░░░░░░ 46.3% (433/657)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓▓░░░░░░░░ 50.1% (542/766)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓▓▓▓░░░░░░ 65.2% ( 801/1026)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓▓▓▓▓░░░░░ 72.5% (1178/1499)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 85.4% (1521/1646)
+Android node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (1829/1830)
+Android Bundling failed 23283ms node_modules/.pnpm/expo-router@6.0.23_@types+react-dom@19.1.11_@types+react@19.1.17__@types+react@19.1.17__abd38177f532ddff11e5834956475527/node_modules/expo-router/entry.js (1830 modules)
+Error: Unable to resolve module expo-image-picker from /home/expo/workingdir/build/artifacts/wename/app/(tabs)/settings/feedback.tsx: expo-image-picker could not be found within the project or in these directories:
+  node_modules
+  ../../node_modules
+  node_modules
+  ../../node_modules
+  1 | import { Feather } from "@expo/vector-icons";
+> 2 | import * as ImagePicker from "expo-image-picker";
+    |                               ^
+  3 | import { useRouter } from "expo-router";
+  4 | import React, { useState } from "react";
+  5 | import {
+Import stack:
+ artifacts/wename/app/(tabs)/settings/feedback.tsx
+ | import "expo-image-picker"
+ artifacts/wename/app (require.context)
+pnpm expo export:embed --eager --platform android --dev false exited with non-zero code: 1

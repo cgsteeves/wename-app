@@ -1,0 +1,92 @@
+Apple rejected WeName under Guideline 5.1.1(v) because the app requires users to register/sign in before purchasing in-app purchase products that Apple considers not account-based.
+
+We need to revise the premium purchase flow so guest users can purchase Premium through Apple IAP without being forced to create an account first.
+
+Important:
+Do not remove account creation entirely. Account creation should remain optional and useful for syncing, partner linking, backup, and restoring across devices. But it must not be required before buying Premium.
+
+Required behavior:
+
+1. Guest users can buy Premium
+- If a guest taps Upgrade/Premium, do not force sign-in first.
+- Show the RevenueCat/Apple purchase flow directly.
+- Call Purchases.purchasePackage(package) for the current anonymous RevenueCat user.
+- If Apple payment succeeds and RevenueCat returns active entitlement "premium", unlock Premium for that guest/device.
+- Do not require email, Google, or Apple sign-in before purchase.
+
+2. Keep account creation optional after purchase
+After successful guest purchase, show a prompt like:
+"Premium is active on this device. Create a free account to back up your names, sync with a partner, and restore Premium on other devices."
+
+Buttons:
+- "Create account"
+- "Maybe later"
+
+3. Explain benefits of account creation
+Account creation may be recommended for:
+- restoring purchase on other devices
+- syncing liked names/matches
+- partner linking
+- backing up names
+
+But it must be optional.
+
+4. RevenueCat identity behavior
+- For guests, let RevenueCat use the anonymous App User ID.
+- If the guest later creates/signs into an account, call Purchases.logIn(supabaseUser.id).
+- If RevenueCat transfers the anonymous purchase to the signed-in user, treat that as expected restore/transfer behavior.
+- Do not lose entitlement during guest-to-account transition.
+
+5. Restore Purchases
+- Keep Restore Purchases available without forcing sign-in.
+- If RevenueCat restorePurchases returns active entitlement "premium", unlock Premium.
+- After restore, optionally prompt the user to create an account for cross-device access.
+
+6. Premium gating
+- Premium access remains based only on RevenueCat:
+  customerInfo.entitlements.active["premium"]
+- Do not unlock premium from Supabase plan_tier alone.
+- Do not unlock premium simply because the user signed in.
+- Do not unlock premium simply because the purchase button was tapped.
+
+7. Update UI copy
+Replace any mandatory language like:
+"Sign in to purchase Premium"
+
+With optional language like:
+"Create an account to sync Premium and your names across devices."
+
+For guests on the Premium screen:
+Primary CTA:
+"Continue with Apple Purchase"
+
+Secondary copy:
+"No account required to purchase. Create an account anytime to sync across devices."
+
+8. Adjust previous purchase flow
+Previous flow:
+guest → auth required → purchase
+
+New flow:
+guest → purchase directly → optional account creation after purchase
+
+Signed-in users:
+signed-in → purchase directly
+
+9. App Review compliance
+Add app review notes explaining:
+- Premium can now be purchased without creating an account.
+- Account creation is optional and only used for syncing, partner linking, backup, and cross-device restore.
+
+10. Test cases
+Verify:
+A) Guest can open Premium and purchase without sign-in.
+B) Guest purchase unlocks Premium after RevenueCat entitlement is active.
+C) Guest can dismiss account creation prompt and still use Premium on device.
+D) Guest can later create account and entitlement transfers/restores correctly.
+E) Signed-in users can still purchase Premium normally.
+F) Restore Purchases works without requiring sign-in.
+G) Premium remains locked if RevenueCat entitlement is inactive.
+H) Supabase plan_tier alone does not unlock Premium.
+
+Do not modify unrelated magic link auth, AI suggestions, name packs, swipe mechanics, partner linking, or visual styling unless directly needed for this compliance fix.

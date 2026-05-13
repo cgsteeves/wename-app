@@ -36,12 +36,10 @@ const girlBg = require("../assets/images/girl-card-bg.jpg");
 
 type LimitType = "swipe" | "like" | "match" | "discover" | null;
 
-// Three-step flow:
-//   "auth"      → sign-in panel (guests / unauthenticated)
-//   "signed-in" → brief confirmation shown after Apple/Google sign-in completes
-//                 while the modal is still open; auto-advances to "purchase"
-//   "purchase"  → normal purchase CTA (authenticated users)
-type PurchaseStep = "auth" | "signed-in" | "purchase";
+// Two-step flow:
+//   "purchase"             → purchase CTA (all users, no auth required)
+//   "post-purchase-signup" → optional account creation prompt after guest purchase
+type PurchaseStep = "purchase" | "post-purchase-signup";
 
 const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
   {
@@ -63,8 +61,6 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
 
 // ── Debug overlay ──────────────────────────────────────────────────────────
 // Set to false before App Store release.
-// Shown in all builds (including TestFlight) while the purchase investigation
-// is ongoing. Helps determine transfer vs new-purchase vs skipped scenarios.
 const SHOW_PREMIUM_DEBUG = true;
 
 const GRASS        = "hsl(145,45%,35%)";
@@ -87,14 +83,18 @@ function GoogleIcon() {
   );
 }
 
+// ── Sign-in panel ──────────────────────────────────────────────────────────
+// Used in the post-purchase account-creation prompt.
+// postPurchase=true changes the headline/subtext and skips writing the
+// PENDING_PREMIUM_PURCHASE_KEY (the user has already purchased).
 function SignInPanel({
   onClose,
   onMagicLinkSent,
-  limitType,
+  postPurchase = false,
 }: {
   onClose: () => void;
   onMagicLinkSent?: () => void;
-  limitType?: LimitType;
+  postPurchase?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const [appleAvailable, setAppleAvailable] = useState(false);
@@ -119,8 +119,8 @@ function SignInPanel({
     try {
       const result = await signInWithApple();
       if (result === "cancelled") setAppleLoading(false);
-      // On success: onAuthStateChange fires → isPurchaseEligible becomes true
-      // → PremiumModal useEffect advances the step to "signed-in" automatically.
+      // On success: onAuthStateChange fires → isAuthenticated becomes true
+      // → PremiumModal useEffect handles any post-purchase Supabase sync.
     } catch (e) {
       setAppleError(e instanceof Error ? e.message : "Apple sign-in failed. Please try again.");
       setAppleLoading(false);
@@ -133,7 +133,6 @@ function SignInPanel({
     try {
       const result = await signInWithGoogle();
       if (result.kind === "native-cancelled") setGoogleLoading(false);
-      // On success: same as Apple — auth state change propagates upward.
     } catch {
       setGoogleError("Google sign-in failed. Please try again.");
       setGoogleLoading(false);
@@ -149,18 +148,18 @@ function SignInPanel({
     setEmailError("");
     setEmailLoading(true);
     try {
-      // Write the pending-purchase intent BEFORE sending the OTP.
-      // If the user opens the magic link on a cold start (app not running),
-      // auth/callback reads this flag and navigates to /?openPremium=1 so
-      // PremiumModal re-opens at the purchase step when the app launches.
-      await AsyncStorage.setItem(PENDING_PREMIUM_PURCHASE_KEY, "1");
+      if (!postPurchase) {
+        // Only write the pending-purchase intent for the pre-purchase email flow
+        // (so auth/callback can re-open the modal on cold start after magic-link).
+        await AsyncStorage.setItem(PENDING_PREMIUM_PURCHASE_KEY, "1");
+      }
       await signInWithEmailMagicLink(trimmed);
       setEmailSent(true);
       onMagicLinkSent?.();
     } catch (e) {
-      // Roll back the intent flag if the OTP request failed so it doesn't
-      // falsely re-open the modal on a future unrelated sign-in.
-      await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY).catch(() => {});
+      if (!postPurchase) {
+        await AsyncStorage.removeItem(PENDING_PREMIUM_PURCHASE_KEY).catch(() => {});
+      }
       setEmailError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
     }
     setEmailLoading(false);
@@ -175,30 +174,14 @@ function SignInPanel({
       showsVerticalScrollIndicator={false}
     >
       <Text style={styles.headline}>
-        {limitType === "swipe"
-          ? "Upgrade to Premium for unlimited swipes"
-          : limitType === "like"
-          ? "Upgrade to Premium for unlimited likes"
-          : limitType === "match"
-          ? "Upgrade to Premium to reveal all matches"
-          : "Upgrade to Premium"}
+        {postPurchase ? "Back up your Premium" : "Upgrade to Premium"}
       </Text>
       <View style={styles.divider} />
       <Text style={styles.subText}>
-        Sign in to purchase — your premium access will be linked to your account and restored on any device.
+        {postPurchase
+          ? "Create a free account to sync your names, connect with a partner, and restore Premium on any device."
+          : "Create a free account to back up your names and restore Premium across devices."}
       </Text>
-
-      <View style={styles.features}>
-        {FEATURES.map((f) => (
-          <View key={f.label} style={styles.featureRow}>
-            <Feather name={f.icon} size={15} color={GRASS} style={styles.featureIcon} />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.featureLabel}>{f.label}</Text>
-              <Text style={[styles.featureValue, { color: TEXT_DARK }]}>{f.value}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
 
       {appleAvailable && Platform.OS === "ios" && (
         <>
@@ -313,7 +296,9 @@ function SignInPanel({
       )}
 
       <Text style={[styles.legal, { color: TEXT_MID, marginTop: 20 }]}>
-        Free to create. Pay once for premium, no subscription.
+        {postPurchase
+          ? "Your Premium is already active on this device — an account is optional."
+          : "Free to create. Pay once for premium, no subscription."}
       </Text>
     </ScrollView>
   );
@@ -331,7 +316,7 @@ export function PremiumModal({
   onUpgrade: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const { isPurchaseEligible } = useAuth();
+  const { isAuthenticated } = useAuth();
   const { user, updateUser } = useUser();
   const {
     purchase,
@@ -344,63 +329,58 @@ export function PremiumModal({
     customerInfo,
   } = useSubscription();
 
-  // Track the current step of the sign-in → purchase flow.
-  // Initialised to "auth"; corrected in the open-change useEffect below.
-  const [step, setStep] = useState<PurchaseStep>("auth");
+  const [step, setStep] = useState<PurchaseStep>("purchase");
   const [lastEvent, setLastEvent] = useState("—");
-  // Marks whether the modal was opened when the user was a guest, so we
-  // know to advance through the signed-in step when auth completes.
-  const openedAsGuestRef = useRef(false);
-  const signedInTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Prevents the signed-in advance from firing more than once per modal open.
-  const hasAdvancedRef = useRef(false);
+  // True when a guest successfully purchased — signals that we should call
+  // updateUser once they subsequently create an account.
+  const purchasedAsGuestRef = useRef(false);
+  // Prevents the post-purchase Supabase sync from firing more than once.
+  const hasPostPurchaseSyncedRef = useRef(false);
+  // Controls whether the sign-in panel is shown inside the post-purchase step.
+  const [showSignInInPostPurchase, setShowSignInInPostPurchase] = useState(false);
 
-  // When modal opens: set the starting step and reset advance guard.
-  // When modal closes: clear any pending advance timer.
+  // Reset state when modal opens/closes.
   useEffect(() => {
     if (open) {
-      hasAdvancedRef.current = false;
-      if (isPurchaseEligible) {
-        openedAsGuestRef.current = false;
-        setStep("purchase");
-      } else {
-        openedAsGuestRef.current = true;
-        setStep("auth");
-      }
+      setStep("purchase");
+      setShowSignInInPostPurchase(false);
+      hasPostPurchaseSyncedRef.current = false;
     } else {
-      openedAsGuestRef.current = false;
-      if (signedInTimerRef.current) {
-        clearTimeout(signedInTimerRef.current);
-        signedInTimerRef.current = null;
-      }
+      purchasedAsGuestRef.current = false;
+      hasPostPurchaseSyncedRef.current = false;
+      setShowSignInInPostPurchase(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // When the user signs in via Apple or Google while the modal is still open,
-  // isPurchaseEligible flips to true. Advance auth → "signed in!" → purchase.
-  //
-  // CRITICAL: `step` is intentionally excluded from the dependency array.
-  // If `step` were included, React would re-run this effect's cleanup when
-  // setStep("signed-in") fires. That cleanup would clear signedInTimerRef
-  // before the 1.4 s advance fires → modal stuck on "Getting your upgrade
-  // ready…" forever. hasAdvancedRef replaces `step === "auth"` as the guard
-  // against double-triggering. Timer cleanup on modal-close is handled above.
+  // When a guest creates an account after purchasing, isAuthenticated flips to
+  // true. At that point, sync their premium status to Supabase and close.
   useEffect(() => {
-    if (!open || !isPurchaseEligible || !openedAsGuestRef.current || hasAdvancedRef.current) return;
-    hasAdvancedRef.current = true;
-    console.log("[PremiumModal] user signed in while open — advancing to purchase");
-    setStep("signed-in");
-    const timer = setTimeout(() => {
-      signedInTimerRef.current = null;
-      console.log("[PremiumModal] signed-in delay complete — showing purchase step");
-      setStep("purchase");
-    }, 1400);
-    signedInTimerRef.current = timer;
-    // No cleanup here — the timer fires after 1.4 s naturally.
-    // If the modal closes first, the open-change effect above clears it.
+    if (
+      !open ||
+      !isAuthenticated ||
+      !purchasedAsGuestRef.current ||
+      hasPostPurchaseSyncedRef.current
+    ) return;
+
+    if (!hasPremiumEntitlement) return; // entitlement not confirmed yet — wait
+
+    hasPostPurchaseSyncedRef.current = true;
+    console.log("[PremiumModal] guest signed in after purchase — syncing premium to Supabase");
+    updateUser({ plan_tier: "premium" })
+      .then(() => {
+        console.log("[PremiumModal] post-purchase Supabase sync complete");
+        onClose();
+        onUpgrade();
+      })
+      .catch((e) => {
+        console.warn("[PremiumModal] post-purchase Supabase sync failed:", e);
+        // Non-fatal: RC is source of truth; close anyway.
+        onClose();
+        onUpgrade();
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPurchaseEligible, open]);
+  }, [isAuthenticated, hasPremiumEntitlement, open]);
 
   const pkg = offerings?.current?.availablePackages?.[0];
   const priceString = pkg?.product?.priceString ?? "$7.99";
@@ -410,9 +390,7 @@ export function PremiumModal({
   async function handleUpgrade() {
     if (!pkg) return;
 
-    // Req 2: If the entitlement is already active, never call purchasePackage.
-    // This prevents the appearance of granting premium "without payment" when
-    // RevenueCat has already transferred/restored an existing purchase on logIn.
+    // If the entitlement is already active, never call purchasePackage.
     if (hasPremiumEntitlement) {
       console.log("PURCHASE_SKIPPED_ALREADY_ENTITLED", {
         caller: "PremiumModal/handleUpgrade",
@@ -428,7 +406,7 @@ export function PremiumModal({
       pkg: pkg.identifier,
       productId: pkg.product.identifier,
       price: pkg.product.priceString,
-      isPurchaseEligible,
+      isAuthenticated,
       hasPremiumEntitlementBefore: hasPremiumEntitlement,
       supabaseUserId: user?.id?.slice(-8),
       rcAppUserId: customerInfo?.originalAppUserId,
@@ -442,18 +420,13 @@ export function PremiumModal({
     try {
       const purchasedCustomerInfo = await purchase(pkg);
       if (!purchasedCustomerInfo) {
-        // DEV mode only: user dismissed the test-store dialog — purchase()
-        // returns undefined instead of throwing. Do NOT grant premium.
         console.log("[PremiumModal] purchase cancelled (test-store dismissed)");
         setLastEvent("PURCHASE_CANCELLED");
         return;
       }
-      // Defensive guard: only write to Supabase when RC confirms active entitlement.
       const hasPremiumEntitlementAfterPurchase =
         purchasedCustomerInfo.entitlements.active?.[REVENUECAT_ENTITLEMENT_IDENTIFIER] !== undefined;
       if (!hasPremiumEntitlementAfterPurchase) {
-        // Purchase call succeeded but the entitlement wasn't activated
-        // (e.g. receipt validation still pending). Do not write to Supabase.
         console.warn(
           "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
           {
@@ -471,12 +444,24 @@ export function PremiumModal({
         return;
       }
       setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
-      console.log("[PremiumModal] premium entitlement confirmed after purchase — unlocking");
-      console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
-      await updateUser({ plan_tier: "premium" });
-      console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleUpgrade" });
-      onClose();
-      onUpgrade();
+      console.log("[PremiumModal] premium entitlement confirmed after purchase");
+
+      if (isAuthenticated) {
+        // Signed-in user: sync to Supabase and close immediately.
+        console.log("[PremiumModal] updateUser: start", { plan_tier: "premium", caller: "handleUpgrade" });
+        await updateUser({ plan_tier: "premium" });
+        console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleUpgrade" });
+        onClose();
+        onUpgrade();
+      } else {
+        // Guest user: unlock premium via RC entitlement (RC is source of truth).
+        // Show the optional account creation prompt — do NOT require sign-in.
+        console.log("[PremiumModal] guest purchase complete — showing post-purchase signup prompt");
+        purchasedAsGuestRef.current = true;
+        setStep("post-purchase-signup");
+        // Signal to the parent that premium is now active so daily limits clear.
+        onUpgrade();
+      }
     } catch (e: any) {
       if (e?.userCancelled) {
         console.log("[PremiumModal] purchase cancelled by user");
@@ -491,6 +476,7 @@ export function PremiumModal({
 
   async function handleRestore() {
     console.log("[PremiumModal] restore tapped", {
+      isAuthenticated,
       hasPremiumEntitlement,
       rcAppUserId: customerInfo?.originalAppUserId,
     });
@@ -505,11 +491,20 @@ export function PremiumModal({
       });
       if (hasPremiumEntitlementAfterRestore) {
         setLastEvent("PURCHASE_SUCCEEDED_WITH_ENTITLEMENT");
-        console.log("[PremiumModal] premium entitlement confirmed after restore — unlocking");
-        await updateUser({ plan_tier: "premium" });
-        console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
-        onClose();
-        onUpgrade();
+        console.log("[PremiumModal] premium entitlement confirmed after restore");
+
+        if (isAuthenticated) {
+          await updateUser({ plan_tier: "premium" });
+          console.log("[PremiumModal] updateUser: success", { unlockApplied: true, caller: "handleRestore" });
+          onClose();
+          onUpgrade();
+        } else {
+          // Guest restore: premium active via RC. Show optional account prompt.
+          console.log("[PremiumModal] guest restore complete — showing post-purchase signup prompt");
+          purchasedAsGuestRef.current = true;
+          setStep("post-purchase-signup");
+          onUpgrade();
+        }
       } else {
         console.warn(
           "BLOCKED_PREMIUM_UNLOCK_WITHOUT_ENTITLEMENT",
@@ -553,27 +548,7 @@ export function PremiumModal({
           <Feather name="x" size={14} color={TEXT_MID} />
         </Pressable>
 
-        {/* Step: auth — guest, must sign in first */}
-        {step === "auth" && (
-          <SignInPanel onClose={onClose} limitType={limitType} />
-        )}
-
-        {/* Step: signed-in — brief confirmation before showing purchase UI */}
-        {step === "signed-in" && (
-          <View style={styles.signedInPanel}>
-            <View style={styles.signedInIconBox}>
-              <Feather name="check" size={28} color={GRASS} />
-            </View>
-            <Text style={[styles.headline, { marginTop: 16 }]}>You're signed in!</Text>
-            <View style={styles.divider} />
-            <Text style={[styles.subText, { marginBottom: 0 }]}>
-              Getting your upgrade ready…
-            </Text>
-            <ActivityIndicator color={GRASS} style={{ marginTop: 20 }} />
-          </View>
-        )}
-
-        {/* Step: purchase — authenticated, show normal purchase CTA */}
+        {/* Step: purchase — all users, no auth required */}
         {step === "purchase" && (
           <ScrollView
             contentContainerStyle={[
@@ -582,13 +557,17 @@ export function PremiumModal({
             ]}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.headline}>Keep the momentum going</Text>
+            <Text style={styles.headline}>
+              {limitType === "swipe"
+                ? "Upgrade to Premium for unlimited swipes"
+                : limitType === "like"
+                ? "Upgrade to Premium for unlimited likes"
+                : limitType === "match"
+                ? "Upgrade to Premium to reveal all matches"
+                : "Keep the momentum going"}
+            </Text>
             <View style={styles.divider} />
 
-            {/* Req 2 & 3: If entitlement is already active (e.g. from an
-                ENTITLEMENT_ACTIVE_AFTER_LOGIN_TRANSFER), show "Premium Active"
-                instead of the buy button. This prevents the appearance that
-                tapping Buy granted premium without payment. */}
             {hasPremiumEntitlement ? (
               <>
                 <Text style={styles.subText}>
@@ -602,10 +581,7 @@ export function PremiumModal({
                     No new payment is needed.
                   </Text>
                 </View>
-                <Pressable
-                  onPress={onClose}
-                  style={styles.cta}
-                >
+                <Pressable onPress={onClose} style={styles.cta}>
                   <LinearGradient
                     colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
                     start={{ x: 0, y: 0 }}
@@ -671,7 +647,7 @@ export function PremiumModal({
                 </Pressable>
 
                 <Text style={[styles.legal, { color: TEXT_MID }]}>
-                  No subscriptions. Pay once, use forever.
+                  No account required to purchase. Create an account anytime to sync across devices.
                 </Text>
               </>
             )}
@@ -681,7 +657,7 @@ export function PremiumModal({
               <View style={styles.debugPanel}>
                 <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
                 <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
-                <Text style={styles.debugLine}>isPurchaseEligible: <Text style={styles.debugVal}>{String(isPurchaseEligible)}</Text></Text>
+                <Text style={styles.debugLine}>isAuthenticated: <Text style={styles.debugVal}>{String(isAuthenticated)}</Text></Text>
                 <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
                 <Text style={styles.debugLine}>Supabase: <Text style={styles.debugVal}>{user?.id?.slice(-10) ?? "—"}</Text></Text>
                 <Text style={styles.debugLine}>offering: <Text style={styles.debugVal}>{offerings?.current?.identifier ?? "—"}</Text></Text>
@@ -690,6 +666,92 @@ export function PremiumModal({
               </View>
             )}
           </ScrollView>
+        )}
+
+        {/* Step: post-purchase-signup — optional account creation after guest purchase */}
+        {step === "post-purchase-signup" && (
+          showSignInInPostPurchase ? (
+            <SignInPanel
+              onClose={onClose}
+              postPurchase
+            />
+          ) : (
+            <ScrollView
+              contentContainerStyle={[
+                styles.scroll,
+                { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 36 },
+              ]}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Success confirmation */}
+              <View style={styles.postPurchaseSuccessBox}>
+                <View style={styles.signedInIconBox}>
+                  <Feather name="check" size={28} color={GRASS} />
+                </View>
+                <Text style={[styles.headline, { marginTop: 16 }]}>Premium is active!</Text>
+                <View style={styles.divider} />
+                <Text style={[styles.subText, { marginBottom: 0 }]}>
+                  You now have unlimited swipes, likes, match reveals, and access to all name packs.
+                </Text>
+              </View>
+
+              {/* Account creation invite */}
+              <View style={styles.postPurchaseCard}>
+                <Text style={styles.postPurchaseCardTitle}>Want to back up your names?</Text>
+                <Text style={styles.postPurchaseCardBody}>
+                  Create a free account to:
+                </Text>
+                {[
+                  "Restore Premium on any device",
+                  "Sync your liked names and matches",
+                  "Connect with your partner",
+                  "Back up your names so they're never lost",
+                ].map((benefit) => (
+                  <View key={benefit} style={styles.postPurchaseBenefitRow}>
+                    <Feather name="check" size={13} color={GRASS} />
+                    <Text style={styles.postPurchaseBenefitText}>{benefit}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Pressable
+                onPress={() => setShowSignInInPostPurchase(true)}
+                style={({ pressed }) => [
+                  styles.cta,
+                  { opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <LinearGradient
+                  colors={["hsl(145,45%,38%)", "hsl(145,45%,27%)"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Text style={styles.ctaText}>Create account</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={onClose}
+                style={({ pressed }) => [styles.restore, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Text style={[styles.restoreText, { color: TEXT_MID }]}>Maybe later</Text>
+              </Pressable>
+
+              <Text style={[styles.legal, { color: TEXT_MID }]}>
+                Premium is already active on this device. An account is optional.
+              </Text>
+
+              {SHOW_PREMIUM_DEBUG && (
+                <View style={styles.debugPanel}>
+                  <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
+                  <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
+                  <Text style={styles.debugLine}>isAuthenticated: <Text style={styles.debugVal}>{String(isAuthenticated)}</Text></Text>
+                  <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
+                  <Text style={styles.debugLine}>lastEvent: <Text style={styles.debugVal}>{lastEvent}</Text></Text>
+                </View>
+              )}
+            </ScrollView>
+          )
         )}
       </View>
     </Modal>
@@ -763,12 +825,10 @@ const styles = StyleSheet.create({
     opacity: 0.85,
     lineHeight: 20,
   },
-  // Signed-in confirmation panel
-  signedInPanel: {
-    flex: 1,
+  // Post-purchase panels
+  postPurchaseSuccessBox: {
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
+    marginBottom: 24,
   },
   signedInIconBox: {
     width: 64,
@@ -779,6 +839,38 @@ const styles = StyleSheet.create({
     borderColor: GRASS_BORDER,
     alignItems: "center",
     justifyContent: "center",
+  },
+  postPurchaseCard: {
+    backgroundColor: "rgba(255,255,255,0.60)",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 20,
+    marginBottom: 24,
+    gap: 8,
+  },
+  postPurchaseCardTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 15,
+    color: TEXT_DARK,
+    marginBottom: 2,
+  },
+  postPurchaseCardBody: {
+    fontFamily: fonts.display,
+    fontSize: 13,
+    color: TEXT_MID,
+    marginBottom: 4,
+  },
+  postPurchaseBenefitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  postPurchaseBenefitText: {
+    fontFamily: fonts.display,
+    fontSize: 13,
+    color: TEXT_DARK,
+    lineHeight: 20,
   },
   // Purchase CTA
   cta: {

@@ -22,7 +22,7 @@
       ]
     },
     "android": {
-      "package": "app.wename.mobile",
+      "package": "wename.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#f9f1de"

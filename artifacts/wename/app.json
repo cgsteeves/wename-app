@@ -45,6 +45,12 @@
       "typedRoutes": true,
       "reactCompiler": true,
       "baseUrl": "/app"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "e0e551b1-b6bc-4b8b-bf94-5974967b17d5"
+      }
+    },
+    "owner": "steevesy"
   }
 }

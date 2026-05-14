@@ -59,8 +59,6 @@ const FEATURES: { icon: keyof typeof Feather.glyphMap; label: string; value: str
   },
 ];
 
-const SHOW_PREMIUM_DEBUG = true;
-
 const GRASS        = "hsl(145,45%,35%)";
 const GRASS_BG     = "hsla(145,45%,35%,0.08)";
 const GRASS_BORDER = "hsl(145,45%,60%)";
@@ -650,19 +648,6 @@ export function PremiumModal({
               </>
             )}
 
-            {/* ── Debug overlay (remove before App Store release) ─────────── */}
-            {SHOW_PREMIUM_DEBUG && (
-              <View style={styles.debugPanel}>
-                <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
-                <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
-                <Text style={styles.debugLine}>isAuthenticated: <Text style={styles.debugVal}>{String(isAuthenticated)}</Text></Text>
-                <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
-                <Text style={styles.debugLine}>Supabase: <Text style={styles.debugVal}>{user?.id?.slice(-10) ?? "—"}</Text></Text>
-                <Text style={styles.debugLine}>offering: <Text style={styles.debugVal}>{offerings?.current?.identifier ?? "—"}</Text></Text>
-                <Text style={styles.debugLine}>package: <Text style={styles.debugVal}>{pkg?.identifier ?? "—"}</Text></Text>
-                <Text style={styles.debugLine}>lastEvent: <Text style={styles.debugVal}>{lastEvent}</Text></Text>
-              </View>
-            )}
           </ScrollView>
         )}
 
@@ -739,15 +724,6 @@ export function PremiumModal({
                 Premium is already active on this device. An account is optional.
               </Text>
 
-              {SHOW_PREMIUM_DEBUG && (
-                <View style={styles.debugPanel}>
-                  <Text style={styles.debugTitle}>⚙ PREMIUM DEBUG — remove before release</Text>
-                  <Text style={styles.debugLine}>hasPremiumEntitlement: <Text style={styles.debugVal}>{String(hasPremiumEntitlement)}</Text></Text>
-                  <Text style={styles.debugLine}>isAuthenticated: <Text style={styles.debugVal}>{String(isAuthenticated)}</Text></Text>
-                  <Text style={styles.debugLine}>RC user: <Text style={styles.debugVal}>{customerInfo?.originalAppUserId?.slice(-10) ?? "—"}</Text></Text>
-                  <Text style={styles.debugLine}>lastEvent: <Text style={styles.debugVal}>{lastEvent}</Text></Text>
-                </View>
-              )}
             </ScrollView>
           )
         )}
@@ -965,32 +941,5 @@ const styles = StyleSheet.create({
     color: TEXT_MID,
     textAlign: "center",
     lineHeight: 20,
-  },
-  debugPanel: {
-    marginTop: 20,
-    padding: 12,
-    borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.07)",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.15)",
-    gap: 4,
-  },
-  debugTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 9,
-    color: "#b45309",
-    letterSpacing: 0.5,
-    marginBottom: 4,
-    textTransform: "uppercase",
-  },
-  debugLine: {
-    fontFamily: fonts.display,
-    fontSize: 10,
-    color: TEXT_DARK,
-    opacity: 0.8,
-  },
-  debugVal: {
-    fontFamily: fonts.displayBold,
-    color: TEXT_DARK,
   },
 });

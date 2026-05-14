@@ -1,0 +1,204 @@
+Investigate and fix the AI Suggestions feature. It frequently times out and often shows “No more new suggestions right now” even when the user should be able to generate suggestions.
+
+Context:
+This is the WeName baby-name app. The AI Suggestions feature should generate personalized baby name ideas based on the user’s liked names, matched names, partner liked names, selected style filters, gender, last name, and names already seen/excluded. It should not fail silently, time out unnecessarily, or incorrectly say there are no suggestions when generation failed or when the app filtered too aggressively.
+
+Please do a full diagnosis before changing code. Search the codebase for:
+
+* AI Suggestions screen/component
+* Discover / AI Suggestions tab
+* suggest-names
+* Supabase Edge Function
+* functions/v1/suggest-names
+* generate suggestions
+* “No more new suggestions right now”
+* “Try Again”
+* timeout
+* AbortController
+* fetch
+* NDJSON
+* streaming
+* excludeNames
+* likedNames
+* matchedNames
+* partnerLikedNames
+
+Fix the issue across the frontend and backend.
+
+Primary problems to investigate:
+
+1. The AI suggestions request may be timing out too aggressively on the client.
+2. The Supabase Edge Function may be timing out or returning no usable results.
+3. The UI may be treating network/timeouts/errors as “no suggestions,” which is misleading.
+4. The app may be over-filtering generated names because `excludeNames` includes too many names or uses inconsistent casing/normalization.
+5. The app may be sending too little context to generate good suggestions.
+6. The app may not be handling NDJSON streaming correctly on Android.
+7. The Retry button may simply repeat the same failed request without changing anything.
+8. The app may not be logging enough information to debug the failure.
+
+Expected behavior:
+
+* If the AI request fails, times out, or the Edge Function errors, show a clear recoverable error state, not “No more new suggestions right now.”
+* Only show “No more new suggestions right now” when the request succeeded and the backend explicitly returned zero valid suggestions after filtering.
+* The user should be able to tap “Try Again” and trigger a fresh request.
+* The request should tolerate slower LLM responses, especially on Android.
+* Suggestions should appear progressively if streaming works, or all at once if streaming is not reliable.
+* Generated suggestions should be deduped against existing liked/matched/seen names, but not so aggressively that everything is filtered out.
+* The feature should work consistently on iOS, Android, and web/native builds.
+
+Frontend changes to make:
+
+1. Find the AI Suggestions screen and separate states clearly:
+
+   * `idle`
+   * `loading`
+   * `streaming`
+   * `successWithSuggestions`
+   * `successNoSuggestions`
+   * `error`
+   * `timeout`
+
+2. Do not map all failures to the empty state.
+   Replace generic empty state logic with:
+
+   * Error state: “We couldn’t generate suggestions. Please try again.”
+   * Timeout state: “Suggestions took too long. Try again in a moment.”
+   * True empty state: “No new suggestions right now.”
+
+3. Increase the client timeout.
+   If there is currently a 10–20 second timeout, increase it to 45–60 seconds for AI suggestion requests.
+   If mobile/Android fetch streaming is unreliable, prefer a non-streaming fallback.
+
+4. Audit the Retry button.
+   Ensure it:
+
+   * clears the current error/empty state
+   * sets loading state
+   * starts a fresh request
+   * does not reuse a stale aborted controller
+   * does not preserve stale “no suggestions” state
+   * logs the retry attempt
+
+5. Add client-side debug logging around the request:
+
+   * request started
+   * payload summary: gender, style filters, counts of liked/matched/partner liked/excluded names
+   * response status
+   * stream chunks received
+   * suggestions parsed
+   * suggestions filtered
+   * final suggestions shown
+   * timeout
+   * error message
+
+   Make logs safe. Do not log sensitive auth tokens.
+
+6. Normalize filtering:
+   When comparing generated names to excluded/seen/liked/matched names, normalize using:
+
+   * trim
+   * lowercase
+   * remove extra spaces
+   * ideally compare first name only if suggestions may include full name text
+
+7. If the frontend has an `excludeNames` list, inspect how large it is.
+   If it includes the full database or every swiped-left name, that may be too aggressive. For AI suggestions, exclude only:
+
+   * current liked names
+   * current matches
+   * previously shown AI suggestions
+   * names already accepted/rejected from AI suggestions
+     Do not exclude thousands of unrelated names unless necessary.
+
+Backend/Supabase Edge Function changes to make:
+
+1. Find the Supabase Edge Function for `/functions/v1/suggest-names`.
+
+2. Add structured logs:
+
+   * function invoked
+   * user authenticated or anonymous/guest path
+   * payload received with counts, not full sensitive data
+   * LLM request started
+   * LLM response received
+   * parsing result
+   * number of suggestions before filtering
+   * number after filtering
+   * errors
+   * timeout
+
+3. Add better error responses.
+   Return clear JSON/NDJSON error events instead of empty responses.
+
+   Example non-streaming error:
+   `{ "ok": false, "error": "llm_timeout", "message": "Suggestion generation timed out." }`
+
+   Example streaming error line:
+   `{ "type": "error", "code": "llm_timeout", "message": "Suggestion generation timed out." }`
+
+4. Ensure the Edge Function does not return a successful empty result when the LLM call failed.
+   A failed LLM request should be an error, not an empty suggestions array.
+
+5. Improve the prompt to force enough results.
+   Ask the LLM for more suggestions than needed, for example 20–30 candidates, then filter down to 4–8. This prevents all suggestions being removed by dedupe.
+
+6. Validate the response parser.
+   If the LLM returns text, markdown, malformed JSON, or partial JSON, the function should recover where possible.
+   Prefer asking for strict JSON:
+
+   ```json
+   {
+     "suggestions": [
+       {
+         "name": "Silas",
+         "gender": "boy",
+         "reason": "Shares the warm vintage feel of Theodore.",
+         "origin": "Latin",
+         "meaning": "Forest or woods"
+       }
+     ]
+   }
+   ```
+
+7. Add a fallback path.
+   If the LLM fails or times out, return a small deterministic fallback list based on style filters/gender rather than showing a dead empty state. Mark these as fallback suggestions if needed.
+
+8. Check Supabase Edge Function timeout limits.
+   If the function is doing too much work before returning anything, either:
+
+   * stream an initial “started” event quickly
+   * reduce LLM latency
+   * use a faster/smaller model
+   * switch to a non-streaming request with a sensible timeout
+   * return fallback suggestions if the LLM exceeds the timeout
+
+Android-specific checks:
+
+1. Test on Android using the internal testing build.
+2. Confirm fetch/streaming works in the Android runtime.
+3. If `ReadableStream` / NDJSON parsing is flaky on Android, implement a fallback:
+
+   * try streaming first
+   * if streaming unsupported or no chunks arrive within a few seconds, fall back to a normal JSON response endpoint/mode
+4. Make sure Android is using the correct Supabase URL and anon key.
+5. Confirm there is no network security restriction or missing internet permission.
+
+Acceptance criteria:
+
+* On Android, tapping AI Suggestions reliably generates suggestions or shows a clear error.
+* “No more new suggestions right now” appears only after a successful response with zero valid suggestions.
+* Timeout/error states are distinguishable from true empty results.
+* Retry works without restarting the app.
+* Logs show where the failure occurs: client timeout, Edge Function error, LLM timeout, parsing issue, or over-filtering.
+* The function requests enough candidate names that filtering does not wipe out all results.
+* The UI never gets stuck in loading, empty, or stale error state.
+* Existing premium gating should remain intact.
+* Existing liked names, matches, shortlist behavior, and partner sync should not be broken.
+
+After making changes:
+
+1. Summarize the root cause found.
+2. List every file changed.
+3. Explain how errors/timeouts/no-results are now distinguished.
+4. Explain how to test on Android internal testing.
+5. Provide any Supabase logs or RevenueCat/payment interactions if relevant, but do not change payment code unless it directly impacts AI Suggestions.

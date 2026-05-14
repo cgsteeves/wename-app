@@ -234,6 +234,30 @@ export default function AuthCallback() {
         );
         if (error) {
           console.error("[callback] native: PKCE exchange failed:", error.message);
+
+          // On Android, Chrome Custom Tabs fires the deep link both as the
+          // return value of openAuthSessionAsync (handled in signInWithGoogle,
+          // which already exchanged the code and consumed the PKCE verifier)
+          // AND as a real app deep link that routes here. By the time this
+          // screen tries to exchange the same code, the verifier is gone.
+          // If a session already exists it means signInWithGoogle succeeded —
+          // treat this as success rather than showing a spurious error screen.
+          if (Platform.OS === "android") {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              if (session) {
+                console.log(
+                  "[callback] native: PKCE verifier already consumed — existing session found, treating as success (Android deep-link race)",
+                );
+                clearSafety();
+                await navigateAfterAuth();
+                return;
+              }
+            } catch {
+              // getSession check failed — fall through to the real error below
+            }
+          }
+
           clearSafety();
           fail("EXCHANGE_CODE_FAILED", error.message || "Code exchange failed. Please try again.");
           return;

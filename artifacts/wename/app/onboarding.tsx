@@ -174,7 +174,20 @@ function StepDots({ step }: { step: Step }) {
 }
 
 function GlassCard({ children }: { children: React.ReactNode }) {
-  return <View style={styles.glassCard}>{children}</View>;
+  return (
+    <View
+      style={[
+        styles.glassCard,
+        Platform.OS === "android" && {
+          borderWidth: 2,
+          borderColor: "rgba(255,255,255,0.85)",
+          borderRadius: 28,
+        },
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 function PrimaryButton({
@@ -604,9 +617,9 @@ const styles = StyleSheet.create({
   },
   textInput: {
     backgroundColor: "rgba(255,255,255,0.8)",
-    borderWidth: 1,
-    borderColor: "hsl(35, 22%, 80%)",
-    borderRadius: 14,
+    borderWidth: Platform.OS === "android" ? 2 : 1,
+    borderColor: Platform.OS === "android" ? "hsl(35, 22%, 72%)" : "hsl(35, 22%, 80%)",
+    borderRadius: Platform.OS === "android" ? 16 : 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
@@ -616,9 +629,9 @@ const styles = StyleSheet.create({
   },
   codeDisplay: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderWidth: 1,
-    borderColor: "hsl(35, 22%, 80%)",
-    borderRadius: 14,
+    borderWidth: Platform.OS === "android" ? 2 : 1,
+    borderColor: Platform.OS === "android" ? "hsl(35, 22%, 72%)" : "hsl(35, 22%, 80%)",
+    borderRadius: Platform.OS === "android" ? 16 : 14,
     paddingVertical: 16,
     paddingHorizontal: 12,
     alignItems: "center",
@@ -659,9 +672,9 @@ const styles = StyleSheet.create({
   codeInput: {
     flex: 1,
     backgroundColor: "rgba(255,255,255,0.8)",
-    borderWidth: 1,
-    borderColor: "hsl(35, 22%, 80%)",
-    borderRadius: 14,
+    borderWidth: Platform.OS === "android" ? 2 : 1,
+    borderColor: Platform.OS === "android" ? "hsl(35, 22%, 72%)" : "hsl(35, 22%, 80%)",
+    borderRadius: Platform.OS === "android" ? 16 : 14,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,

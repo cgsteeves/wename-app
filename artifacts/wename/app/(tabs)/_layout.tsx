@@ -4,6 +4,7 @@ import { Tabs } from "expo-router";
 import React, { useEffect, useRef } from "react";
 import {
   Animated,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -175,7 +176,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
       style={[
         styles.barOuter,
         {
-          paddingBottom: Math.max(insets.bottom, 8),
+          paddingBottom: Math.max(insets.bottom, 8) + (Platform.OS === "android" ? 8 : 0),
           backgroundColor: "transparent",
         },
       ]}

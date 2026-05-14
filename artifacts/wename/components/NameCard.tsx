@@ -10,6 +10,7 @@ import React, {
 } from "react";
 import {
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -36,7 +37,7 @@ import { useColors } from "@/hooks/useColors";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 const CARD_W = Math.min(SCREEN_W - 32, 440);
-const CARD_H = Math.min(SCREEN_H * 0.78, 720);
+const CARD_H = Math.min(SCREEN_H * (Platform.OS === "android" ? 0.83 : 0.78), 720);
 const SWIPE_THRESHOLD = SCREEN_W * 0.27;
 const VELOCITY_THRESHOLD = 600;
 // Snappy underdamped spring — quick response, tiny natural bounce on settle.
@@ -385,7 +386,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
             fontFamily: fonts.hand,
             fontSize: 30,
             color: labelColor,
-            fontStyle: "italic",
+            ...(Platform.OS !== "android" && { fontStyle: "italic" }),
             textAlign: "center",
           }}
         >

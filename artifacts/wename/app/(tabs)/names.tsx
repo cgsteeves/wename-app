@@ -37,6 +37,7 @@ const paperTexture = require("../../assets/images/paper-texture.jpg");
 import { NameSuggestions } from "@/components/NameSuggestions";
 import { PartnerConnectModal } from "@/components/PartnerConnectModal";
 import { PremiumModal } from "@/components/PremiumModal";
+import { useAuth } from "@/components/AuthContext";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
@@ -78,6 +79,7 @@ const accentA = (accent: string, a: number) =>
 export default function NamesScreen() {
   const colors = useColors();
   const { user } = useUser();
+  const { isAuthenticated } = useAuth();
   const { hasPremiumEntitlement } = useSubscription();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
@@ -532,7 +534,9 @@ export default function NamesScreen() {
             user_b_id: b,
             gender: typedGender,
             manually_added: true,
-            manually_added_by_user_id: user.id,
+            // Only set when authenticated — the FK references auth.users, so
+            // a guest UUID (public.users only) would violate the constraint.
+            manually_added_by_user_id: isAuthenticated ? user.id : null,
           })
           .select("id")
           .single();

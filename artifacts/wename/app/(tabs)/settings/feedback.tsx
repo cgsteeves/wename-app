@@ -132,7 +132,10 @@ export default function FeedbackScreen() {
       );
     } catch (e) {
       console.error("[Feedback] submit error", e);
-      const msg = e instanceof Error ? e.message : "Something went wrong.";
+      const msg =
+        e instanceof Error
+          ? e.message
+          : (e as { message?: string })?.message ?? "Something went wrong.";
       Alert.alert("Could not send feedback", msg);
     } finally {
       setSubmitting(false);

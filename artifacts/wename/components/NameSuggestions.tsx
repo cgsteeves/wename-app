@@ -3,6 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { ImageBackground } from "expo-image";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -61,8 +62,16 @@ const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "";
 const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
 // Fetch timeout in milliseconds. Matches the OpenAI server-side timeout (25 s)
-// plus a buffer for Edge Function cold-start and network round-trip.
-const FETCH_TIMEOUT_MS = 30_000;
+// plus a generous buffer for Edge Function cold-start and network round-trip.
+// Android devices observe noticeably slower TLS handshakes on cold connections,
+// so we give them extra headroom.
+const FETCH_TIMEOUT_MS = Platform.OS === "android" ? 60_000 : 45_000;
+
+// ── Status state machine ─────────────────────────────────────────────────────
+// One explicit status replaces the implicit combination of loading / hasLoaded /
+// streamingDone / error / suggestions.length flags so that each UI affordance
+// is unambiguous (timeout vs error vs true-empty).
+type Status = "idle" | "loading" | "success" | "empty" | "error" | "timeout";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Props
@@ -94,21 +103,19 @@ export function NameSuggestions({
 
   const selectedStyle: StyleFilter = null;
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [status, setStatus] = useState<Status>("idle");
+  const [errorMessage, setErrorMessage] = useState("");
   const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
-  const [hasLoaded, setHasLoaded] = useState(false);
   const [shownNames, setShownNames] = useState<Set<string>>(new Set());
   // Mirror shownNames in a ref so fetchSuggestions can read the latest value
   // without needing it as a useCallback dependency (avoids infinite re-renders).
   const shownNamesRef = useRef<Set<string>>(new Set());
-  const [streamingDone, setStreamingDone] = useState(false);
   const hasFetchedOnMount = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // AbortController for the in-flight fetch. Replaced on every new top-level
-  // request (attempt === 0) and aborted on unmount or when a newer request starts.
+  // AbortController for the in-flight fetch. A fresh controller is created for
+  // every attempt (including silent retries) so each gets its own deadline.
   const abortControllerRef = useRef<AbortController | null>(null);
-  // Separate timeout handle for the per-request wall-clock deadline.
+  // Separate timeout handle for the per-attempt wall-clock deadline.
   const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Tuning preferences (chip selections). Persisted via AsyncStorage so they
@@ -120,6 +127,18 @@ export function NameSuggestions({
   // Tracks the tuning prefs that were active during the last successful fetch.
   // The Apply button appears whenever current prefs differ from this snapshot.
   const lastAppliedTuningRef = useRef<string[]>([]);
+
+  // Mirror name lists in refs so fetchSuggestions can read the latest values
+  // without becoming a dependency on every list change (which would cancel
+  // in-flight requests on every parent render).
+  const likedNamesRef = useRef<string[]>(likedNames);
+  const matchedNamesRef = useRef<string[]>(matchedNames);
+  const partnerLikedNamesRef = useRef<string[]>(partnerLikedNames);
+  const excludeNamesRef = useRef<string[]>(excludeNames);
+  useEffect(() => { likedNamesRef.current = likedNames; }, [likedNames]);
+  useEffect(() => { matchedNamesRef.current = matchedNames; }, [matchedNames]);
+  useEffect(() => { partnerLikedNamesRef.current = partnerLikedNames; }, [partnerLikedNames]);
+  useEffect(() => { excludeNamesRef.current = excludeNames; }, [excludeNames]);
 
   // Keep ref in sync with state so fetchSuggestions always reads the latest set
   useEffect(() => { shownNamesRef.current = shownNames; }, [shownNames]);
@@ -163,102 +182,188 @@ export function NameSuggestions({
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
   // `attempt` is internal — callers always use the default (0).
-  // On the first failure the function silently retries once after 3 s so that
-  // Supabase Edge Function cold-starts are invisible to the user.
-  const fetchSuggestions = useCallback(async (isRefresh: boolean, attempt = 0) => {
+  // On a transient failure (timeout, non-2xx, exception, empty response) the
+  // function silently retries once after 3 s so that Supabase Edge Function
+  // cold-starts are invisible to the user.
+  //
+  // opts.force = true means "user-initiated retry": reset the per-session
+  // shownNames so we can produce fresh names, and append ?noCache=1 so the
+  // Edge Function bypasses its KV cache.
+  const fetchSuggestions = useCallback(async (
+    opts: { isRefresh?: boolean; force?: boolean } = {},
+    attempt = 0,
+  ) => {
+    const { isRefresh = false, force = false } = opts;
+
     if (attempt === 0) {
       // Cancel any queued retry and previous in-flight request.
       if (retryTimeoutRef.current) {
         clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
       }
-      if (fetchTimeoutRef.current) {
-        clearTimeout(fetchTimeoutRef.current);
-        fetchTimeoutRef.current = null;
-      }
       abortControllerRef.current?.abort("cancelled");
 
-      // Fresh controller + wall-clock deadline for this request.
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      fetchTimeoutRef.current = setTimeout(() => {
-        controller.abort("timeout");
-      }, FETCH_TIMEOUT_MS);
+      if (force) {
+        // User asked for a truly fresh batch — drop session-shown names so the
+        // server can return previously-shown options if needed.
+        setShownNames(new Set());
+        shownNamesRef.current = new Set();
+      }
 
-      setLoading(true);
-      setError("");
+      setStatus("loading");
+      setErrorMessage("");
       setSuggestions([]);
       setAddedIds(new Set());
-      setStreamingDone(false);
     }
 
-    // Use the controller that was set up for attempt 0 of this request.
-    const signal = abortControllerRef.current?.signal;
+    // Fresh controller + wall-clock deadline for THIS attempt. Silent retries
+    // get a brand-new clock so the previous timeout doesn't immediately fire.
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+      fetchTimeoutRef.current = null;
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    fetchTimeoutRef.current = setTimeout(() => {
+      controller.abort("timeout");
+    }, FETCH_TIMEOUT_MS);
+    const signal = controller.signal;
 
-    const excludeForRequest = isRefresh
-      ? [...excludeNames, ...Array.from(shownNamesRef.current)]
-      : [...excludeNames];
+    // ── Compose excludeNames (≤ 30 entries) ────────────────────────────────
+    // Priority order so the most relevant exclusions survive the cap:
+    //   1. liked names         (user's own picks — never re-suggest)
+    //   2. matched names       (already paired with partner)
+    //   3. shown this session  (avoid duplicates within the panel)
+    //   4. extra (allSwiped)   (low-priority filler from the prop)
+    const norm = (n: string) => n.trim().toLowerCase();
+    const seenExclude = new Set<string>();
+    const excludeForRequest: string[] = [];
+    const sources = [
+      ...likedNamesRef.current,
+      ...matchedNamesRef.current,
+      ...Array.from(shownNamesRef.current),
+      ...excludeNamesRef.current,
+    ];
+    for (const raw of sources) {
+      const trimmed = (raw ?? "").trim();
+      if (!trimmed) continue;
+      const k = norm(trimmed);
+      if (seenExclude.has(k)) continue;
+      seenExclude.add(k);
+      excludeForRequest.push(trimmed);
+      if (excludeForRequest.length >= 30) break;
+    }
 
     const tuningForRequest = [...tuningPrefsRef.current];
 
-    if (attempt === 0) {
-      console.log("[NameSuggestions] fetch", {
-        isRefresh,
-        style: selectedStyle,
-        tuningPreferences: tuningForRequest,
-        likedCount: likedNames.length,
-        excludeCount: excludeForRequest.length,
-      });
-    }
+    const requestStartedAt = Date.now();
+    console.log("[NameSuggestions] fetch:start", {
+      attempt,
+      isRefresh,
+      force,
+      tuningCount: tuningForRequest.length,
+      likedCount: likedNamesRef.current.length,
+      matchedCount: matchedNamesRef.current.length,
+      excludeCount: excludeForRequest.length,
+      timeoutMs: FETCH_TIMEOUT_MS,
+    });
 
-    const scheduleRetry = () => {
-      // Keep skeleton visible; silently retry after 3 s
+    const scheduleRetry = (reason: string) => {
+      console.log("[NameSuggestions] fetch:retry-scheduled", { attempt, reason });
       retryTimeoutRef.current = setTimeout(
-        () => fetchSuggestions(isRefresh, attempt + 1),
+        () => fetchSuggestions(opts, attempt + 1),
         3000,
       );
     };
 
+    const url =
+      `${SUPABASE_URL}/functions/v1/suggest-names` +
+      (force ? "?noCache=1" : "");
+
     try {
-      const response = await fetch(
-        `${SUPABASE_URL}/functions/v1/suggest-names`,
-        {
-          method: "POST",
-          signal,
-          headers: {
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            gender: settingsGender,
-            likedNames,
-            matchedNames,
-            partnerLikedNames,
-            excludeNames: excludeForRequest,
-            style: selectedStyle,
-            lastName: user.baby_last_name ?? "",
-            tuningPreferences: tuningForRequest,
-          }),
+      const response = await fetch(url, {
+        method: "POST",
+        signal,
+        headers: {
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({
+          gender: settingsGender,
+          likedNames: likedNamesRef.current,
+          matchedNames: matchedNamesRef.current,
+          partnerLikedNames: partnerLikedNamesRef.current,
+          excludeNames: excludeForRequest,
+          style: selectedStyle,
+          lastName: user.baby_last_name ?? "",
+          tuningPreferences: tuningForRequest,
+        }),
+      });
+
+      console.log("[NameSuggestions] fetch:response", {
+        attempt,
+        status: response.status,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
 
       if (!response.ok) {
-        if (attempt === 0) { scheduleRetry(); return; }
+        if (attempt === 0) { scheduleRetry(`status_${response.status}`); return; }
         clearFetchTimeout();
-        setLoading(false);
-        setHasLoaded(true);
-        setError("Could not load suggestions. Please try again.");
-        setStreamingDone(true);
+        setStatus("error");
+        setErrorMessage("Couldn't load suggestions — try again.");
         return;
       }
 
-      // Transition: skeleton → streaming
       clearFetchTimeout();
-      setLoading(false);
-      setHasLoaded(true);
+
+      // Defensive client-side filter: drop any returned name that case-
+      // insensitively matches a liked/matched name. We keep names that match
+      // the prop excludeNames (already-swiped) since the server already saw
+      // them — but if it returns one anyway, it's probably the best it can do.
+      const filterSet = new Set<string>();
+      for (const n of likedNamesRef.current) filterSet.add(norm(n));
+      for (const n of matchedNamesRef.current) filterSet.add(norm(n));
 
       const fetched: Suggestion[] = [];
+      let chunkCount = 0;
+      let parsedCount = 0;
+      let filteredOutCount = 0;
+      let fallbackUsed: boolean | null = null;
+      let fallbackReason: string | null = null;
       let buffer = "";
+      const seenInThisBatch = new Set<string>();
+
+      const handleObj = (obj: unknown) => {
+        if (!obj || typeof obj !== "object") return;
+        const o = obj as Record<string, unknown>;
+        // Meta lines from the Edge Function — record but don't render.
+        if (o.type === "meta") {
+          if (typeof o.fallback === "boolean") fallbackUsed = o.fallback;
+          if (typeof o.reason === "string") fallbackReason = o.reason;
+          return;
+        }
+        if (typeof o.name !== "string" || typeof o.gender !== "string") return;
+        parsedCount++;
+        const k = norm(o.name);
+        if (!k || seenInThisBatch.has(k) || filterSet.has(k)) {
+          filteredOutCount++;
+          return;
+        }
+        seenInThisBatch.add(k);
+        const sug: Suggestion = {
+          name: o.name,
+          meaning: typeof o.meaning === "string" ? o.meaning : "",
+          gender: o.gender,
+          reason: typeof o.reason === "string" ? o.reason : undefined,
+        };
+        fetched.push(sug);
+        setSuggestions((prev) => [...prev, sug]);
+        setShownNames((prev) => {
+          const next = new Set(prev);
+          next.add(sug.name);
+          return next;
+        });
+      };
 
       const processLines = () => {
         const lines = buffer.split("\n");
@@ -267,12 +372,7 @@ export function NameSuggestions({
           const trimmed = line.trim();
           if (!trimmed) continue;
           try {
-            const obj = JSON.parse(trimmed) as Suggestion;
-            if (obj.name && obj.gender) {
-              fetched.push(obj);
-              setSuggestions((prev) => [...prev, obj]);
-              setShownNames((prev) => new Set([...prev, obj.name]));
-            }
+            handleObj(JSON.parse(trimmed));
           } catch {
             // incomplete chunk — skip
           }
@@ -287,6 +387,7 @@ export function NameSuggestions({
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            chunkCount++;
             buffer += decoder.decode(value, { stream: true });
             processLines();
           }
@@ -307,42 +408,62 @@ export function NameSuggestions({
         processLines();
       }
 
+      console.log("[NameSuggestions] fetch:done", {
+        attempt,
+        chunkCount,
+        parsedCount,
+        filteredOutCount,
+        finalCount: fetched.length,
+        fallbackUsed,
+        fallbackReason,
+        elapsedMs: Date.now() - requestStartedAt,
+      });
+
       if (fetched.length === 0) {
-        if (attempt === 0) { scheduleRetry(); return; }
-        setError("Could not load suggestions. Please try again.");
-      } else {
-        // Snapshot tuning prefs only on a successful, non-empty response so a
-        // failed/timed-out request keeps the Apply button visible for retry.
-        lastAppliedTuningRef.current = [...tuningPrefsRef.current];
+        if (attempt === 0) { scheduleRetry("empty_response"); return; }
+        // Truly empty after a retry — show the empty state, NOT an error.
+        setStatus("empty");
+        return;
       }
-      console.log("[NameSuggestions] received", { count: fetched.length });
-      setStreamingDone(true);
+
+      // Snapshot tuning prefs only on a successful, non-empty response so a
+      // failed/timed-out request keeps the Apply button visible for retry.
+      lastAppliedTuningRef.current = [...tuningPrefsRef.current];
+      setStatus("success");
     } catch (err) {
       clearFetchTimeout();
 
-      // Handle abort (cancelled by new request) silently.
       if (isAbortError(err)) {
-        const reason = abortControllerRef.current?.signal.reason ?? signal?.reason;
+        const reason =
+          (controller.signal.reason as string | undefined) ??
+          (signal.reason as string | undefined);
+        console.log("[NameSuggestions] fetch:aborted", { attempt, reason });
         if (reason === "cancelled") {
           // A newer request has taken over — this one can safely exit.
           return;
         }
-        // Timeout — inform the user.
-        setLoading(false);
-        setHasLoaded(true);
-        setError("Taking too long — tap Try Again to reload.");
-        setStreamingDone(true);
+        // Timeout: silently retry once on attempt 0 with a fresh controller;
+        // surface the timeout state only after the retry also fails.
+        if (attempt === 0) {
+          scheduleRetry("timeout");
+          return;
+        }
+        setStatus("timeout");
+        setErrorMessage("Suggestions took too long — try again.");
         return;
       }
 
-      if (attempt === 0) { scheduleRetry(); return; }
-      setLoading(false);
-      setHasLoaded(true);
-      setError("Something went wrong. Please try again.");
-      setStreamingDone(true);
+      console.log("[NameSuggestions] fetch:error", {
+        attempt,
+        message: err instanceof Error ? err.message : String(err),
+      });
+
+      if (attempt === 0) { scheduleRetry("exception"); return; }
+      setStatus("error");
+      setErrorMessage("Couldn't load suggestions — try again.");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [excludeNames, likedNames, matchedNames, partnerLikedNames, selectedStyle, settingsGender, user.baby_last_name]);
+  }, [selectedStyle, settingsGender, user.baby_last_name]);
 
   function clearFetchTimeout() {
     if (fetchTimeoutRef.current) {
@@ -357,7 +478,7 @@ export function NameSuggestions({
     if (!tuningLoaded) return;
     if (!hasFetchedOnMount.current && likedNames.length >= 3) {
       hasFetchedOnMount.current = true;
-      fetchSuggestions(false);
+      fetchSuggestions();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [likedNames.length, tuningLoaded]);
@@ -429,9 +550,9 @@ export function NameSuggestions({
               );
             })}
           </View>
-          {hasUnappliedTuning && hasLoaded && (
+          {hasUnappliedTuning && status !== "idle" && (
             <Pressable
-              onPress={() => fetchSuggestions(false)}
+              onPress={() => fetchSuggestions()}
               style={({ pressed }) => [
                 styles.applyBtn,
                 {
@@ -451,7 +572,7 @@ export function NameSuggestions({
       )}
 
       {/* Too few names card */}
-      {tooFewNames && !hasLoaded && (
+      {tooFewNames && status === "idle" && (
         <View
           style={[
             styles.tooFewCard,
@@ -481,11 +602,13 @@ export function NameSuggestions({
         </View>
       )}
 
-      {/* Loading skeleton */}
-      {loading && <SkeletonList isBoy={isBoy} accent={accent} />}
+      {/* Loading skeleton — only while the first batch hasn't arrived yet */}
+      {status === "loading" && suggestions.length === 0 && (
+        <SkeletonList isBoy={isBoy} accent={accent} />
+      )}
 
       {/* Suggestions list */}
-      {!loading && suggestions.length > 0 && (
+      {suggestions.length > 0 && (
         <View style={{ gap: 6 }}>
           {suggestions.map((s, i) => (
             <SuggestionTile
@@ -499,17 +622,16 @@ export function NameSuggestions({
             />
           ))}
 
-          {/* Refresh button (shown after streaming completes) */}
-          {streamingDone && (
+          {/* Refresh button (shown after a successful batch completes) */}
+          {status === "success" && (
             <Pressable
-              disabled={loading}
-              onPress={() => fetchSuggestions(true)}
+              onPress={() => fetchSuggestions({ isRefresh: true, force: true })}
               style={({ pressed }) => [
                 styles.refreshBtn,
                 {
                   backgroundColor: a(accent, 0.1),
                   borderColor: a(accent, 0.2),
-                  opacity: loading ? 0.5 : pressed ? 0.8 : 1,
+                  opacity: pressed ? 0.8 : 1,
                 },
               ]}
             >
@@ -522,8 +644,8 @@ export function NameSuggestions({
         </View>
       )}
 
-      {/* Empty after load */}
-      {!loading && hasLoaded && suggestions.length === 0 && !error && (
+      {/* Empty (true zero, after a successful response) */}
+      {status === "empty" && (
         <View style={{ alignItems: "center", paddingVertical: 32 }}>
           <Text
             style={{
@@ -536,7 +658,44 @@ export function NameSuggestions({
             No more new suggestions right now.
           </Text>
           <Pressable
-            onPress={() => fetchSuggestions(true)}
+            onPress={() => fetchSuggestions({ isRefresh: true, force: true })}
+            style={({ pressed }) => [
+              styles.refreshBtn,
+              {
+                backgroundColor: a(accent, 0.1),
+                borderColor: a(accent, 0.2),
+                paddingVertical: 8,
+                paddingHorizontal: 20,
+                alignSelf: "center",
+                marginTop: 12,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Feather name="refresh-cw" size={14} color={accent} />
+            <Text style={[styles.refreshBtnText, { color: accent }]}>
+              Try Again
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Timeout / Error — distinct copy, both with a working Try Again */}
+      {(status === "timeout" || status === "error") && (
+        <View style={{ alignItems: "center", paddingVertical: 24 }}>
+          <Text
+            style={{
+              fontFamily: fonts.display,
+              fontSize: 13,
+              color: MUTED,
+              textAlign: "center",
+              paddingHorizontal: 16,
+            }}
+          >
+            {errorMessage}
+          </Text>
+          <Pressable
+            onPress={() => fetchSuggestions({ force: true })}
             style={({ pressed }) => [
               styles.refreshBtn,
               {
@@ -559,11 +718,11 @@ export function NameSuggestions({
       )}
 
       {/* Not yet loaded, enough likes — show generate button */}
-      {!loading && !hasLoaded && !tooFewNames && (
+      {status === "idle" && !tooFewNames && (
         <Pressable
           onPress={() => {
             hasFetchedOnMount.current = true;
-            fetchSuggestions(false);
+            fetchSuggestions();
           }}
           style={({ pressed }) => [
             styles.generateBtn,
@@ -579,11 +738,6 @@ export function NameSuggestions({
             Generate Suggestions
           </Text>
         </Pressable>
-      )}
-
-      {/* Error */}
-      {!!error && (
-        <Text style={styles.errorText}>{error}</Text>
       )}
     </View>
   );

@@ -120,6 +120,7 @@ function buildFallbackText(
   gender: string,
   style: string | null,
   excludeNames: string[],
+  reason: "llm_timeout" | "llm_error" | "llm_empty",
 ): string {
   const gKey = gender === "girl" ? "girl" : "boy";
   const excludeSet = new Set(excludeNames.map((n) => n.toLowerCase()));
@@ -139,7 +140,10 @@ function buildFallbackText(
   // If the exclude list has exhausted the pool, serve all names anyway so
   // the user always gets something rather than an empty screen.
   const selected = (available.length >= 4 ? available : pool).slice(0, 8);
-  return selected
+  // Prefix with a meta line so the client can distinguish fallback from real
+  // success and surface the right error copy / logging.
+  const meta = JSON.stringify({ type: "meta", fallback: true, reason }) + "\n";
+  return meta + selected
     .map((n) => JSON.stringify({ name: n.name, meaning: n.meaning, gender: gKey, reason: n.reason }))
     .join("\n") + "\n";
 }
@@ -168,6 +172,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
   if (!openaiKey) {
     return jsonError("OpenAI API key not configured");
   }
+
+  const invokedAt = Date.now();
+  // Bypass the KV cache when the client appends ?noCache=1 — used by user-
+  // initiated retries so that a stale or unhelpful cached entry can't make
+  // the "Try Again" button silently re-serve the same response.
+  const reqUrl = new URL(req.url);
+  const noCache = reqUrl.searchParams.get("noCache") === "1";
 
   let body: {
     gender?: string;
@@ -236,7 +247,8 @@ Deno.serve(async (req: Request): Promise<Response> => {
     matchedCount: matchedNames.length,
     partnerLikedCount: partnerLikedNames.length,
     excludeCount: excludeNames.length,
-    tuningPreferences,
+    tuningCount: tuningPreferences.length,
+    noCache,
   });
 
   // ── Deno KV cache ─────────────────────────────────────────────────────────
@@ -255,37 +267,60 @@ Deno.serve(async (req: Request): Promise<Response> => {
   const cacheKey = await sha256Short(cacheFingerprint);
 
   let kv: Deno.Kv | null = null;
-  try {
-    kv = await Deno.openKv();
-  } catch {
-    // KV unavailable in this environment — skip caching
+  if (!noCache) {
+    try {
+      kv = await Deno.openKv();
+    } catch {
+      // KV unavailable in this environment — skip caching
+    }
   }
 
-  if (kv) {
+  if (kv && !noCache) {
     try {
       const cached = await kv.get<string>(["sg", cacheKey]);
       if (cached.value) {
-        // Filter out any names the user has already seen in this session
+        // Filter out any names the user has already seen in this session, and
+        // pass through any meta lines that may already be in the cached blob.
         const excludeSet = new Set(excludeNames.map((n) => n.toLowerCase()));
-        const filtered = cached.value
-          .split("\n")
-          .filter((line) => {
-            if (!line.trim()) return false;
-            try {
-              const obj = JSON.parse(line) as { name: string };
-              return !excludeSet.has(obj.name.toLowerCase());
-            } catch {
-              return false;
-            }
-          })
-          .join("\n") + "\n";
+        const filteredLines: string[] = [];
+        let nameCount = 0;
+        for (const line of cached.value.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const obj = JSON.parse(line) as { type?: string; name?: string };
+            if (obj.type === "meta") { filteredLines.push(line); continue; }
+            if (typeof obj.name !== "string") continue;
+            if (excludeSet.has(obj.name.toLowerCase())) continue;
+            filteredLines.push(line);
+            nameCount++;
+          } catch {
+            // skip malformed
+          }
+        }
 
         // Only use the cache if at least 4 names survive the exclusion filter
-        const count = filtered.split("\n").filter((l) => l.trim()).length;
-        if (count >= 4) {
-          return plainResponse(filtered);
+        if (nameCount >= 4) {
+          // Prepend a meta line if the cached blob didn't already have one
+          // (older cache entries predate the meta protocol). Always cap at 8.
+          const hasMeta = filteredLines.some((l) => l.includes('"type":"meta"'));
+          const limited: string[] = [];
+          let emittedNames = 0;
+          for (const line of filteredLines) {
+            if (line.includes('"type":"meta"')) { limited.push(line); continue; }
+            if (emittedNames >= 8) break;
+            limited.push(line);
+            emittedNames++;
+          }
+          const prefix = hasMeta
+            ? ""
+            : JSON.stringify({ type: "meta", fallback: false, cached: true }) + "\n";
+          console.log("[suggest-names] cache:hit", {
+            cacheKey,
+            nameCount: emittedNames,
+            elapsedMs: Date.now() - invokedAt,
+          });
+          return plainResponse(prefix + limited.join("\n") + "\n");
         }
-        // Otherwise fall through and fetch fresh results
       }
     } catch {
       // KV read error — continue to OpenAI
@@ -347,11 +382,13 @@ Deno.serve(async (req: Request): Promise<Response> => {
           .join("\n")
       : "";
 
-  // Request 8 names — enough for a good set, fewer tokens means faster response.
-  const prompt = `You are a helpful baby name expert. Suggest 8 unique baby ${gender} names.
+  // Ask the LLM for 16 names (we only emit 8). The extra headroom makes the
+  // exclude-filter robust against duplicates and overlapping names without
+  // emptying the result set.
+  const prompt = `You are a helpful baby name expert. Suggest 16 unique baby ${gender} names.
 ${tasteContext}${styleContext}${lastNameContext}${tuningContext}${excludeContext}
 
-Always return exactly 8 names. If constraints conflict, relax the weakest ones to reach 8.
+Always return exactly 16 names. If constraints conflict, relax the weakest ones to reach 16.
 
 Return ONLY a JSON array of objects, nothing else. Each object must have:
 - "name": the baby name (string)
@@ -367,6 +404,8 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
   // ── Call OpenAI with streaming + 25 s timeout ────────────────────────────
   const openaiController = new AbortController();
   const openaiTimeout = setTimeout(() => openaiController.abort(), 25_000);
+  const openaiStartedAt = Date.now();
+  console.log("[suggest-names] openai:start", { cacheKey });
 
   let openaiRes: Response;
   try {
@@ -380,21 +419,31 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [{ role: "user", content: prompt }],
-        max_tokens: 1100,
+        max_tokens: 1800,
         temperature: 0.75,
         stream: true,
       }),
     });
-  } catch {
+  } catch (err) {
     clearTimeout(openaiTimeout);
+    const message = err instanceof Error ? err.message : String(err);
+    console.log("[suggest-names] openai:fetch-failed", {
+      message,
+      elapsedMs: Date.now() - openaiStartedAt,
+    });
     // OpenAI unreachable or timed out — return static fallback
-    return plainResponse(buildFallbackText(gender, style, excludeNames));
+    return plainResponse(buildFallbackText(gender, style, excludeNames, "llm_timeout"));
   } finally {
     clearTimeout(openaiTimeout);
   }
 
+  console.log("[suggest-names] openai:headers", {
+    status: openaiRes.status,
+    elapsedMs: Date.now() - openaiStartedAt,
+  });
+
   if (!openaiRes.ok) {
-    return plainResponse(buildFallbackText(gender, style, excludeNames));
+    return plainResponse(buildFallbackText(gender, style, excludeNames, "llm_error"));
   }
 
   // ── Stream back parsed suggestion objects ────────────────────────────────
@@ -408,6 +457,18 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
     let jsonBuffer = "";
     // Accumulate the full output for caching after the stream ends.
     let cacheAccumulator = "";
+    // Track first-byte and counts for structured logging.
+    let firstByteAt: number | null = null;
+    let parsedPreFilter = 0;
+    let emittedPostFilter = 0;
+    // Server-side exclude + dedupe so we emit at most 8 unique non-excluded names.
+    const excludeLower = new Set(excludeNames.map((n) => n.toLowerCase()));
+    const seenLower = new Set<string>();
+
+    // Emit the success meta line first so the client can record fallback=false.
+    const startMeta = JSON.stringify({ type: "meta", fallback: false }) + "\n";
+    await writer.write(encoder.encode(startMeta));
+    cacheAccumulator += startMeta;
 
     const flush = async () => {
       let i = 0;
@@ -434,9 +495,16 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
                 try {
                   const obj = JSON.parse(slice);
                   if (obj.name && obj.gender) {
-                    const line = JSON.stringify(obj) + "\n";
-                    await writer.write(encoder.encode(line));
-                    cacheAccumulator += line;
+                    parsedPreFilter++;
+                    const k = String(obj.name).trim().toLowerCase();
+                    const skip = !k || seenLower.has(k) || excludeLower.has(k);
+                    if (!skip && emittedPostFilter < 8) {
+                      seenLower.add(k);
+                      emittedPostFilter++;
+                      const line = JSON.stringify(obj) + "\n";
+                      await writer.write(encoder.encode(line));
+                      cacheAccumulator += line;
+                    }
                   }
                 } catch {
                   // invalid slice — skip
@@ -459,6 +527,12 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
       outer: while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (firstByteAt === null) {
+          firstByteAt = Date.now();
+          console.log("[suggest-names] openai:first-byte", {
+            elapsedMs: firstByteAt - openaiStartedAt,
+          });
+        }
         const text = decoder.decode(value, { stream: true });
         const lines = text.split("\n");
         for (const line of lines) {
@@ -472,6 +546,7 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
             if (content) {
               jsonBuffer += content;
               await flush();
+              if (emittedPostFilter >= 8) break outer;
             }
           } catch {
             // malformed SSE chunk — skip
@@ -479,10 +554,36 @@ Do not include markdown, code blocks, or any text outside the JSON array.`;
         }
       }
     } finally {
+      console.log("[suggest-names] openai:done", {
+        parsedPreFilter,
+        emittedPostFilter,
+        ttfbMs: firstByteAt ? firstByteAt - openaiStartedAt : null,
+        totalMs: Date.now() - openaiStartedAt,
+        invocationMs: Date.now() - invokedAt,
+      });
+
+      // If the LLM yielded zero usable names, retroactively emit a fallback
+      // meta + the static fallback names so the client never gets an empty
+      // success response.
+      if (emittedPostFilter === 0) {
+        try {
+          const fallbackBlob = buildFallbackText(gender, style, excludeNames, "llm_empty");
+          // The fallback already starts with its own meta line; the earlier
+          // success meta is now wrong but the client treats the latest meta
+          // as authoritative. Append the fallback as-is.
+          await writer.write(encoder.encode(fallbackBlob));
+          // Don't cache empty/fallback responses.
+          cacheAccumulator = "";
+        } catch {
+          // writer may be closed already
+        }
+      }
+
       await writer.close();
 
-      // Persist to KV cache (20-minute TTL) after the stream completes.
-      if (kv && cacheAccumulator) {
+      // Persist to KV cache (20-minute TTL) after the stream completes — but
+      // only on real successes and only when caching is permitted.
+      if (kv && !noCache && cacheAccumulator && emittedPostFilter > 0) {
         try {
           await kv.set(["sg", cacheKey], cacheAccumulator, {
             expireIn: 20 * 60 * 1000,

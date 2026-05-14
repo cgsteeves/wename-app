@@ -1561,8 +1561,8 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingVertical: 9,
     paddingHorizontal: 10,
-    borderRadius: 14,
-    borderWidth: 1.5,
+    borderRadius: Platform.OS === "android" ? 18 : 14,
+    borderWidth: Platform.OS === "android" ? 2 : 1.5,
   },
   tabLabel: {
     fontFamily: fonts.displayMedium,

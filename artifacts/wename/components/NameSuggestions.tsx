@@ -325,6 +325,12 @@ export function NameSuggestions({
       for (const n of matchedNamesRef.current) filterSet.add(norm(n));
 
       const fetched: Suggestion[] = [];
+      // Mirror of every valid suggestion object the server sent, BEFORE the
+      // defensive client-side filter. If the filter ends up wiping everything
+      // (e.g. the server already returned only liked/matched names because the
+      // taste profile is exhausted) we fall back to showing this raw set
+      // rather than collapsing to the empty state.
+      const rawFromServer: Suggestion[] = [];
       let chunkCount = 0;
       let parsedCount = 0;
       let filteredOutCount = 0;
@@ -344,18 +350,19 @@ export function NameSuggestions({
         }
         if (typeof o.name !== "string" || typeof o.gender !== "string") return;
         parsedCount++;
-        const k = norm(o.name);
-        if (!k || seenInThisBatch.has(k) || filterSet.has(k)) {
-          filteredOutCount++;
-          return;
-        }
-        seenInThisBatch.add(k);
         const sug: Suggestion = {
           name: o.name,
           meaning: typeof o.meaning === "string" ? o.meaning : "",
           gender: o.gender,
           reason: typeof o.reason === "string" ? o.reason : undefined,
         };
+        rawFromServer.push(sug);
+        const k = norm(o.name);
+        if (!k || seenInThisBatch.has(k) || filterSet.has(k)) {
+          filteredOutCount++;
+          return;
+        }
+        seenInThisBatch.add(k);
         fetched.push(sug);
         setSuggestions((prev) => [...prev, sug]);
         setShownNames((prev) => {
@@ -406,6 +413,35 @@ export function NameSuggestions({
         const text = await response.text().catch(() => "");
         buffer = text + "\n";
         processLines();
+      }
+
+      // If the client-side filter wiped the entire batch but the server
+      // actually sent suggestions, prefer showing the raw set over the empty
+      // state. This honors the "dedupe never wipes the whole result set to
+      // zero" requirement.
+      if (fetched.length === 0 && rawFromServer.length > 0) {
+        // De-duplicate within the raw batch only (not against liked/matched).
+        const seenRaw = new Set<string>();
+        const recovered: Suggestion[] = [];
+        for (const sug of rawFromServer) {
+          const k = norm(sug.name);
+          if (!k || seenRaw.has(k)) continue;
+          seenRaw.add(k);
+          recovered.push(sug);
+        }
+        if (recovered.length > 0) {
+          console.log("[NameSuggestions] fetch:filter-rescued", {
+            attempt,
+            recovered: recovered.length,
+          });
+          fetched.push(...recovered);
+          setSuggestions(recovered);
+          setShownNames((prev) => {
+            const next = new Set(prev);
+            for (const s of recovered) next.add(s.name);
+            return next;
+          });
+        }
       }
 
       console.log("[NameSuggestions] fetch:done", {

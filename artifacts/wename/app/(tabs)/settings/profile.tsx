@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   Alert,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -303,23 +304,33 @@ function GenderButton({
     borderWidth: 1,
   };
 
+  // On Android, absoluteFill children are clipped away by overflow:hidden,
+  // making the active button invisible. Set backgroundColor directly on the
+  // Pressable instead and skip the absoluteFill views entirely.
+  const androidActiveColor =
+    gender === "boy" ? BOY_BLUE : gender === "girl" ? GIRL_PINK : EITHER_ORANGE;
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.genderBtn,
-        active ? {} : inactiveStyle,
+        active
+          ? Platform.OS === "android"
+            ? { backgroundColor: androidActiveColor }
+            : {}
+          : inactiveStyle,
         { transform: [{ scale: pressed ? 0.96 : 1 }] },
       ]}
     >
-      {active && gender === "either" ? (
+      {Platform.OS !== "android" && active && gender === "either" ? (
         <LinearGradient
           colors={[BOY_BLUE, GIRL_PINK, EITHER_ORANGE]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={[StyleSheet.absoluteFill, { borderRadius: 12 }]}
         />
-      ) : active ? (
+      ) : Platform.OS !== "android" && active ? (
         <View
           style={[
             StyleSheet.absoluteFill,

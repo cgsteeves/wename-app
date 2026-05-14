@@ -13,7 +13,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useAuth } from "@/components/AuthContext";
 import { SubPageHeader } from "@/components/SubPageHeader";
 import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
@@ -53,7 +52,6 @@ export default function PremiumScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useUser();
-  const { isPurchaseEligible, openAuthModal } = useAuth();
   const {
     purchase,
     restore,
@@ -78,18 +76,7 @@ export default function PremiumScreen() {
   async function handleUpgrade() {
     if (!pkg) return;
 
-    if (!isPurchaseEligible) {
-      // Guest — must sign in before purchasing so the purchase is tied to
-      // their account and can be restored across devices.
-      console.log("[PremiumScreen] upgrade tapped by guest — prompting sign-in");
-      openAuthModal({
-        title: "Sign in to purchase",
-        body: "Create an account first so your premium access is linked to your account and can be restored on any device.",
-      });
-      return;
-    }
-
-    // Req 2: If the entitlement is already active, never call purchasePackage.
+    // If the entitlement is already active, never call purchasePackage.
     // This prevents the appearance of granting premium "without payment" when
     // RevenueCat has already transferred/restored an existing purchase.
     if (hasPremiumEntitlement) {
@@ -109,7 +96,6 @@ export default function PremiumScreen() {
       pkg: pkg.identifier,
       productId: pkg.product.identifier,
       price: pkg.product.priceString,
-      isPurchaseEligible,
       hasPremiumEntitlementBefore: hasPremiumEntitlement,
       supabaseUserId: user?.id?.slice(-8),
       rcAppUserId: customerInfo?.originalAppUserId,

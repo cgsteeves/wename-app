@@ -895,7 +895,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 56,
+    bottom: Platform.OS === "android" ? 16 : 56,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",

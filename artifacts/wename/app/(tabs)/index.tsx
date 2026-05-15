@@ -5,6 +5,8 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -47,6 +49,19 @@ export default function SwipeScreen() {
   } = useUser();
   const { signOut } = useAuth();
   const insets = useSafeAreaInsets();
+
+  // Android: close the parchment gap that appears below the name card.
+  // CARD_H in NameCard.tsx is SCREEN_H * 0.83; the tab bar + top insets eat
+  // into the cardArea, leaving leftover space below the card. Compute how
+  // much extra paddingBottom is needed to consume that excess.
+  const rootPaddingBottom = React.useMemo(() => {
+    if (Platform.OS !== "android") return 8;
+    const SCREEN_H = Dimensions.get("window").height;
+    const tabBarEst = Math.max(insets.bottom, 8) + 60; // matches CustomTabBar height
+    const excess = Math.round(SCREEN_H * 0.17 - tabBarEst - (insets.top + 4) - 8);
+    return Math.max(8, excess);
+  }, [insets.bottom, insets.top]);
+
   const { redirect, openPremium } = useLocalSearchParams<{ redirect?: string; openPremium?: string }>();
 
   // Consume post-auth redirect params (e.g. after signing in from partner invite gate)
@@ -587,7 +602,7 @@ export default function SwipeScreen() {
         {
           backgroundColor: colors.parchment,
           paddingTop: insets.top + 4,
-          paddingBottom: 8,
+          paddingBottom: rootPaddingBottom,
         },
       ]}
     >

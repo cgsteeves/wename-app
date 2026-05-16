@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -50,17 +50,21 @@ export default function SwipeScreen() {
   const { signOut } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // Android: close the parchment gap that appears below the name card.
-  // CARD_H in NameCard.tsx is SCREEN_H * 0.83; the tab bar + top insets eat
-  // into the cardArea, leaving leftover space below the card. Compute how
-  // much extra paddingBottom is needed to consume that excess.
-  const rootPaddingBottom = React.useMemo(() => {
+  // Android: the custom tab bar is position:absolute so React Navigation gives
+  // the screen the full window height. We use onLayout to measure the exact
+  // root view height, then derive the paddingBottom that makes the card
+  // fill all available space (leaving only a small gap above the tab bar).
+  const [rootViewH, setRootViewH] = useState(0);
+  const rootPaddingBottom = useMemo(() => {
     if (Platform.OS !== "android") return 8;
+    if (rootViewH === 0) return 8; // before first layout
     const SCREEN_H = Dimensions.get("window").height;
-    const tabBarEst = Math.max(insets.bottom, 8) + 60; // matches CustomTabBar height
-    const excess = Math.round(SCREEN_H * 0.17 - tabBarEst - (insets.top + 4) - 8);
-    return Math.max(8, excess);
-  }, [insets.bottom, insets.top]);
+    const CARD_H = Math.min(SCREEN_H * 0.83, 720);
+    const paddingTop = insets.top + 4;
+    // Fill the space: paddingBottom absorbs everything below the card.
+    const pb = Math.max(8, rootViewH - paddingTop - CARD_H - 8);
+    return pb;
+  }, [rootViewH, insets.top]);
 
   const { redirect, openPremium } = useLocalSearchParams<{ redirect?: string; openPremium?: string }>();
 
@@ -597,6 +601,10 @@ export default function SwipeScreen() {
   const undoEnabled = history.length > 0 && currentIndex > 0;
   return (
     <View
+      onLayout={(e) => {
+        const h = e.nativeEvent.layout.height;
+        if (h > 0) setRootViewH(h);
+      }}
       style={[
         styles.root,
         {

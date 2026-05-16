@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import {
   Alert,
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -360,7 +361,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.hand,
     fontSize: 22,
     color: GRASS,
-    fontStyle: "italic",
+    ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
     textAlign: "center",
   },
   sectionDivider: {

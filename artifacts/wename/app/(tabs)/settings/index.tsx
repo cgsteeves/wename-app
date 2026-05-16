@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUser } from "@/components/UserContext";
@@ -179,7 +179,7 @@ export default function SettingsHub() {
 const styles = StyleSheet.create({
   headerWrap: { alignItems: "center", marginBottom: 18 },
   title: { fontSize: 30, fontFamily: fonts.hand, lineHeight: 38 },
-  subtitle: { fontSize: 14, fontFamily: fonts.hand, marginTop: 2, fontStyle: "italic" },
+  subtitle: { fontSize: 14, fontFamily: fonts.hand, marginTop: 2, ...(Platform.OS !== "android" && { fontStyle: "italic" as const }) },
   card: {
     borderRadius: 16,
     borderWidth: 1,

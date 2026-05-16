@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     fontFamily: fonts.hand,
     fontSize: 28,
     color: GRASS,
-    fontStyle: "italic",
+    ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
     textAlign: "center",
   },
   divider: {

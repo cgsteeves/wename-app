@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
   handLabel: {
     fontSize: 17,
     fontFamily: "PatrickHand_400Regular",
-    fontStyle: "italic",
+    ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
     color: "hsl(25, 12%, 48%)",
     textAlign: "center",
     marginBottom: 12,

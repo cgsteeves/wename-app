@@ -1379,7 +1379,7 @@ function NameInfoSheet({
                 fontSize: 20,
                 color: accent,
                 opacity: 0.8,
-                fontStyle: "italic",
+                ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
                 textAlign: "center",
               }}
             >
@@ -1413,7 +1413,7 @@ function NameInfoSheet({
                 style={{
                   fontFamily: fonts.display,
                   fontSize: 14,
-                  fontStyle: "italic",
+                  ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
                   color: accent,
                   opacity: 0.6,
                   textAlign: "center",

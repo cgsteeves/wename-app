@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { fonts } from "@/constants/fonts";
@@ -51,7 +51,7 @@ export function SubPageHeader({
               fontSize: 13,
               color: colors.mutedForeground,
               marginTop: 1,
-              fontStyle: "italic",
+              ...(Platform.OS !== "android" && { fontStyle: "italic" as const }),
             }}
             numberOfLines={1}
           >

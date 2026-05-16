@@ -1018,7 +1018,7 @@ function TabButton({
       style={({ pressed }) => [
         styles.tab,
         {
-          backgroundColor: active ? accentA(accent, 0.15) : "rgba(255,255,255,0.72)",
+          backgroundColor: active ? accentA(accent, 0.25) : "rgba(244,235,212,0.95)",
           borderColor: active ? accentA(accent, 0.45) : BORDER_A(0.18),
           shadowColor: active ? accent : "#000",
           shadowOffset: { width: 0, height: active ? 2 : 1 },
@@ -1197,7 +1197,7 @@ function DraggableNameRow({
 
   return (
     <Animated.View style={[{ marginBottom: 6 }, animStyle]}>
-      <View style={[styles.row, { borderColor }]}>
+      <View style={[styles.row, { borderColor, backgroundColor: isBoy ? "hsl(214,72%,88%)" : "hsl(350,75%,92%)" }]}>
         {isBoy ? (
           <>
             <Image

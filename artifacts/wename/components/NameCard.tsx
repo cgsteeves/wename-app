@@ -651,7 +651,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
                     style={{
                       fontFamily: fonts.display,
                       fontSize: 14,
-                      fontStyle: "italic",
+                      ...(Platform.OS !== "android" && { fontStyle: "italic" }),
                       color: nameColor,
                       opacity: 0.6,
                       textAlign: "center",
@@ -876,7 +876,7 @@ const styles = StyleSheet.create({
   },
   pronText: {
     fontSize: 16,
-    fontStyle: "italic",
+    ...(Platform.OS !== "android" && { fontStyle: "italic" }),
     textAlign: "center",
     marginTop: 4,
     letterSpacing: 0.4,

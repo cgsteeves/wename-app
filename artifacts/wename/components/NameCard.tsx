@@ -86,6 +86,9 @@ export type NameCardProps = {
   lastName?: string;
   isPartnerPick?: boolean;
   isNext?: boolean;
+  // Android: pass the exact available card height computed from screen space
+  // minus the absolute tab bar height. Falls back to module-level CARD_H.
+  cardHeight?: number;
   // True when this card has been swiped and is now the exiting layer.
   // Disables gestures, hides interactive UI, and prevents pointer capture
   // so the user can immediately interact with the new active card behind.
@@ -120,12 +123,16 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
     isOutgoing,
     canUndo,
     dragProgress,
+    cardHeight,
     onSwipe,
     onExitComplete,
     onUndo,
   },
   ref,
 ) {
+  // Use caller-provided height (Android exact fit) or fall back to the
+  // module-level default. All visual height usages reference cardH.
+  const cardH = cardHeight ?? CARD_H;
   const colors = useColors();
   const isBoy = gender === "boy";
   const labelColor = isBoy ? colors.boy : colors.girlPink;
@@ -146,14 +153,14 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
   // where the user grabs a card mid-flight after onSwipe has already
   // advanced the parent's index.
   const isCommitted = useSharedValue(false);
-  const sheetY = useSharedValue(CARD_H);
+  const sheetY = useSharedValue(cardH);
 
   function openInfo() {
     setInfoOpen(true);
     sheetY.value = withTiming(0, { duration: 180 });
   }
   function closeInfo() {
-    sheetY.value = withTiming(CARD_H, { duration: 240 }, (finished) => {
+    sheetY.value = withTiming(cardH, { duration: 240 }, (finished) => {
       if (finished) runOnJS(setInfoOpen)(false);
     });
   }
@@ -546,7 +553,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
         <Animated.View
           style={[
             styles.cardWrap,
-            { width: CARD_W, height: CARD_H, borderColor: colors.border + "66" },
+            { width: CARD_W, height: cardH, borderColor: colors.border + "66" },
             isNext ? nextStackStyle : cardStyle,
           ]}
         >
@@ -561,7 +568,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
             pointerEvents="auto"
             style={[
               styles.inCardBackdrop,
-              { width: CARD_W, height: CARD_H },
+              { width: CARD_W, height: cardH },
               sheetBackdropStyle,
             ]}
           >
@@ -571,7 +578,7 @@ const NameCard = forwardRef<NameCardHandle, NameCardProps>(function NameCard(
             <Animated.View
               style={[
                 styles.inCardSheet,
-                { width: CARD_W, height: CARD_H },
+                { width: CARD_W, height: cardH },
                 sheetStyle,
               ]}
             >

@@ -27,6 +27,7 @@ import { useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
 import { useColors } from "@/hooks/useColors";
 import { FREE_LIMITS, useDailyLimits } from "@/hooks/useDailyLimits";
+import { TAB_BAR_INNER_HEIGHT, TAB_BAR_BOTTOM_PAD_ANDROID } from "./_layout";
 import { authSignOut } from "@/lib/authService";
 import { getAllPacks, getPartnerCreatedNames, getSwipeableNames } from "@/lib/namePacks";
 import { useSubscription } from "@/lib/revenuecat";
@@ -50,21 +51,24 @@ export default function SwipeScreen() {
   const { signOut } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // Android: the custom tab bar is position:absolute so React Navigation gives
-  // the screen the full window height. We use onLayout to measure the exact
-  // root view height, then derive the paddingBottom that makes the card
-  // fill all available space (leaving only a small gap above the tab bar).
-  const [rootViewH, setRootViewH] = useState(0);
-  const rootPaddingBottom = useMemo(() => {
-    if (Platform.OS !== "android") return 8;
-    if (rootViewH === 0) return 8; // before first layout
-    const SCREEN_H = Dimensions.get("window").height;
-    const CARD_H = Math.min(SCREEN_H * 0.83, 720);
-    const paddingTop = insets.top + 4;
-    // Fill the space: paddingBottom absorbs everything below the card.
-    const pb = Math.max(8, rootViewH - paddingTop - CARD_H - 8);
-    return pb;
-  }, [rootViewH, insets.top]);
+  // Android: the custom tab bar uses position:absolute so React Navigation
+  // gives the screen full window height without reserving nav space.
+  // Compute the exact card height that fills the available vertical space
+  // (screen height minus top padding, tab bar height, and a small gap).
+  // This value is passed as `cardHeight` prop directly to every NameCard
+  // so the card itself is sized correctly — outer padding tricks don't work
+  // because the cards are position:absolute inside the cardArea.
+  const androidCardH = useMemo(() => {
+    if (Platform.OS !== "android") return undefined;
+    const screenH = Dimensions.get("window").height;
+    const topOffset = insets.top + 4; // matches paddingTop on root View
+    const tabBarH =
+      TAB_BAR_INNER_HEIGHT +
+      Math.max(insets.bottom, 8) +
+      TAB_BAR_BOTTOM_PAD_ANDROID;
+    const gap = 12; // desired gap between card bottom and nav top
+    return Math.min(screenH - topOffset - tabBarH - gap, 720);
+  }, [insets.top, insets.bottom]);
 
   const { redirect, openPremium } = useLocalSearchParams<{ redirect?: string; openPremium?: string }>();
 
@@ -601,16 +605,12 @@ export default function SwipeScreen() {
   const undoEnabled = history.length > 0 && currentIndex > 0;
   return (
     <View
-      onLayout={(e) => {
-        const h = e.nativeEvent.layout.height;
-        if (h > 0) setRootViewH(h);
-      }}
       style={[
         styles.root,
         {
           backgroundColor: colors.parchment,
           paddingTop: insets.top + 4,
-          paddingBottom: rootPaddingBottom,
+          paddingBottom: 8,
         },
       ]}
     >
@@ -640,6 +640,7 @@ export default function SwipeScreen() {
             lastName={user.baby_last_name ?? undefined}
             isPartnerPick={partnerPickIds.has(next.id)}
             isNext
+            cardHeight={androidCardH}
             dragProgress={dragProgress}
             onSwipe={() => {}}
           />
@@ -661,6 +662,7 @@ export default function SwipeScreen() {
               lastName={user.baby_last_name ?? undefined}
               isPartnerPick={partnerPickIds.has(card.id)}
               isOutgoing
+              cardHeight={androidCardH}
               onSwipe={() => {}}
               onExitComplete={() => {
                 setOutgoingIds((prev) => {
@@ -688,6 +690,7 @@ export default function SwipeScreen() {
             lastName={user.baby_last_name ?? undefined}
             isPartnerPick={partnerPickIds.has(current.id)}
             canUndo={undoEnabled}
+            cardHeight={androidCardH}
             dragProgress={dragProgress}
             onSwipe={handleSwipe}
             onUndo={handleUndo}

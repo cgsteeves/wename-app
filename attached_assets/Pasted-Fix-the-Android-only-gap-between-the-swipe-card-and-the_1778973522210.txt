@@ -1,0 +1,94 @@
+Fix the Android-only gap between the swipe card and the bottom navigation in WeName.
+
+Problem:
+On Android only, there is a large empty gap between the bottom of the swipe card and the custom bottom nav. The card should sit much closer to the nav, with only about 8–16dp of space between the card bottom/shadow and the top of the nav.
+
+This has been attempted multiple times. Do not make another small padding or margin tweak. Fix the layout structurally.
+
+Important context:
+- The custom tab bar in app/(tabs)/_layout.tsx uses position: "absolute".
+- Because the tab bar is absolute, React Navigation does not reserve space for it.
+- Previous fixes tried using SCREEN_H, CARD_H = SCREEN_H * 0.83, and onLayout/paddingBottom calculations.
+- The issue still exists, so the card is likely being sized from the wrong height or the computed layout is not actually controlling the card position.
+
+Goal:
+On Android, the swipe card should fill more of the available vertical space and end close to the bottom nav. iOS should remain unchanged if it already looks correct.
+
+Requirements:
+
+1. Do not add visible debug UI
+Do not add debug borders, overlays, labels, or visible diagnostic panels.
+
+2. Stop relying on CARD_H = SCREEN_H * 0.83 for Android
+A fixed percentage of total screen height is causing leftover vertical space. On Android, calculate the swipe card height from the actual available space between the top area and the top of the custom bottom nav.
+
+3. Measure or define the bottom nav height reliably
+The custom bottom nav is absolute, so the swipe screen must account for it directly.
+
+Use either:
+- a shared constant for the custom tab bar height and bottom offset, or
+- an onLayout measurement passed through context/state
+
+Do not rely on React Navigation to reserve the tab bar space.
+
+4. Size the Android card from available space
+For Android, calculate:
+
+availableCardHeight =
+screen/container height
+- top content offset
+- custom tab bar height
+- tab bar bottom offset
+- desiredGap
+
+Use desiredGap = 8 to 16.
+
+Then apply this height directly to the swipe card container/card.
+
+5. Ensure the card actually uses the calculated height
+Check that no later style overrides the calculated height.
+
+Inspect:
+- app/(tabs)/index.tsx
+- SwipeCard component
+- card wrapper styles
+- parent containers
+- any ScrollView/contentContainerStyle
+- SafeAreaView wrappers
+
+6. Remove layout hacks that fight each other
+Remove or simplify old Android-specific padding/margin calculations if they conflict with the new available-space-based card sizing.
+
+Specifically review:
+- rootPaddingBottom
+- CARD_H
+- bottom padding formulas
+- SafeArea bottom padding
+- marginBottom on card containers
+- justifyContent: "space-between"
+- flexGrow content wrappers
+
+7. Keep iOS stable
+If iOS currently looks good, avoid changing iOS layout. Use Platform.OS === "android" if needed.
+
+8. Acceptance criteria
+On Android:
+- the card bottom should sit close to the top of the bottom nav
+- target gap: 8–16dp
+- no overlap with the bottom nav
+- no overlap with Android system navigation
+- bottom card buttons remain visible
+- no large blank space remains between card and nav
+
+On iOS:
+- layout should remain unchanged or visually equivalent
+
+9. Final response required
+After implementing, report:
+- files changed
+- what old layout logic was removed
+- how the new Android card height is calculated
+- whether iOS was left unchanged
+- expected final gap between card and nav
+
+Do not modify unrelated auth, premium, RevenueCat, account deletion, AI suggestions, partner linking, or data logic.

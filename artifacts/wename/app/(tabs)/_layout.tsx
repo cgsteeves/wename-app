@@ -19,6 +19,12 @@ import { useUser } from "@/components/UserContext";
 
 const butterfly = require("../../assets/images/butterfly.png");
 
+// ─── Tab bar height constants (consumed by swipe screen for Android card sizing)
+// barInner: paddingVertical(8×2=16) + tabButton paddingVertical(2×2=4) + pill(36) + label(~14) ≈ 70
+export const TAB_BAR_INNER_HEIGHT = 70;
+// Extra bottom padding added on Android above Math.max(insets.bottom, 8)
+export const TAB_BAR_BOTTOM_PAD_ANDROID = 8;
+
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 const TABS = [
   { name: "index",    label: "Swipe",    icon: "layers"   as const },

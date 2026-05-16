@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
+    overflow: Platform.OS === "android" ? "visible" : "hidden",
     shadowColor: "#000",
     shadowOpacity: 0,
     shadowRadius: 0,

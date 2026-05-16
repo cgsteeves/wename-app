@@ -1018,13 +1018,13 @@ function TabButton({
       style={({ pressed }) => [
         styles.tab,
         {
-          backgroundColor: active ? accentA(accent, 0.25) : "rgba(244,235,212,0.95)",
-          borderColor: active ? accentA(accent, 0.45) : BORDER_A(0.18),
+          backgroundColor: active ? accentA(accent, 0.88) : "rgba(244,235,212,0.95)",
+          borderColor: active ? accentA(accent, 0.6) : BORDER_A(0.18),
           shadowColor: active ? accent : "#000",
           shadowOffset: { width: 0, height: active ? 2 : 1 },
           shadowOpacity: active ? 0.13 : 0.04,
           shadowRadius: active ? 4 : 2,
-          elevation: active ? 2 : 1,
+          elevation: 0,
           opacity: pressed ? 0.85 : 1,
         },
       ]}

@@ -27,9 +27,11 @@ export default function Home() {
           <img src={`${base}brand/icon.png`} alt="WeName App Icon" className="w-8 h-8 rounded-lg shadow-sm" />
           <span className="font-bold text-xl tracking-tight">WeName</span>
         </div>
-        <Button className="bg-[#fbb02d] text-[#42342c] hover:bg-[#fbb02d]/90 font-semibold rounded-full px-6 shadow-sm border border-[#fbb02d]/50">
-          Get the App
-        </Button>
+        <a href="https://apps.apple.com/ca/app/wename-find-baby-names/id6764540022" target="_blank" rel="noopener noreferrer">
+          <Button className="bg-[#fbb02d] text-[#42342c] hover:bg-[#fbb02d]/90 font-semibold rounded-full px-6 shadow-sm border border-[#fbb02d]/50">
+            Get the App
+          </Button>
+        </a>
       </nav>
 
       {/* Hero Section */}
@@ -37,12 +39,12 @@ export default function Home() {
         <div className="flex-1 space-y-6 z-10">
           <FadeIn>
             <h1 className="text-5xl md:text-6xl font-bold leading-tight text-[#42342c]">
-              Find a baby name you both love
+              The baby name app for couples
             </h1>
           </FadeIn>
           <FadeIn delay={0.2}>
             <p className="text-xl text-[#897a72] leading-relaxed max-w-lg">
-              Swipe through beautiful baby name cards, match with your partner, and build a shortlist together — without the endless back-and-forth.
+              Swipe through baby names separately, match on the names you both like, and build a shortlist together.
             </p>
           </FadeIn>
           <FadeIn delay={0.4} className="flex flex-col sm:flex-row gap-4 pt-4">
@@ -105,10 +107,22 @@ export default function Home() {
         </div>
       </section>
 
+      {/* What is WeName? */}
+      <section className="py-24 px-6 max-w-3xl mx-auto text-center">
+        <FadeIn>
+          <h2 className="text-3xl md:text-4xl font-bold mb-8">What is WeName?</h2>
+        </FadeIn>
+        <FadeIn delay={0.2}>
+          <p className="text-xl text-[#897a72] leading-relaxed">
+            WeName is a <strong className="text-[#42342c]">baby name app for couples</strong>. Each partner swipes through baby names independently, and WeName shows the names both people liked. It helps expecting parents build a shared shortlist without managing separate notes, screenshots, or text threads.
+          </p>
+        </FadeIn>
+      </section>
+
       {/* How it Works Section */}
       <section className="py-24 px-6 max-w-5xl mx-auto">
         <FadeIn>
-          <h2 className="text-4xl font-bold text-center mb-16 text-[#c53c5a]">Swipe. Match. Shortlist.</h2>
+          <h2 className="text-4xl font-bold text-center mb-16 text-[#c53c5a]">How WeName works</h2>
         </FadeIn>
         
         <div className="grid md:grid-cols-2 gap-16">
@@ -164,7 +178,7 @@ export default function Home() {
       <section className="py-24 px-6 bg-white/50">
         <div className="max-w-6xl mx-auto">
           <FadeIn>
-            <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">Everything you need to find the one</h2>
+            <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">Everything you need to choose together</h2>
           </FadeIn>
           
           <div className="grid md:grid-cols-3 gap-8">
@@ -228,13 +242,61 @@ export default function Home() {
         </div>
       </section>
 
+      {/* FAQ Section */}
+      <section className="py-24 px-6 bg-[#f2eddf]">
+        <div className="max-w-3xl mx-auto">
+          <FadeIn>
+            <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">Frequently asked questions</h2>
+          </FadeIn>
+          <div className="space-y-8">
+            {[
+              {
+                q: "What is WeName?",
+                a: "WeName is a baby name app for couples. It lets each partner swipe through baby names separately, then shows the names both people liked.",
+              },
+              {
+                q: "Is WeName a baby name app for couples?",
+                a: "Yes. WeName is designed for couples choosing a baby name together. Partners can swipe independently and build a shared shortlist of names they both like.",
+              },
+              {
+                q: "Is there a Tinder-style app for baby names?",
+                a: "WeName uses a swipe-based experience for baby names. You swipe on names you like, and when your partner likes the same name, it becomes a match.",
+              },
+              {
+                q: "Can I use WeName without a partner?",
+                a: "Yes. You can use WeName on your own to swipe through names, save favorites, and build a shortlist.",
+              },
+              {
+                q: "Does WeName include baby name meanings?",
+                a: "Yes. WeName includes name details such as meaning, origin, and pronunciation where available.",
+              },
+              {
+                q: "Does WeName have AI baby name suggestions?",
+                a: "Yes. WeName offers AI Suggestions based on names you like and your naming style.",
+              },
+              {
+                q: "Is WeName free?",
+                a: "WeName is free to download. Premium features are available through an optional in-app purchase.",
+              },
+            ].map((item, i) => (
+              <FadeIn key={i} delay={i * 0.05}>
+                <div className="bg-[#f5f1e8] rounded-2xl p-6 border border-[#897a72]/10">
+                  <h3 className="text-lg font-bold text-[#42342c] mb-2">{item.q}</h3>
+                  <p className="text-[#897a72]">{item.a}</p>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Footer CTA */}
       <section className="pt-24 pb-12 relative overflow-hidden flex flex-col items-center">
         <div className="absolute bottom-0 left-0 right-0 h-32 opacity-80 pointer-events-none" style={{ backgroundImage: `url(${base}brand/grass-flower-border.png)`, backgroundRepeat: 'repeat-x', backgroundPosition: 'bottom' }}></div>
         
         <FadeIn className="text-center z-10 px-6 max-w-2xl mb-32">
-          <h2 className="text-3xl font-bold mb-6">Start your baby name journey together</h2>
-          <p className="text-xl text-[#897a72] mb-10">Download WeName and start building your shared shortlist today.</p>
+          <h2 className="text-3xl font-bold mb-6">Start finding baby names together</h2>
+          <p className="text-xl text-[#897a72] mb-10">Download WeName and start building a shortlist of names you both love.</p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a href="https://apps.apple.com/ca/app/wename-find-baby-names/id6764540022" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">

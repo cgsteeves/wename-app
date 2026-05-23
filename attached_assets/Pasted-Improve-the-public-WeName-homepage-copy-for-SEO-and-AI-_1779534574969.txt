@@ -1,0 +1,211 @@
+Improve the public WeName homepage copy for SEO and AI-search discovery, but do NOT substantially change the current UX, layout, visual design, branding, colors, spacing, imagery, or overall page structure.
+
+This is primarily a copy/metadata/SEO update, not a redesign.
+
+Goal:
+Make wename.app more clearly understood by Google, ChatGPT Search, Claude, Perplexity, and other search/AI systems as a baby name app for couples.
+
+Primary positioning:
+WeName is the baby name app for couples. It helps partners swipe through baby names separately, match on names they both like, and build a shared shortlist together.
+
+Important:
+- Keep the existing visual style and page design substantially the same.
+- Do not redesign the homepage.
+- Do not change the app UI, mobile app code, auth, RevenueCat, Supabase, premium logic, AI Suggestions logic, or app functionality.
+- Only update public website copy, headings, metadata, FAQ, schema, sitemap, and crawler-related SEO files as needed.
+- Preserve the current brand tone: warm, simple, playful, modern, and easy to understand.
+
+Recommended metadata updates:
+
+1. Homepage title tag:
+Baby Name App for Couples | WeName
+
+2. Homepage meta description:
+WeName helps couples find baby names together. Swipe through names, match with your partner, build a shared shortlist, and get AI Suggestions based on your style.
+
+3. Open Graph title:
+WeName — Baby Name App for Couples
+
+4. Open Graph description:
+Swipe separately. Match instantly. Find the baby names you both love.
+
+5. Twitter/X card title:
+WeName — Baby Name App for Couples
+
+6. Twitter/X card description:
+Swipe through baby names, match with your partner, and build a shortlist together.
+
+Hero copy updates:
+
+Update the homepage H1 to:
+The baby name app for couples
+
+Update the hero subheading to:
+Swipe through baby names separately, match on the names you both like, and build a shortlist together.
+
+Alternative shorter subheading if space is tight:
+Swipe separately. Match instantly. Find the names you both love.
+
+Primary CTA:
+Download on the App Store
+
+Secondary CTA, only if Google Play is live:
+Get it on Google Play
+
+If Google Play is not live yet, do not show a dead Google Play button.
+
+Add or update crawlable homepage sections without substantially changing the design:
+
+Section: What is WeName?
+
+Heading:
+What is WeName?
+
+Copy:
+WeName is a baby name app for couples. Each partner swipes through baby names independently, and WeName shows the names both people liked. It helps expecting parents build a shared shortlist without managing separate notes, screenshots, or text threads.
+
+Section: How WeName works
+
+Heading:
+How WeName works
+
+Copy:
+1. Swipe through baby names
+Like the names you love and skip the ones that are not your style.
+
+2. Link with your partner
+Each partner can swipe privately without influencing the other person.
+
+3. See shared matches
+When you both like the same name, WeName adds it to your shared matches.
+
+4. Build your shortlist
+Keep track of the names you both agree on in one simple place.
+
+Section: Why couples use WeName
+
+Heading:
+Why couples use WeName
+
+Copy:
+Choosing a baby name can get messy fast. One person has a notes app list. The other sends screenshots. Some names get forgotten. Others get debated over and over.
+
+WeName gives couples one simple place to find, save, compare, and narrow down baby names together.
+
+Section: Features
+
+Heading:
+Everything you need to choose together
+
+Copy:
+With WeName, you can:
+- Swipe through baby boy and baby girl names
+- Save names you like
+- Match with your partner on shared favorites
+- Build a baby name shortlist
+- Explore name meanings and pronunciations
+- Get AI Suggestions based on your style
+- Discover classic, modern, unique, spiritual, and origin-based names
+
+Section: AI Suggestions
+
+Heading:
+AI Suggestions based on your style
+
+Copy:
+Once you have liked a few names, WeName can suggest more names that fit your taste. Suggestions can consider names you like, names you and your partner both matched on, and the style of names you prefer.
+
+Keep this section secondary. The homepage should lead with the core couple swiping and matching value proposition, not AI.
+
+Section: Final CTA
+
+Heading:
+Start finding baby names together
+
+Copy:
+Download WeName and start building a shortlist of names you both love.
+
+CTA:
+Download on the App Store
+
+FAQ section:
+Add an FAQ section near the bottom of the homepage. Keep the styling consistent with the existing page.
+
+FAQ copy:
+
+Q: What is WeName?
+A: WeName is a baby name app for couples. It lets each partner swipe through baby names separately, then shows the names both people liked.
+
+Q: Is WeName a baby name app for couples?
+A: Yes. WeName is designed for couples choosing a baby name together. Partners can swipe independently and build a shared shortlist of names they both like.
+
+Q: Is there a Tinder-style app for baby names?
+A: WeName uses a swipe-based experience for baby names. You swipe on names you like, and when your partner likes the same name, it becomes a match.
+
+Q: Can I use WeName without a partner?
+A: Yes. You can use WeName on your own to swipe through names, save favorites, and build a shortlist.
+
+Q: Does WeName include baby name meanings?
+A: Yes. WeName includes name details such as meaning, origin, and pronunciation where available.
+
+Q: Does WeName have AI baby name suggestions?
+A: Yes. WeName offers AI Suggestions based on names you like and your naming style.
+
+Q: Is WeName free?
+A: WeName is free to download. Premium features are available through an optional in-app purchase.
+
+SEO / AI-search technical requirements:
+
+1. Add JSON-LD structured data:
+- MobileApplication or SoftwareApplication
+- FAQPage
+- Organization
+- WebSite
+
+Use this general app description in schema:
+WeName is a baby name app for couples. Partners swipe through baby names separately, match on names they both like, and build a shared shortlist together.
+
+2. Create or update sitemap.xml:
+Include:
+/
+ /privacy
+ /terms
+ /support
+
+Also include these future SEO pages only if they already exist or are created as simple public landing pages:
+/baby-name-app-for-couples
+/tinder-style-baby-name-app
+/baby-name-matching-app
+/ai-baby-name-suggestions
+/baby-name-shortlist-app
+/chatgpt-baby-name-prompts
+
+3. Create or update robots.txt:
+Use:
+User-agent: *
+Allow: /
+
+Sitemap: https://wename.app/sitemap.xml
+
+Do not block Googlebot, OAI-SearchBot, GPTBot, ClaudeBot, PerplexityBot, or other normal search/AI crawlers unless there is a clear reason.
+
+4. Add internal links if they fit naturally:
+- Baby name app for couples
+- Tinder-style baby name app
+- AI baby name suggestions
+- Baby name shortlist app
+
+But do not clutter the homepage or materially change the UX.
+
+5. Make sure all new content is server-rendered or otherwise crawlable in the public HTML. Avoid hiding important SEO copy only inside client-side interactions that crawlers may not see.
+
+Acceptance criteria:
+- Homepage still looks substantially the same.
+- Visual design and UX are not materially changed.
+- Homepage title and meta description are updated.
+- H1 clearly says “The baby name app for couples.”
+- Homepage has more crawlable copy explaining what WeName is.
+- FAQ section exists and is crawlable.
+- Structured data is added.
+- sitemap.xml and robots.txt are correct.
+- No mobile app functionality or backend logic is touched.

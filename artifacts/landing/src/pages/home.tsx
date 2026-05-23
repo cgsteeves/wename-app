@@ -152,6 +152,166 @@ export default function Home() {
         </div>
       </section>
 
+      {/* App Screenshots Section */}
+      <section className="py-24 px-6 bg-[#f2eddf]">
+        <div className="max-w-5xl mx-auto">
+          <FadeIn className="text-center mb-16">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4">See WeName in action</h2>
+            <p className="text-xl text-[#897a72]">A simple, beautiful experience built for couples.</p>
+          </FadeIn>
+
+          <div className="grid md:grid-cols-3 gap-12 items-end justify-items-center">
+
+            {/* Mockup 1: Swipe card */}
+            <FadeIn delay={0.1} className="flex flex-col items-center gap-5">
+              <div className="rounded-[36px] overflow-hidden shadow-2xl bg-[#f5f1e8]" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
+                <div className="bg-[#f5f1e8] px-3 pt-2 pb-1 flex justify-between items-center">
+                  <span className="text-[#42342c] font-semibold" style={{ fontSize: 9 }}>9:41</span>
+                  <div className="flex items-center gap-0.5">
+                    <div style={{ width: 14, height: 7, border: '1px solid rgba(66,52,44,0.4)', borderRadius: 2, position: 'relative' }}>
+                      <div style={{ position: 'absolute', left: 1, top: 1, bottom: 1, width: '65%', backgroundColor: 'rgba(66,52,44,0.4)', borderRadius: 1 }} />
+                    </div>
+                  </div>
+                </div>
+                {/* name card */}
+                <div className="mx-2.5 rounded-2xl overflow-hidden relative shadow-lg" style={{ height: 285 }}>
+                  <img src={`${base}brand/boy-card-bg.jpg`} className="w-full h-full object-cover" alt="Baby name swipe card showing Oliver" />
+                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.18) 0%, transparent 40%, rgba(0,0,0,0.25) 100%)' }} />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-white font-bold drop-shadow-lg" style={{ fontSize: 36, lineHeight: 1.1 }}>Oliver</span>
+                    <span className="text-white/80 tracking-wide drop-shadow" style={{ fontSize: 10, marginTop: 4 }}>"Olive tree" · English</span>
+                  </div>
+                  <img src={`${base}brand/like_sun.png`} className="absolute rotate-12 drop-shadow-lg" style={{ right: -10, top: '45%', width: 52, height: 52, transform: 'translateY(-50%) rotate(12deg)' }} alt="" />
+                </div>
+                {/* action buttons */}
+                <div className="flex justify-center gap-3 mt-3.5">
+                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-red-400" style={{ width: 42, height: 42, fontSize: 17 }}>✕</div>
+                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-[#fbb02d]" style={{ width: 42, height: 42, fontSize: 15 }}>★</div>
+                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-[#c53c5a]" style={{ width: 42, height: 42, fontSize: 17 }}>♥</div>
+                </div>
+                {/* mini tab bar */}
+                <div className="mx-2 mt-3 rounded-2xl flex py-1 px-1 gap-0.5 shadow-sm" style={{ backgroundColor: 'rgba(255,255,255,0.85)' }}>
+                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
+                    <span style={{ fontSize: 10 }}>🦋</span>
+                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Swipe</span>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center py-0.5">
+                    <div className="rounded-full flex items-center justify-center px-2 py-0.5" style={{ backgroundColor: '#3168a5' }}>
+                      <span className="text-white" style={{ fontSize: 7 }}>♥ Names</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
+                    <span style={{ fontSize: 10 }}>⚙️</span>
+                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Settings</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-[#42342c]">Swipe through names</p>
+                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>Like or pass on names one card at a time</p>
+              </div>
+            </FadeIn>
+
+            {/* Mockup 2: Names list */}
+            <FadeIn delay={0.2} className="flex flex-col items-center gap-5">
+              <div className="rounded-[36px] overflow-hidden shadow-2xl bg-[#f5f1e8]" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
+                <div className="bg-[#f5f1e8] px-3 pt-2 pb-1 flex justify-between items-center">
+                  <span className="text-[#42342c] font-semibold" style={{ fontSize: 9 }}>9:41</span>
+                  <div className="flex items-center gap-0.5">
+                    <div style={{ width: 14, height: 7, border: '1px solid rgba(66,52,44,0.4)', borderRadius: 2, position: 'relative' }}>
+                      <div style={{ position: 'absolute', left: 1, top: 1, bottom: 1, width: '65%', backgroundColor: 'rgba(66,52,44,0.4)', borderRadius: 1 }} />
+                    </div>
+                  </div>
+                </div>
+                {/* tab pills */}
+                <div className="flex gap-1 mt-1 mx-2">
+                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#dbeafe', border: '1px solid rgba(49,104,165,0.3)' }}>
+                    <span className="font-bold text-[#3168a5]" style={{ fontSize: 7 }}>♥ Your Picks</span>
+                  </div>
+                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#f5f1e8', border: '1px solid rgba(137,122,114,0.2)' }}>
+                    <span className="text-[#897a72]" style={{ fontSize: 7 }}>Matches</span>
+                  </div>
+                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#f5f1e8', border: '1px solid rgba(137,122,114,0.2)' }}>
+                    <span className="text-[#897a72]" style={{ fontSize: 7 }}>AI Picks</span>
+                  </div>
+                </div>
+                {/* heading */}
+                <div className="px-3 mt-2.5 mb-1.5 flex justify-between items-baseline">
+                  <span className="font-bold text-[#42342c]" style={{ fontSize: 12 }}>Your Picks</span>
+                  <span className="text-[#897a72]" style={{ fontSize: 9 }}>5 names</span>
+                </div>
+                {/* name rows */}
+                {[
+                  { label: '#1  Oliver', bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
+                  { label: '#2  Aria',   bg: '#fce7f3', color: '#c53c5a', border: '#f9a8d4' },
+                  { label: '#3  Liam',   bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
+                  { label: '#4  Luna',   bg: '#fce7f3', color: '#c53c5a', border: '#f9a8d4' },
+                  { label: '5    Noah',  bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
+                ].map((row, i) => (
+                  <div key={i} className="mx-2 mb-1 rounded-xl flex items-center px-2" style={{ backgroundColor: row.bg, border: `1px solid ${row.border}`, paddingTop: 6, paddingBottom: 6 }}>
+                    <span className="text-[#897a72] mr-1.5" style={{ fontSize: 8 }}>≡</span>
+                    <span className="flex-1 font-semibold" style={{ fontSize: 9, color: row.color }}>{row.label}</span>
+                    <span className="text-[#897a72] mr-1" style={{ fontSize: 8 }}>ⓘ</span>
+                    <span className="text-[#897a72]" style={{ fontSize: 8 }}>🗑</span>
+                  </div>
+                ))}
+                {/* mini tab bar */}
+                <div className="mx-2 mt-3 rounded-2xl flex py-1 px-1 gap-0.5 shadow-sm" style={{ backgroundColor: 'rgba(255,255,255,0.85)' }}>
+                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
+                    <span style={{ fontSize: 10 }}>🦋</span>
+                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Swipe</span>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center py-0.5">
+                    <div className="rounded-full flex items-center justify-center px-2 py-0.5" style={{ backgroundColor: '#3168a5' }}>
+                      <span className="text-white" style={{ fontSize: 7 }}>♥ Names</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
+                    <span style={{ fontSize: 10 }}>⚙️</span>
+                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Settings</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-[#42342c]">Build your shortlist</p>
+                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>Rank and manage your favourite names</p>
+              </div>
+            </FadeIn>
+
+            {/* Mockup 3: Match popup */}
+            <FadeIn delay={0.3} className="flex flex-col items-center gap-5">
+              <div className="rounded-[36px] overflow-hidden shadow-2xl relative" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
+                {/* dimmed swipe screen background */}
+                <img src={`${base}brand/girl-card-bg.jpg`} className="absolute inset-0 w-full h-full object-cover" alt="" />
+                <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
+                {/* match modal */}
+                <div className="absolute inset-0 flex items-center justify-center px-4">
+                  <div className="bg-white rounded-3xl w-full shadow-2xl text-center" style={{ padding: '20px 16px' }}>
+                    <div style={{ fontSize: 28, marginBottom: 4 }}>🎉</div>
+                    <p className="font-bold text-[#897a72] tracking-widest uppercase" style={{ fontSize: 8, marginBottom: 6 }}>It's a Match!</p>
+                    <p className="font-bold text-[#c53c5a]" style={{ fontSize: 28, lineHeight: 1.1, marginBottom: 4 }}>Aria</p>
+                    <p className="text-[#897a72] leading-snug" style={{ fontSize: 9, marginBottom: 14 }}>You and your partner both love this name!</p>
+                    <div className="flex gap-1.5 flex-col">
+                      <div className="rounded-full flex items-center justify-center" style={{ backgroundColor: '#3168a5', paddingTop: 7, paddingBottom: 7 }}>
+                        <span className="text-white font-bold" style={{ fontSize: 9 }}>See All Matches</span>
+                      </div>
+                      <div className="rounded-full flex items-center justify-center" style={{ border: '1px solid rgba(137,122,114,0.35)', paddingTop: 6, paddingBottom: 6 }}>
+                        <span className="text-[#897a72]" style={{ fontSize: 9 }}>Keep Swiping</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-[#42342c]">Celebrate your matches</p>
+                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>See the names you both love the moment they match</p>
+              </div>
+            </FadeIn>
+
+          </div>
+        </div>
+      </section>
+
       {/* Empathy Section */}
       <section className="py-24 px-6 relative overflow-hidden">
         <div className="absolute top-1/2 left-0 transform -translate-y-1/2 -translate-x-1/2 opacity-20">

@@ -46,12 +46,12 @@ export default function Home() {
             </p>
           </FadeIn>
           <FadeIn delay={0.4} className="flex flex-col sm:flex-row gap-4 pt-4">
-            <a href="#" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
+            <a href="https://apps.apple.com/ca/app/wename-find-baby-names/id6764540022" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
               Download on the App Store
             </a>
-            <a href="#" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
-              Get it on Google Play
-            </a>
+            <span className="inline-flex items-center justify-center bg-[#c8bfb5] text-[#7a6e66] px-6 py-3 rounded-full font-semibold cursor-default select-none">
+              Google Play — Coming Soon
+            </span>
           </FadeIn>
           <FadeIn delay={0.5}>
             <p className="text-sm font-hand text-[#897a72] italic">
@@ -237,12 +237,12 @@ export default function Home() {
           <p className="text-xl text-[#897a72] mb-10">Download WeName and start building your shared shortlist today.</p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="#" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
+            <a href="https://apps.apple.com/ca/app/wename-find-baby-names/id6764540022" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
               Download on the App Store
             </a>
-            <a href="#" className="inline-flex items-center justify-center bg-black text-white px-6 py-3 rounded-full font-semibold hover:scale-105 transition-transform">
-              Get it on Google Play
-            </a>
+            <span className="inline-flex items-center justify-center bg-[#c8bfb5] text-[#7a6e66] px-6 py-3 rounded-full font-semibold cursor-default select-none">
+              Google Play — Coming Soon
+            </span>
           </div>
         </FadeIn>
 

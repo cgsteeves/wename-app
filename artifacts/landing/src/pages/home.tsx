@@ -195,28 +195,14 @@ export default function Home() {
             </FadeIn>
 
 
-            {/* Match popup mockup */}
+            {/* Match screenshot */}
             <FadeIn delay={0.3} className="flex flex-col items-center gap-5">
-              <div className="rounded-[44px] overflow-hidden shadow-2xl relative" style={{ width: 240, height: 500, border: '5px solid #1c1c1e' }}>
-                <img src={`${base}brand/girl-card-bg.jpg`} className="absolute inset-0 w-full h-full object-cover" alt="" />
-                <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.52)' }} />
-                <div className="absolute inset-0 flex items-center justify-center px-5">
-                  <div className="bg-white rounded-3xl w-full shadow-2xl text-center" style={{ padding: '22px 18px' }}>
-                    <div style={{ fontSize: 32, marginBottom: 6 }}>🎉</div>
-                    <p className="font-bold text-[#897a72] tracking-widest uppercase" style={{ fontSize: 9, marginBottom: 8 }}>It's a Match!</p>
-                    <p className="font-bold text-[#c53c5a]" style={{ fontSize: 32, lineHeight: 1.1, marginBottom: 6 }}>Aria</p>
-                    <p className="text-[#897a72] leading-snug" style={{ fontSize: 10, marginBottom: 16 }}>You and your partner both love this name!</p>
-                    <div className="flex gap-2 flex-col">
-                      <div className="rounded-full flex items-center justify-center" style={{ backgroundColor: '#3168a5', paddingTop: 9, paddingBottom: 9 }}>
-                        <span className="text-white font-bold" style={{ fontSize: 11 }}>See All Matches</span>
-                      </div>
-                      <div className="rounded-full flex items-center justify-center" style={{ border: '1px solid rgba(137,122,114,0.35)', paddingTop: 8, paddingBottom: 8 }}>
-                        <span className="text-[#897a72]" style={{ fontSize: 11 }}>Keep Swiping</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <img
+                src={`${base}brand/screenshot-match.png`}
+                alt="WeName match screen showing It's a Match for Isla Walker"
+                className="drop-shadow-2xl"
+                style={{ maxWidth: 240, width: '100%' }}
+              />
               <div className="text-center">
                 <p className="font-semibold text-[#42342c] text-lg">Celebrate your matches</p>
                 <p className="text-[#897a72] text-sm mt-1 max-w-[200px] mx-auto">See the names you both love the moment they match</p>

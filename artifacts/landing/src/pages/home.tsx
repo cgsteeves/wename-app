@@ -160,54 +160,50 @@ export default function Home() {
             <p className="text-xl text-[#897a72]">A simple, beautiful experience built for couples.</p>
           </FadeIn>
 
-          {/* Swipe screenshot — full-width feature row */}
-          <FadeIn delay={0.1} className="flex flex-col md:flex-row items-center gap-10 md:gap-16 mb-20">
-            <div className="flex-1 space-y-5 text-center md:text-left">
-              <div className="w-12 h-12 bg-[#fbb02d] rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto md:mx-0">1</div>
-              <h3 className="text-2xl font-bold">Swipe through names</h3>
-              <p className="text-[#897a72] text-lg leading-relaxed">Each partner swipes independently — like, pass, or save names one card at a time. Boy names, girl names, or both.</p>
-            </div>
-            <div className="flex-1 flex justify-center">
-              <img
-                src={`${base}brand/screenshot-swipe.png`}
-                alt="WeName swipe cards showing Henry and Marilyn on iPhone"
-                className="w-full drop-shadow-2xl"
-                style={{ maxWidth: 420, borderRadius: 8 }}
-              />
-            </div>
-          </FadeIn>
+          <div className="grid md:grid-cols-3 gap-10 items-start">
 
-          {/* Names list + match popup row */}
-          <div className="grid md:grid-cols-2 gap-12 items-center">
-
-            {/* Names list screenshot */}
-            <FadeIn delay={0.2} className="flex flex-col items-center gap-5">
-              <img
-                src={`${base}brand/screenshot-names.png`}
-                alt="WeName names list showing Your Picks tab with Drew, Jordan, Archer and more"
-                className="drop-shadow-2xl"
-                style={{ maxWidth: 240, width: '100%', borderRadius: 44 }}
-              />
-              <div className="text-center">
-                <p className="font-semibold text-[#42342c] text-lg">Build your shortlist</p>
-                <p className="text-[#897a72] text-sm mt-1 max-w-[200px] mx-auto">Rank your favourites and manage every name in one place</p>
-              </div>
-            </FadeIn>
-
-
-            {/* Match screenshot */}
-            <FadeIn delay={0.3} className="flex flex-col items-center gap-5">
-              <img
-                src={`${base}brand/screenshot-match.png`}
-                alt="WeName match screen showing It's a Match for Isla Walker"
-                className="drop-shadow-2xl"
-                style={{ maxWidth: 240, width: '100%' }}
-              />
-              <div className="text-center">
-                <p className="font-semibold text-[#42342c] text-lg">Celebrate your matches</p>
-                <p className="text-[#897a72] text-sm mt-1 max-w-[200px] mx-auto">See the names you both love the moment they match</p>
-              </div>
-            </FadeIn>
+            {[
+              {
+                step: 1,
+                color: '#fbb02d',
+                title: 'Swipe',
+                desc: 'Each partner swipes through names independently — like, pass, or save, one card at a time.',
+                img: `${base}brand/screenshot-swipe.png`,
+                alt: 'WeName swipe cards showing Henry and Marilyn on iPhone',
+              },
+              {
+                step: 2,
+                color: '#c53c5a',
+                title: 'Match',
+                desc: 'When you both like the same name, it\'s a match. You\'ll see it the moment it happens.',
+                img: `${base}brand/screenshot-match.png`,
+                alt: 'WeName match screen showing It\'s a Match for Isla Walker',
+              },
+              {
+                step: 3,
+                color: '#3168a5',
+                title: 'Create Shortlist',
+                desc: 'Save and rank your favourites. Build a shared shortlist of names you both love.',
+                img: `${base}brand/screenshot-names.png`,
+                alt: 'WeName names list showing Your Picks with Drew, Jordan, Archer and more',
+              },
+            ].map((item, i) => (
+              <FadeIn key={i} delay={i * 0.15} className="flex flex-col items-center text-center gap-6">
+                <img
+                  src={item.img}
+                  alt={item.alt}
+                  className="w-full drop-shadow-xl"
+                  style={{ maxWidth: 280 }}
+                />
+                <div>
+                  <div className="flex items-center justify-center gap-3 mb-2">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm flex-shrink-0" style={{ backgroundColor: item.color }}>{item.step}</div>
+                    <h3 className="text-xl font-bold">{item.title}</h3>
+                  </div>
+                  <p className="text-[#897a72] leading-relaxed max-w-[220px] mx-auto">{item.desc}</p>
+                </div>
+              </FadeIn>
+            ))}
 
           </div>
         </div>

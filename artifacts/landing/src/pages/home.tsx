@@ -160,151 +160,66 @@ export default function Home() {
             <p className="text-xl text-[#897a72]">A simple, beautiful experience built for couples.</p>
           </FadeIn>
 
-          <div className="grid md:grid-cols-3 gap-12 items-end justify-items-center">
+          {/* Swipe screenshot — full-width feature row */}
+          <FadeIn delay={0.1} className="flex flex-col md:flex-row items-center gap-10 md:gap-16 mb-20">
+            <div className="flex-1 space-y-5 text-center md:text-left">
+              <div className="w-12 h-12 bg-[#fbb02d] rounded-full flex items-center justify-center text-white font-bold text-xl mx-auto md:mx-0">1</div>
+              <h3 className="text-2xl font-bold">Swipe through names</h3>
+              <p className="text-[#897a72] text-lg leading-relaxed">Each partner swipes independently — like, pass, or save names one card at a time. Boy names, girl names, or both.</p>
+            </div>
+            <div className="flex-1 flex justify-center">
+              <img
+                src={`${base}brand/screenshot-swipe.png`}
+                alt="WeName swipe cards showing Henry and Marilyn on iPhone"
+                className="w-full drop-shadow-2xl"
+                style={{ maxWidth: 420, borderRadius: 8 }}
+              />
+            </div>
+          </FadeIn>
 
-            {/* Mockup 1: Swipe card */}
-            <FadeIn delay={0.1} className="flex flex-col items-center gap-5">
-              <div className="rounded-[36px] overflow-hidden shadow-2xl bg-[#f5f1e8]" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
-                <div className="bg-[#f5f1e8] px-3 pt-2 pb-1 flex justify-between items-center">
-                  <span className="text-[#42342c] font-semibold" style={{ fontSize: 9 }}>9:41</span>
-                  <div className="flex items-center gap-0.5">
-                    <div style={{ width: 14, height: 7, border: '1px solid rgba(66,52,44,0.4)', borderRadius: 2, position: 'relative' }}>
-                      <div style={{ position: 'absolute', left: 1, top: 1, bottom: 1, width: '65%', backgroundColor: 'rgba(66,52,44,0.4)', borderRadius: 1 }} />
-                    </div>
-                  </div>
-                </div>
-                {/* name card */}
-                <div className="mx-2.5 rounded-2xl overflow-hidden relative shadow-lg" style={{ height: 285 }}>
-                  <img src={`${base}brand/boy-card-bg.jpg`} className="w-full h-full object-cover" alt="Baby name swipe card showing Oliver" />
-                  <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.18) 0%, transparent 40%, rgba(0,0,0,0.25) 100%)' }} />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-white font-bold drop-shadow-lg" style={{ fontSize: 36, lineHeight: 1.1 }}>Oliver</span>
-                    <span className="text-white/80 tracking-wide drop-shadow" style={{ fontSize: 10, marginTop: 4 }}>"Olive tree" · English</span>
-                  </div>
-                  <img src={`${base}brand/like_sun.png`} className="absolute rotate-12 drop-shadow-lg" style={{ right: -10, top: '45%', width: 52, height: 52, transform: 'translateY(-50%) rotate(12deg)' }} alt="" />
-                </div>
-                {/* action buttons */}
-                <div className="flex justify-center gap-3 mt-3.5">
-                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-red-400" style={{ width: 42, height: 42, fontSize: 17 }}>✕</div>
-                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-[#fbb02d]" style={{ width: 42, height: 42, fontSize: 15 }}>★</div>
-                  <div className="rounded-full bg-white shadow-md flex items-center justify-center text-[#c53c5a]" style={{ width: 42, height: 42, fontSize: 17 }}>♥</div>
-                </div>
-                {/* mini tab bar */}
-                <div className="mx-2 mt-3 rounded-2xl flex py-1 px-1 gap-0.5 shadow-sm" style={{ backgroundColor: 'rgba(255,255,255,0.85)' }}>
-                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
-                    <span style={{ fontSize: 10 }}>🦋</span>
-                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Swipe</span>
-                  </div>
-                  <div className="flex-1 flex flex-col items-center py-0.5">
-                    <div className="rounded-full flex items-center justify-center px-2 py-0.5" style={{ backgroundColor: '#3168a5' }}>
-                      <span className="text-white" style={{ fontSize: 7 }}>♥ Names</span>
-                    </div>
-                  </div>
-                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
-                    <span style={{ fontSize: 10 }}>⚙️</span>
-                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Settings</span>
-                  </div>
-                </div>
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-[#42342c]">Swipe through names</p>
-                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>Like or pass on names one card at a time</p>
-              </div>
-            </FadeIn>
+          {/* Names list + match popup row */}
+          <div className="grid md:grid-cols-2 gap-12 items-center">
 
-            {/* Mockup 2: Names list */}
+            {/* Names list screenshot */}
             <FadeIn delay={0.2} className="flex flex-col items-center gap-5">
-              <div className="rounded-[36px] overflow-hidden shadow-2xl bg-[#f5f1e8]" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
-                <div className="bg-[#f5f1e8] px-3 pt-2 pb-1 flex justify-between items-center">
-                  <span className="text-[#42342c] font-semibold" style={{ fontSize: 9 }}>9:41</span>
-                  <div className="flex items-center gap-0.5">
-                    <div style={{ width: 14, height: 7, border: '1px solid rgba(66,52,44,0.4)', borderRadius: 2, position: 'relative' }}>
-                      <div style={{ position: 'absolute', left: 1, top: 1, bottom: 1, width: '65%', backgroundColor: 'rgba(66,52,44,0.4)', borderRadius: 1 }} />
-                    </div>
-                  </div>
-                </div>
-                {/* tab pills */}
-                <div className="flex gap-1 mt-1 mx-2">
-                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#dbeafe', border: '1px solid rgba(49,104,165,0.3)' }}>
-                    <span className="font-bold text-[#3168a5]" style={{ fontSize: 7 }}>♥ Your Picks</span>
-                  </div>
-                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#f5f1e8', border: '1px solid rgba(137,122,114,0.2)' }}>
-                    <span className="text-[#897a72]" style={{ fontSize: 7 }}>Matches</span>
-                  </div>
-                  <div className="flex-1 text-center py-1 rounded-xl" style={{ backgroundColor: '#f5f1e8', border: '1px solid rgba(137,122,114,0.2)' }}>
-                    <span className="text-[#897a72]" style={{ fontSize: 7 }}>AI Picks</span>
-                  </div>
-                </div>
-                {/* heading */}
-                <div className="px-3 mt-2.5 mb-1.5 flex justify-between items-baseline">
-                  <span className="font-bold text-[#42342c]" style={{ fontSize: 12 }}>Your Picks</span>
-                  <span className="text-[#897a72]" style={{ fontSize: 9 }}>5 names</span>
-                </div>
-                {/* name rows */}
-                {[
-                  { label: '#1  Oliver', bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
-                  { label: '#2  Aria',   bg: '#fce7f3', color: '#c53c5a', border: '#f9a8d4' },
-                  { label: '#3  Liam',   bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
-                  { label: '#4  Luna',   bg: '#fce7f3', color: '#c53c5a', border: '#f9a8d4' },
-                  { label: '5    Noah',  bg: '#dbeafe', color: '#3168a5', border: '#93c5fd' },
-                ].map((row, i) => (
-                  <div key={i} className="mx-2 mb-1 rounded-xl flex items-center px-2" style={{ backgroundColor: row.bg, border: `1px solid ${row.border}`, paddingTop: 6, paddingBottom: 6 }}>
-                    <span className="text-[#897a72] mr-1.5" style={{ fontSize: 8 }}>≡</span>
-                    <span className="flex-1 font-semibold" style={{ fontSize: 9, color: row.color }}>{row.label}</span>
-                    <span className="text-[#897a72] mr-1" style={{ fontSize: 8 }}>ⓘ</span>
-                    <span className="text-[#897a72]" style={{ fontSize: 8 }}>🗑</span>
-                  </div>
-                ))}
-                {/* mini tab bar */}
-                <div className="mx-2 mt-3 rounded-2xl flex py-1 px-1 gap-0.5 shadow-sm" style={{ backgroundColor: 'rgba(255,255,255,0.85)' }}>
-                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
-                    <span style={{ fontSize: 10 }}>🦋</span>
-                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Swipe</span>
-                  </div>
-                  <div className="flex-1 flex flex-col items-center py-0.5">
-                    <div className="rounded-full flex items-center justify-center px-2 py-0.5" style={{ backgroundColor: '#3168a5' }}>
-                      <span className="text-white" style={{ fontSize: 7 }}>♥ Names</span>
-                    </div>
-                  </div>
-                  <div className="flex-1 flex flex-col items-center py-1 text-[#897a72]">
-                    <span style={{ fontSize: 10 }}>⚙️</span>
-                    <span className="text-[#897a72]" style={{ fontSize: 7, marginTop: 1 }}>Settings</span>
-                  </div>
-                </div>
-              </div>
+              <img
+                src={`${base}brand/screenshot-names.png`}
+                alt="WeName names list showing Your Picks tab with Drew, Jordan, Archer and more"
+                className="drop-shadow-2xl"
+                style={{ maxWidth: 240, width: '100%', borderRadius: 44 }}
+              />
               <div className="text-center">
-                <p className="font-semibold text-[#42342c]">Build your shortlist</p>
-                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>Rank and manage your favourite names</p>
+                <p className="font-semibold text-[#42342c] text-lg">Build your shortlist</p>
+                <p className="text-[#897a72] text-sm mt-1 max-w-[200px] mx-auto">Rank your favourites and manage every name in one place</p>
               </div>
             </FadeIn>
 
-            {/* Mockup 3: Match popup */}
+
+            {/* Match popup mockup */}
             <FadeIn delay={0.3} className="flex flex-col items-center gap-5">
-              <div className="rounded-[36px] overflow-hidden shadow-2xl relative" style={{ width: 210, height: 440, border: '5px solid #1c1c1e' }}>
-                {/* dimmed swipe screen background */}
+              <div className="rounded-[44px] overflow-hidden shadow-2xl relative" style={{ width: 240, height: 500, border: '5px solid #1c1c1e' }}>
                 <img src={`${base}brand/girl-card-bg.jpg`} className="absolute inset-0 w-full h-full object-cover" alt="" />
-                <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.55)' }} />
-                {/* match modal */}
-                <div className="absolute inset-0 flex items-center justify-center px-4">
-                  <div className="bg-white rounded-3xl w-full shadow-2xl text-center" style={{ padding: '20px 16px' }}>
-                    <div style={{ fontSize: 28, marginBottom: 4 }}>🎉</div>
-                    <p className="font-bold text-[#897a72] tracking-widest uppercase" style={{ fontSize: 8, marginBottom: 6 }}>It's a Match!</p>
-                    <p className="font-bold text-[#c53c5a]" style={{ fontSize: 28, lineHeight: 1.1, marginBottom: 4 }}>Aria</p>
-                    <p className="text-[#897a72] leading-snug" style={{ fontSize: 9, marginBottom: 14 }}>You and your partner both love this name!</p>
-                    <div className="flex gap-1.5 flex-col">
-                      <div className="rounded-full flex items-center justify-center" style={{ backgroundColor: '#3168a5', paddingTop: 7, paddingBottom: 7 }}>
-                        <span className="text-white font-bold" style={{ fontSize: 9 }}>See All Matches</span>
+                <div className="absolute inset-0" style={{ backgroundColor: 'rgba(0,0,0,0.52)' }} />
+                <div className="absolute inset-0 flex items-center justify-center px-5">
+                  <div className="bg-white rounded-3xl w-full shadow-2xl text-center" style={{ padding: '22px 18px' }}>
+                    <div style={{ fontSize: 32, marginBottom: 6 }}>🎉</div>
+                    <p className="font-bold text-[#897a72] tracking-widest uppercase" style={{ fontSize: 9, marginBottom: 8 }}>It's a Match!</p>
+                    <p className="font-bold text-[#c53c5a]" style={{ fontSize: 32, lineHeight: 1.1, marginBottom: 6 }}>Aria</p>
+                    <p className="text-[#897a72] leading-snug" style={{ fontSize: 10, marginBottom: 16 }}>You and your partner both love this name!</p>
+                    <div className="flex gap-2 flex-col">
+                      <div className="rounded-full flex items-center justify-center" style={{ backgroundColor: '#3168a5', paddingTop: 9, paddingBottom: 9 }}>
+                        <span className="text-white font-bold" style={{ fontSize: 11 }}>See All Matches</span>
                       </div>
-                      <div className="rounded-full flex items-center justify-center" style={{ border: '1px solid rgba(137,122,114,0.35)', paddingTop: 6, paddingBottom: 6 }}>
-                        <span className="text-[#897a72]" style={{ fontSize: 9 }}>Keep Swiping</span>
+                      <div className="rounded-full flex items-center justify-center" style={{ border: '1px solid rgba(137,122,114,0.35)', paddingTop: 8, paddingBottom: 8 }}>
+                        <span className="text-[#897a72]" style={{ fontSize: 11 }}>Keep Swiping</span>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
               <div className="text-center">
-                <p className="font-semibold text-[#42342c]">Celebrate your matches</p>
-                <p className="text-[#897a72] text-sm mt-1" style={{ maxWidth: 160 }}>See the names you both love the moment they match</p>
+                <p className="font-semibold text-[#42342c] text-lg">Celebrate your matches</p>
+                <p className="text-[#897a72] text-sm mt-1 max-w-[200px] mx-auto">See the names you both love the moment they match</p>
               </div>
             </FadeIn>
 
@@ -387,6 +302,7 @@ export default function Home() {
       <section className="py-24 px-6 bg-[#f2eddf] relative">
         <div className="max-w-4xl mx-auto text-center space-y-8 relative z-10">
           <FadeIn>
+            <img src={`${base}brand/wename-logo.png`} alt="WeName" className="h-12 mx-auto mb-4 opacity-80" />
             <h2 className="text-3xl md:text-5xl font-bold text-[#42342c]">The name is in there somewhere</h2>
           </FadeIn>
           <FadeIn delay={0.2}>
@@ -455,6 +371,7 @@ export default function Home() {
         <div className="absolute bottom-0 left-0 right-0 h-32 opacity-80 pointer-events-none" style={{ backgroundImage: `url(${base}brand/grass-flower-border.png)`, backgroundRepeat: 'repeat-x', backgroundPosition: 'bottom' }}></div>
         
         <FadeIn className="text-center z-10 px-6 max-w-2xl mb-32">
+          <img src={`${base}brand/wename-logo.png`} alt="WeName" className="h-16 mx-auto mb-8 drop-shadow-sm" />
           <h2 className="text-3xl font-bold mb-6">Start finding baby names together</h2>
           <p className="text-xl text-[#897a72] mb-10">Download WeName and start building a shortlist of names you both love.</p>
           

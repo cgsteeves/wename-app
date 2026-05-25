@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeName",
     "slug": "wename",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wename",
@@ -17,12 +17,14 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "bundleIdentifier": "app.wename.mobile",
+      "buildNumber": "18",
       "associatedDomains": [
         "applinks:wename.app"
       ]
     },
     "android": {
       "package": "wename.app",
+      "versionCode": 18,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#f9f1de"

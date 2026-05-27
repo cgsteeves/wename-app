@@ -20,6 +20,7 @@ import { AuthProvider, useAuth } from "@/components/AuthContext";
 import { AuthModal } from "@/components/AuthModal";
 import { UserProvider, useUser } from "@/components/UserContext";
 import { fonts } from "@/constants/fonts";
+import { initMetaTracking } from "@/lib/metaTracking";
 import { initializeRevenueCat, SubscriptionProvider, useSubscription } from "@/lib/revenuecat";
 // Side-effect import — starts the module-level Linking listener that captures
 // warm-start deep-link URLs before any screen component mounts.
@@ -157,7 +158,11 @@ export default function RootLayout() {
   });
 
   useEffect(() => {
-    if (loaded) SplashScreen.hideAsync();
+    if (!loaded) return;
+    SplashScreen.hideAsync();
+    // Initialize Meta SDK and request ATT after splash hides so the dialog
+    // appears at a sensible moment. Non-blocking — failure is caught inside.
+    void initMetaTracking();
   }, [loaded]);
 
   useEffect(() => {

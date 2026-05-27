@@ -20,7 +20,11 @@
       "buildNumber": "18",
       "associatedDomains": [
         "applinks:wename.app"
-      ]
+      ],
+      "infoPlist": {
+        "NSUserTrackingUsageDescription": "WeName uses this to show you more relevant ads and measure ad performance.",
+        "LSApplicationQueriesSchemes": ["fbauth2", "fbapi", "fbauth", "fb-messenger-share-api", "fbshareextension"]
+      }
     },
     "android": {
       "package": "wename.app",
@@ -47,6 +51,20 @@
         {
           "photosPermission": "WeName uses your photo library so you can attach screenshots to feedback.",
           "cameraPermission": false
+        }
+      ],
+      "expo-tracking-transparency",
+      [
+        "react-native-fbsdk-next",
+        {
+          "appID": "978985808446424",
+          "clientToken": "99d132559f12999465cbb5e832ebb139",
+          "displayName": "WeName",
+          "scheme": "fb978985808446424",
+          "advertiserIDCollectionEnabled": false,
+          "autoLogAppEventsEnabled": false,
+          "isAutoInitEnabled": true,
+          "iosUserTrackingPermission": false
         }
       ]
     ],

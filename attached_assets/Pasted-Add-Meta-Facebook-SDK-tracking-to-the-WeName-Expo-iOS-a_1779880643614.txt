@@ -1,0 +1,98 @@
+Add Meta/Facebook SDK tracking to the WeName Expo iOS app so Meta Ads can receive app install/app activation signals.
+
+Context:
+WeName is already live in the Apple App Store. I am setting up Meta App Promotion campaigns, but Meta is warning that conversion data is missing or partial. The goal is to add the minimum correct Meta SDK setup needed for iOS app install tracking and basic app events.
+
+Important constraints:
+
+* Do not add Facebook Login.
+* Do not change the existing UI, onboarding, navigation, Supabase auth, RevenueCat setup, magic link/deep link handling, or premium gating.
+* Do not alter existing app behavior except for initializing Meta SDK tracking and requesting ATT permission.
+* Keep the implementation safe and non-blocking if Meta SDK initialization fails.
+* Avoid adding unnecessary tracking libraries or MMPs.
+* Do not use the Meta App Secret anywhere in the mobile app.
+
+Meta app values:
+
+* Facebook App ID: `978985808446424`
+* Facebook Client Token: `99d132559f12999465cbb5e832ebb139`
+* Facebook Display Name: `WeName`
+* Facebook URL Scheme: `fb978985808446424`
+
+Tasks:
+
+1. Install the required packages:
+
+   * `react-native-fbsdk-next`
+   * `expo-tracking-transparency`
+
+2. Configure the Expo app config correctly for iOS.
+   Update `app.json`, `app.config.js`, or `app.config.ts` depending on the project structure.
+
+   Ensure the iOS configuration includes:
+
+   * `FacebookAppID`
+   * `FacebookClientToken`
+   * `FacebookDisplayName`
+   * URL scheme: `fb978985808446424`
+   * Any required `LSApplicationQueriesSchemes` values if needed by `react-native-fbsdk-next`
+
+3. Add the `react-native-fbsdk-next` Expo config plugin if this project uses config plugins.
+   Use the package’s recommended Expo setup pattern.
+
+4. Initialize the Meta SDK once at app startup.
+   Use:
+
+   * `Settings.initializeSDK()`
+   * `Settings.setAdvertiserTrackingEnabled(...)` if available
+   * automatic app event logging if supported by the SDK/version
+
+5. Add iOS App Tracking Transparency permission handling using `expo-tracking-transparency`.
+   Requirements:
+
+   * Request ATT only on iOS.
+   * Do not block the app if the user declines.
+   * Do not repeatedly prompt on every screen render.
+   * Request permission at a reasonable moment after app startup, not before the app is ready.
+   * If permission is granted, set advertiser tracking enabled.
+   * If permission is denied/restricted/unavailable, continue gracefully.
+
+6. Log a basic app open/activation event.
+   Use `AppEventsLogger` to log a simple activation/open event after SDK initialization.
+   Do not spam events on every render. Make sure it runs once per app launch/session.
+
+7. Add a small helper/module if appropriate, for example:
+
+   * `lib/metaTracking.ts`
+     or similar.
+     The helper should encapsulate:
+   * SDK initialization
+   * ATT permission request
+   * advertiser tracking setting
+   * app activation/open event logging
+
+8. Make the implementation TypeScript-safe.
+
+   * Handle missing methods defensively if SDK typings differ.
+   * Avoid crashing on Android/web if the app is multi-platform.
+   * Use platform guards where needed.
+
+9. Verify the project builds.
+   Run the relevant checks available in this Replit project, such as:
+
+   * TypeScript check
+   * lint, if configured
+   * Expo config validation, if available
+
+10. After implementing, provide a concise summary of:
+
+* Files changed
+* Packages installed
+* Where the Meta values were added
+* Where SDK initialization happens
+* Whether a new iOS build is required
+
+Expected result:
+After a new iOS build is created and installed/opened via TestFlight or App Store, Meta should begin receiving app activation/app event signals for WeName. This should help unblock or improve Meta Ads iOS 14+ app install campaign setup.
+
+Do not submit to Apple automatically. Only make the code/config changes and tell me the next manual steps.

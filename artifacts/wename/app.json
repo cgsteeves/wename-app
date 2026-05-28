@@ -2,7 +2,7 @@
   "expo": {
     "name": "WeName",
     "slug": "wename",
-    "version": "1.2.1",
+    "version": "1.2.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "wename",
@@ -17,7 +17,7 @@
       "supportsTablet": false,
       "usesAppleSignIn": true,
       "bundleIdentifier": "app.wename.mobile",
-      "buildNumber": "20",
+      "buildNumber": "21",
       "associatedDomains": [
         "applinks:wename.app"
       ],
@@ -28,7 +28,7 @@
     },
     "android": {
       "package": "wename.app",
-      "versionCode": 20,
+      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#f9f1de"
@@ -53,6 +53,7 @@
           "cameraPermission": false
         }
       ],
+      "./plugins/withFBSDKCoreOnly",
       "expo-tracking-transparency",
       [
         "react-native-fbsdk-next",

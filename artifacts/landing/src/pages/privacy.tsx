@@ -97,7 +97,7 @@ export default function Privacy() {
             <h1 className="text-4xl md:text-5xl font-bold mb-4 text-[#42342c]">
               Privacy Policy
             </h1>
-            <p className="text-base text-[#897a72]">Last updated April 15, 2026</p>
+            <p className="text-base text-[#897a72]">Last updated May 27, 2026</p>
           </div>
         </FadeIn>
 
@@ -185,9 +185,31 @@ export default function Privacy() {
               <ExternalLink label="Google Privacy Policy" url="https://policies.google.com/privacy" />
               <ExternalLink label="Apple Privacy Policy" url="https://www.apple.com/legal/privacy" />
 
+              <SubHeading>Meta (Facebook) SDK — Ad Campaign Measurement</SubHeading>
               <P>
-                We do not sell, rent, or share your personal information with third parties for
-                advertising or marketing purposes.
+                WeName uses the Meta SDK (react-native-fbsdk-next) on iOS to measure the
+                performance of our app install advertising campaigns. This SDK does not collect
+                your name, email address, swipe history, partner data, or any other content you
+                create in the app.
+              </P>
+              <P>What the Meta SDK transmits to Meta's servers:</P>
+              <Bullet>A standard "app open" event each time you launch the app, used solely to attribute installs to ad campaigns</Bullet>
+              <Bullet>Basic device context automatically attached to every event: app version, operating system version, device locale, and timezone</Bullet>
+              <Bullet>A privacy-preserving SKAdNetwork attribution token, which Apple generates and manages on-device without exposing your identity</Bullet>
+              <P>
+                The Meta SDK does <strong>not</strong> collect your Advertising Identifier (IDFA)
+                — we have disabled IDFA collection in our configuration. On iOS, Apple will ask
+                your permission to track you before any cross-app tracking can occur. If you
+                decline, the SDK still sends the anonymous app open event but does not associate
+                it with you personally across other apps or websites. You can change this
+                permission at any time in your iPhone's Settings → Privacy & Security → Tracking.
+              </P>
+              <ExternalLink label="Meta Privacy Policy" url="https://www.facebook.com/privacy/policy/" />
+
+              <P>
+                We do not sell or rent your personal information. The data shared with Meta is
+                limited to anonymous campaign measurement signals and does not include any
+                personally identifying content from your WeName account.
               </P>
             </Section>
 
@@ -266,8 +288,9 @@ export default function Privacy() {
             <Section title="9. Cookies and Local Storage">
               <P>
                 WeName uses browser local storage to remember your session, onboarding status, and
-                user ID between visits. We do not use advertising cookies, tracking pixels, or any
-                third-party analytics services.
+                user ID between visits. We do not use advertising cookies or tracking pixels on this
+                website. The WeName iOS app uses the Meta SDK for app install measurement as
+                described in Section 4 above.
               </P>
             </Section>
 

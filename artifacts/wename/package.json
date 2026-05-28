@@ -69,7 +69,6 @@
     "expo-print": "^15.0.8",
     "expo-sharing": "^14.0.8",
     "expo-tracking-transparency": "^56.0.5",
-    "react-native-fbsdk-next": "^13.4.3",
     "react-native-purchases": "9.7.2",
     "react-native-url-polyfill": "^3.0.0"
   }

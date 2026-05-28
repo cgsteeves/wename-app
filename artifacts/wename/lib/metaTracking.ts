@@ -1,36 +1,35 @@
 import { Platform } from "react-native";
-import { AppEventsLogger, Settings } from "react-native-fbsdk-next";
 
 let initialized = false;
 
 /**
- * Initialize Meta/Facebook SDK and request ATT permission on iOS.
- * Safe to call on all platforms — no-ops on web/Android gracefully.
- * Must be called after the app UI is ready (post-splash) so the ATT
- * dialog appears at a sensible moment and is not blocked by the OS.
+ * Request iOS App Tracking Transparency permission.
+ *
+ * The react-native-fbsdk-next SDK has been removed — its podspec requires
+ * FBSDKCoreKit ~> 18.0 which does not exist in the CocoaPods registry
+ * (latest available is v11.x), making it impossible to build in Expo
+ * managed workflow.
+ *
+ * iOS app install attribution for Meta Ads is handled by Apple's
+ * SKAdNetwork framework automatically. When a user installs the app after
+ * clicking a Meta ad, Apple sends a privacy-preserving postback to Meta.
+ * This requires no SDK code — only the SKAdNetworkItems entries in
+ * Info.plist (see app.json ios.infoPlist.SKAdNetworkItems).
+ *
+ * Granting ATT improves the quality and win rate of those postbacks.
  */
 export async function initMetaTracking(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
-  if (Platform.OS === "web") return;
+  if (Platform.OS !== "ios") return;
 
   try {
-    Settings.initializeSDK();
-
-    if (Platform.OS === "ios") {
-      const { requestTrackingPermissionsAsync } = await import(
-        "expo-tracking-transparency"
-      );
-      const { status } = await requestTrackingPermissionsAsync();
-      const granted = status === "granted";
-      if (typeof Settings.setAdvertiserTrackingEnabled === "function") {
-        Settings.setAdvertiserTrackingEnabled(granted);
-      }
-    }
-
-    AppEventsLogger.logEvent("fb_mobile_activate_app");
+    const { requestTrackingPermissionsAsync } = await import(
+      "expo-tracking-transparency"
+    );
+    await requestTrackingPermissionsAsync();
   } catch (err) {
-    console.warn("[MetaTracking] initialization failed silently:", err);
+    console.warn("[MetaTracking] ATT request failed silently:", err);
   }
 }

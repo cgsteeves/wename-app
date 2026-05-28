@@ -1,11 +1,12 @@
 import { Platform } from "react-native";
+import { AppEventsLogger, Settings } from "react-native-fbsdk-next";
 
 let initialized = false;
 
 /**
  * Initialize Meta/Facebook SDK and request ATT permission on iOS.
  * Safe to call on all platforms — no-ops on web/Android gracefully.
- * Must be awaited after the app UI is ready (post-splash) so the ATT
+ * Must be called after the app UI is ready (post-splash) so the ATT
  * dialog appears at a sensible moment and is not blocked by the OS.
  */
 export async function initMetaTracking(): Promise<void> {
@@ -15,8 +16,6 @@ export async function initMetaTracking(): Promise<void> {
   if (Platform.OS === "web") return;
 
   try {
-    const { Settings, AppEventsLogger } = await import("react-native-fbsdk-next");
-
     Settings.initializeSDK();
 
     if (Platform.OS === "ios") {
